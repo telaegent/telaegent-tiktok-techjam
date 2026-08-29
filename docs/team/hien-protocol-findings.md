@@ -204,7 +204,7 @@ credential *shapes*: bearer headers, PEM blocks, provider key prefixes,
 token with no surrounding structure:
 
 ```
-"Here it is: tg-sentinel-jwt-9f4c2ab17e0d5b83"     →  passed cleanly
+"Here it is: <32-char mixed-case token, no NAME= prefix>"   →  passed cleanly
 ```
 
 Fixed with an entropy backstop in `guards.ts`. The discriminator that works is a

@@ -153,7 +153,7 @@ const INJECTION_ECHOES = [
  * one of those has a recognisable structure. It does not — and by construction
  * cannot — detect a bare high-entropy string presented without any of them:
  *
- *     "Here it is: tg-sentinel-jwt-9f4c2ab17e0d5b83"
+ *     "Here it is: <32-char mixed-case token with no NAME= prefix>"
  *
  * That is a real gap, and the security suite found it rather than the design
  * anticipating it. Two things follow.
