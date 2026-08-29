@@ -1,12 +1,9 @@
 node_modules/
 dist/
-.env
-.env.production
 .data/
 .local/
 data/
 workspaces/
-codex-home/
 coverage/
 *.log
 *.tsbuildinfo
@@ -15,3 +12,40 @@ deploy/volcengine/.terraform/
 deploy/volcengine/*.tfstate*
 deploy/volcengine/terraform.tfvars
 my-harness/
+
+# --- secrets ---------------------------------------------------------------
+# Everything .env except the checked-in template.
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+id_rsa
+id_ed25519
+credentials.json
+
+# --- agent tooling ---------------------------------------------------------
+# Assistant instruction and scratch files. Deliberately NOT globs like
+# *codex* / *claude* — those would swallow real source such as
+# apps/server/src/codex-runner.ts and claude-code-runner.ts.
+AGENTS.md
+AGENTS.local.md
+CLAUDE.local.md
+GEMINI.md
+
+# Provider CLI homes and per-machine state
+codex-home/
+.codex/
+.codex-home/
+.claude-home/
+.aider*
+.cursor/
+
+# Personal Claude Code settings (shared .claude/skills/ stays tracked)
+.claude/settings.local.json
+.claude/*.local.json
+.claude/shell-snapshots/
+.claude/todos/
+.claude/statsig/
