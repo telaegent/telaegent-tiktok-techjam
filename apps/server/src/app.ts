@@ -5,8 +5,12 @@ import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
-import { HttpError } from "./errors.js";
+import { HttpError, RunCancelledError } from "./errors.js";
 import type { AgentService } from "./agent-service.js";
+import {
+  RuntimeProviderError,
+  normalizeRuntimeFailure,
+} from "./runtime-errors.js";
 import { registerTelagentRoutes } from "./telagent/routes.js";
 import type { TelagentService } from "./telagent/service.js";
 
@@ -172,12 +176,18 @@ export async function createApp(
   app.setErrorHandler((error, request, reply) => {
     const appError = error instanceof Error ? error : new Error(String(error));
     const validationError = error instanceof z.ZodError;
+    const runtimeError =
+      error instanceof RuntimeProviderError || error instanceof RunCancelledError
+        ? normalizeRuntimeFailure(error)
+        : null;
     const frameworkStatus =
       typeof (error as { statusCode?: unknown }).statusCode === "number"
         ? (error as { statusCode: number }).statusCode
         : null;
     const statusCode =
-      error instanceof HttpError
+      runtimeError
+        ? runtimeError.statusCode
+        : error instanceof HttpError
         ? error.statusCode
         : validationError
           ? 400
@@ -185,10 +195,21 @@ export async function createApp(
             ? frameworkStatus
             : 500;
     if (statusCode >= 500) {
-      request.log.error(appError);
+      request.log.error(
+        {
+          errorName: appError.name,
+          ...(runtimeError ? { runtimeCode: runtimeError.code } : {}),
+        },
+        "Request failed",
+      );
     }
     return reply.code(statusCode).send({
-      error: appError.message,
+      error:
+        runtimeError?.message ??
+        (statusCode >= 500 ? "Internal server error" : appError.message),
+      ...(runtimeError
+        ? { code: runtimeError.code, retryable: runtimeError.retryable }
+        : {}),
       ...(validationError ? { details: error.issues } : {}),
     });
   });

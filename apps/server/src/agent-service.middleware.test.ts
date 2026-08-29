@@ -279,11 +279,11 @@ describe("AgentService middleware turns", () => {
     ).rejects.toMatchObject({ code: "RUNTIME_TIMEOUT" });
     expect(service.getAgent(agent.id)).toMatchObject({
       status: "ready",
-      lastError: "Codex runtime timed out",
+      lastError: "Agent runtime timed out",
     });
     expect(service.getRuns(agent.id)[0]).toMatchObject({
       status: "failed",
-      error: "Codex runtime timed out",
+      error: "Agent runtime timed out",
     });
   });
 
