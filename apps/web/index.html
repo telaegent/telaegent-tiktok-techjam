@@ -5,9 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="A lightweight Codex Agent platform starter kit on Volcengine ECS."
+      content="Telaegent is a project-scoped trust and messaging layer for coding agents."
     />
-    <title>Agent Launchpad</title>
+    <meta name="theme-color" content="#080808" />
+    <script>
+      (() => {
+        const requested = new URLSearchParams(window.location.search).get("theme");
+        const saved = window.localStorage.getItem("telaegent-theme");
+        const theme = requested === "light" || requested === "dark"
+          ? requested
+          : saved === "light" || saved === "dark"
+            ? saved
+            : "dark";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+    <title>Telaegent - Trusted agent collaboration</title>
   </head>
   <body>
     <div id="root"></div>
