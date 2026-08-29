@@ -27,6 +27,8 @@ import { WorkspaceManager } from "./workspace.js";
 const now = () => new Date().toISOString();
 const middlewareProviders = new Set(["codex", "claude"]);
 const middlewarePurposes = new Set([
+  "sender_draft",
+  "recipient_answer",
   "plan_intent",
   "implement",
   "status",
@@ -407,7 +409,12 @@ export class AgentService {
         throw new RunCancelledError();
       }
       await this.runtimeOptions.lifecycle?.onRunStarted?.(lifecycleEvent);
-      const result = await this.runtimeProviders.run(request);
+      const result = await this.runtimeProviders.run(request, (progress) =>
+        this.runtimeOptions.lifecycle?.onRuntimeProgress?.({
+          ...lifecycleEvent,
+          progress,
+        }),
+      );
       const completedAt = now();
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
@@ -420,7 +427,7 @@ export class AgentService {
           agent.status = "ready";
           if (
             request.provider === "codex" &&
-            request.sessionMode === "continue" &&
+            request.sessionMode !== "ephemeral" &&
             result.sessionId
           ) {
             agent.codexThreadId = result.sessionId;
@@ -429,7 +436,7 @@ export class AgentService {
           agent.updatedAt = completedAt;
         }
       });
-      if (request.sessionMode === "continue" && result.sessionId) {
+      if (request.sessionMode !== "ephemeral" && result.sessionId) {
         await this.runtimeOptions.lifecycle?.onSessionUpdated?.({
           ...lifecycleEvent,
           sessionId: result.sessionId,

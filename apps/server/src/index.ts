@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AgentService } from "./agent-service.js";
 import { createApp } from "./app.js";
-import { loadConfig, writeCodexConfig } from "./config.js";
+import { isArkConfigured, loadConfig, writeCodexConfig } from "./config.js";
 import { createRunner } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
@@ -12,7 +12,12 @@ import {
 import { TelagentService } from "./telagent/service.js";
 
 const config = loadConfig();
-await writeCodexConfig(config);
+// Preserve the inherited Starter Kit only when its legacy Ark credentials are
+// deliberately supplied. Canonical Telaegent runtimes keep their own Codex
+// authentication state and must not have CODEX_HOME overwritten at startup.
+if (isArkConfigured(config)) {
+  await writeCodexConfig(config);
+}
 
 const store = new JsonStore(path.join(config.dataDirectory, "launchpad.json"));
 const workspaces = new WorkspaceManager(config.workspaceRoot);

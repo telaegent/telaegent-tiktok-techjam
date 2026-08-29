@@ -12,6 +12,7 @@ import type {
   NormalizedRunResult,
   RuntimeCapabilities,
   RuntimeOutputSchemaResolver,
+  RuntimeProgressSink,
 } from "./runtime-contract.js";
 
 const schemaNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*\.schema\.json$/;
@@ -80,7 +81,10 @@ export class RuntimeProviderRegistry {
     }
   }
 
-  async run(request: MiddlewareRunRequest): Promise<NormalizedRunResult> {
+  async run(
+    request: MiddlewareRunRequest,
+    onProgress?: RuntimeProgressSink,
+  ): Promise<NormalizedRunResult> {
     const runner = this.runners.get(request.provider);
     if (!runner) {
       throw new RuntimeProviderError(
@@ -92,7 +96,7 @@ export class RuntimeProviderRegistry {
     }
     try {
       const schema = await this.schemas.resolve(request.outputSchemaName);
-      return await runner.runStructured(request, schema);
+      return await runner.runStructured(request, schema, onProgress);
     } catch (error) {
       throw safeRuntimeError(error);
     }

@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AgentService } from "./agent-service.js";
 import { loadConfig } from "./config.js";
 import type {
+  AgentServiceRuntimeOptions,
   MiddlewareProviderRunner,
   MiddlewareRunRequest,
   NormalizedRunResult,
+  RuntimeProgressEvent,
 } from "./runtime-contract.js";
 import { RuntimeProviderRegistry } from "./runtime-provider-registry.js";
 import { JsonStore } from "./store.js";
@@ -56,7 +58,10 @@ const middlewareRequest = (
   ...overrides,
 });
 
-async function makeService(runner: MiddlewareProviderRunner) {
+async function makeService(
+  runner: MiddlewareProviderRunner,
+  runtimeOptions: AgentServiceRuntimeOptions = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), "telagent-runtime-test-"));
   temporaryDirectories.push(root);
   const config = loadConfig({
@@ -76,6 +81,7 @@ async function makeService(runner: MiddlewareProviderRunner) {
     new RuntimeProviderRegistry([runner], {
       resolve: async () => ({ type: "object" }),
     }),
+    runtimeOptions,
   );
   await service.initialize();
   return { service, store };
@@ -147,7 +153,7 @@ describe("AgentService middleware turns", () => {
     expect(service.getAgent(agent.id).status).toBe("ready");
   });
 
-  it("updates only a continuing Codex session", async () => {
+  it("updates persistent Codex sessions but not ephemeral sessions", async () => {
     let sessionId = "session-one";
     const runner: MiddlewareProviderRunner = {
       provider: "codex",
@@ -173,7 +179,48 @@ describe("AgentService middleware turns", () => {
     await service.runMiddlewareTurn(
       middlewareRequest(agent.id, agent.workspacePath, { sessionMode: "fresh" }),
     );
-    expect(service.getAgent(agent.id).codexThreadId).toBe("session-one");
+    expect(service.getAgent(agent.id).codexThreadId).toBe("detached-session");
+
+    sessionId = "ephemeral-session";
+    await service.runMiddlewareTurn(
+      middlewareRequest(agent.id, agent.workspacePath, { sessionMode: "ephemeral" }),
+    );
+    expect(service.getAgent(agent.id).codexThreadId).toBe("detached-session");
+  });
+
+  it("forwards provider progress to the private runtime lifecycle", async () => {
+    const progress: RuntimeProgressEvent[] = [];
+    const runner: MiddlewareProviderRunner = {
+      provider: "codex",
+      runStructured: async (_request, _schema, onProgress) => {
+        onProgress?.({ type: "turn_started", provider: "codex" });
+        onProgress?.({ type: "text_delta", provider: "codex", text: "Working" });
+        return {
+          provider: "codex",
+          final: { state: "ready" },
+          changedFiles: [],
+          exitCode: 0,
+          durationMs: 5,
+        };
+      },
+      cancel: async () => false,
+      capability: async () => ({ installed: true, authenticated: true, reason: null }),
+    };
+    const { service } = await makeService(runner, {
+      lifecycle: {
+        onRuntimeProgress: ({ progress: event }) => progress.push(event),
+      },
+    });
+    const agent = await service.createAgent({ name: "Streaming Bob" });
+
+    await service.runMiddlewareTurn(
+      middlewareRequest(agent.id, agent.workspacePath),
+    );
+
+    expect(progress).toEqual([
+      { type: "turn_started", provider: "codex" },
+      { type: "text_delta", provider: "codex", text: "Working" },
+    ]);
   });
 
   it("rejects cross-workspace and writable planning requests before execution", async () => {

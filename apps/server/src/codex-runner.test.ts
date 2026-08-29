@@ -4,6 +4,7 @@ import {
   buildCodexMiddlewareArgs,
   parseCodexEventLine,
 } from "./codex-runner.js";
+import type { RuntimeProgressEvent } from "./runtime-contract.js";
 
 describe("Codex runner protocol", () => {
   it("builds a new-session invocation", () => {
@@ -73,6 +74,49 @@ describe("Codex runner protocol", () => {
     expect(parsed.threadId).toBe("thread-123");
     expect(parsed.messages).toEqual(["Done."]);
     expect(parsed.usage).toEqual({ inputTokens: 10, outputTokens: 4 });
+  });
+
+  it("normalizes live Codex session, activity, text, and completion events", () => {
+    const parsed = {
+      messages: [] as string[],
+      threadId: null as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    const progress: RuntimeProgressEvent[] = [];
+    const emit = (event: RuntimeProgressEvent) => progress.push(event);
+
+    for (const event of [
+      { type: "thread.started", thread_id: "thread-123" },
+      { type: "turn.started" },
+      { type: "item.started", item: { type: "command_execution" } },
+      { type: "item.completed", item: { type: "command_execution" } },
+      { type: "item.completed", item: { type: "agent_message", text: "Done." } },
+      { type: "turn.completed", usage: { input_tokens: 10, output_tokens: 4 } },
+    ]) {
+      parseCodexEventLine(JSON.stringify(event), parsed, emit);
+    }
+
+    expect(progress).toEqual([
+      { type: "session_started", provider: "codex", sessionId: "thread-123" },
+      { type: "turn_started", provider: "codex" },
+      { type: "activity_started", provider: "codex", activity: "command" },
+      { type: "activity_completed", provider: "codex", activity: "command" },
+      { type: "text_delta", provider: "codex", text: "Done." },
+      { type: "turn_completed", provider: "codex" },
+    ]);
+  });
+
+  it("rejects non-JSON stdout in JSONL mode", () => {
+    const parsed = {
+      messages: [] as string[],
+      threadId: null as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    expect(() => parseCodexEventLine("not-json", parsed)).toThrow(
+      "invalid event stream",
+    );
   });
 
   it("builds a structured read-only middleware invocation", () => {
