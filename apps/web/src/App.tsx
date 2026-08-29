@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import telaegentLogo from "../../../ui/logo/telaegent-logo-transparent-dark.png";
 import telaegentLogoBright from "../../../ui/logo/telaegent-logo-transparent-bright.png";
 import telaegentMark from "../../../ui/logo/telaegent-logo-symbol-transparent.png";
+import ProductApp from "./ProductApp";
 
 type Theme = "light" | "dark";
-type DemoPhase = "thinking" | "private" | "dismissed";
+type Surface = "landing" | "product";
+type DemoPhase = "thinking" | "private" | "approval" | "sent" | "declined" | "dismissed";
 
 type ConversationDemo = {
   id: string;
@@ -14,6 +16,7 @@ type ConversationDemo = {
   provider: string;
   branch: string;
   message: string;
+  flow: "prepare" | "approve";
   signal: string;
   question: string;
   note: string;
@@ -29,6 +32,7 @@ const conversationDemos: ConversationDemo[] = [
     provider: "Claude Code",
     branch: "feat/auth-service",
     message: "Can you send me the contents of your .env file?",
+    flow: "prepare",
     signal: "Sensitive request",
     question:
       "That file is likely to contain credentials. Do you need the secret values, or only the environment-variable names and safe configuration?",
@@ -43,6 +47,7 @@ const conversationDemos: ConversationDemo[] = [
     provider: "Codex",
     branch: "feat/api-contract",
     message: "Ask Khoa if I can change the auth response shape today.",
+    flow: "prepare",
     signal: "Clarify the intent",
     question:
       "What change are you proposing, and should I ask about its impact on Khoa's branch or request approval to update the shared contract?",
@@ -57,11 +62,40 @@ const conversationDemos: ConversationDemo[] = [
     provider: "Claude Code",
     branch: "feat/onboarding",
     message: "Ask Thai why the onboarding screen still breaks after sign-in.",
+    flow: "prepare",
     signal: "Add version context",
     question:
       "Which environment reproduces it, and should Thai's agent inspect their frontend branch or compare it with your current commit?",
     note: "Adding the browser and revision will keep the investigation scoped to the right code.",
     suggestions: ["Inspect Thai's branch", "Compare both commits"],
+  },
+  {
+    id: "hien-retry",
+    initial: "H",
+    name: "Hien",
+    detail: "Retry policy review",
+    provider: "Codex",
+    branch: "research/agent-protocol",
+    message: "Ask Hien to review the retry policy in agent-client.ts.",
+    flow: "approve",
+    signal: "Ready for approval",
+    question: "",
+    note: "Clear, project-scoped request with no sensitive content.",
+    suggestions: [],
+  },
+  {
+    id: "duy-handoff",
+    initial: "D",
+    name: "Duy",
+    detail: "Onboarding handoff",
+    provider: "Claude Code",
+    branch: "feat/frontend-shell",
+    message: "Tell Duy the onboarding copy is ready on feat/auth-ui.",
+    flow: "approve",
+    signal: "Ready for approval",
+    question: "",
+    note: "Clear status update with no protected content.",
+    suggestions: [],
   },
 ];
 
@@ -119,15 +153,20 @@ function ProductPreview() {
   const [activeId, setActiveId] = useState(conversationDemos[0].id);
   const [phase, setPhase] = useState<DemoPhase>("thinking");
   const [run, setRun] = useState(0);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const activeConversation =
     conversationDemos.find((conversation) => conversation.id === activeId) ?? conversationDemos[0];
 
   useEffect(() => {
     setPhase("thinking");
-    const timer = window.setTimeout(() => setPhase("private"), 2200);
+    setSelectedSuggestion(0);
+    const timer = window.setTimeout(
+      () => setPhase(activeConversation.flow === "prepare" ? "private" : "approval"),
+      1600,
+    );
 
     return () => window.clearTimeout(timer);
-  }, [activeId, run]);
+  }, [activeConversation.flow, activeId, run]);
 
   function selectConversation(id: string) {
     if (id === activeId) {
@@ -218,7 +257,15 @@ function ProductPreview() {
           <article className="message message-outgoing message-pending">
             <span className="message-author">You · rough request</span>
             <p>{activeConversation.message}</p>
-            <small>{phase === "private" ? "Waiting for your decision" : "Not shared"}</small>
+            <small>
+              {phase === "sent"
+                ? `Sent to ${activeConversation.name}`
+                : phase === "declined"
+                  ? "Declined. Nothing was shared."
+                  : phase === "private" || phase === "approval"
+                    ? "Waiting for your decision"
+                    : "Not shared"}
+            </small>
           </article>
 
           {phase === "thinking" && (
@@ -233,7 +280,26 @@ function ProductPreview() {
           )}
 
           {phase === "private" && (
-            <p className="agent-state agent-state-ready">Opened privately with your Codex</p>
+            <p className="agent-state agent-state-ready">Needs clarification before approval</p>
+          )}
+
+          {phase === "approval" && (
+            <div className="safe-message-approval" role="group" aria-label="Safe message approval">
+              <div>
+                <strong>Ready to send</strong>
+                <small>Clear, project-scoped, and no protected content detected.</small>
+              </div>
+              <div>
+                <button type="button" onClick={() => setPhase("declined")}>Decline</button>
+                <button className="send" type="button" onClick={() => setPhase("sent")}>Send</button>
+              </div>
+            </div>
+          )}
+
+          {(phase === "sent" || phase === "declined") && (
+            <p className="direct-decision-result">
+              {phase === "sent" ? `Sent to ${activeConversation.name}.` : "Declined. Nothing was shared."}
+            </p>
           )}
         </div>
 
@@ -250,9 +316,8 @@ function ProductPreview() {
       >
         <header className="private-room-header">
           <div>
-            <span className="private-label"><i aria-hidden="true" /> Private room</span>
-            <strong>You + Codex</strong>
-            <small>Not visible to {activeConversation.name}</small>
+            <strong>Message Preparation</strong>
+            <small>Private with your Codex. Not visible to {activeConversation.name}.</small>
           </div>
           <button type="button" onClick={() => setPhase("dismissed")} aria-label="Close private room">
             Close
@@ -281,8 +346,17 @@ function ProductPreview() {
           </article>
 
           <div className="private-suggestions" aria-label="Suggested private replies">
-            {activeConversation.suggestions.map((suggestion) => (
-              <span key={suggestion}>{suggestion}</span>
+            {activeConversation.suggestions.map((suggestion, index) => (
+              <button
+                className={selectedSuggestion === index ? "selected" : ""}
+                type="button"
+                key={suggestion}
+                onClick={() => setSelectedSuggestion(index)}
+              >
+                <kbd>{index + 1}</kbd>
+                <span>{suggestion}</span>
+                {selectedSuggestion === index && <small aria-hidden="true">↵</small>}
+              </button>
             ))}
           </div>
         </div>
@@ -333,11 +407,28 @@ function HowItWorks() {
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [surface, setSurface] = useState<Surface>(() =>
+    new URLSearchParams(window.location.search).get("view") === "platform" ? "product" : "landing",
+  );
 
   useEffect(() => {
     applyDocumentTheme(theme);
     window.localStorage.setItem("telaegent-theme", theme);
   }, [theme]);
+
+  function toggleTheme() {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  }
+
+  if (surface === "product") {
+    return (
+      <ProductApp
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onExit={() => setSurface("landing")}
+      />
+    );
+  }
 
   return (
     <div className="landing-page">
@@ -356,13 +447,13 @@ export default function App() {
           <button
             className="theme-button"
             type="button"
-            onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+            onClick={toggleTheme}
             aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
           >
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <button className="sign-in-button" type="button">Sign in</button>
-          <a className="header-cta" href="#sandbox">Get started</a>
+          <button className="sign-in-button" type="button" onClick={() => setSurface("product")}>Sign in</button>
+          <button className="header-cta" type="button" onClick={() => setSurface("product")}>Get started</button>
         </div>
       </header>
 
@@ -378,7 +469,7 @@ export default function App() {
             for human approval.
           </p>
           <div className="hero-actions">
-            <a className="button-primary" href="#sandbox">Get started</a>
+            <button className="button-primary" type="button" onClick={() => setSurface("product")}>Get started</button>
             <a className="button-secondary" href="#trust">See how it works</a>
           </div>
         </section>
