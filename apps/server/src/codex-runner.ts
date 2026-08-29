@@ -19,6 +19,7 @@ import {
   RuntimeProviderError,
   classifyProviderFailure,
 } from "./runtime-errors.js";
+import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import type {
   AgentRunner,
   RunUsage,
@@ -375,8 +376,19 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     let stdout = "";
     let stderr = "";
     let totalBytes = 0;
+    let parseFailure: RuntimeProviderError | null = null;
+
+    const watchdog = new RuntimeWatchdog(
+      this.config.runtimeIdleTimeoutMs,
+      this.config.codexTimeoutMs,
+      () => {
+        active.timedOut = true;
+        this.terminate(active);
+      },
+    );
 
     const consume = (chunk: Buffer, target: "stdout" | "stderr") => {
+      watchdog.activity();
       totalBytes += chunk.byteLength;
       if (totalBytes > this.config.codexMaxOutputBytes) {
         active.outputExceeded = true;
@@ -387,7 +399,15 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         stdout += chunk.toString("utf8");
         const lines = stdout.split(/\r?\n/);
         stdout = lines.pop() ?? "";
-        for (const line of lines) parseCodexEventLine(line, parsed, onProgress);
+        for (const line of lines) {
+          try {
+            parseCodexEventLine(line, parsed, onProgress);
+          } catch (error) {
+            parseFailure = error as RuntimeProviderError;
+            this.terminate(active);
+            return;
+          }
+        }
       } else {
         stderr += chunk.toString("utf8");
         if (stderr.length > 16_384) stderr = stderr.slice(-16_384);
@@ -396,11 +416,6 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
 
     child.stdout?.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
     child.stderr?.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
-    const timeout = setTimeout(() => {
-      active.timedOut = true;
-      this.terminate(active);
-    }, this.config.codexTimeoutMs);
-    timeout.unref();
 
     try {
       let exitCode: number;
@@ -412,7 +427,9 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       } catch (error) {
         throw classifyProviderFailure("codex", error);
       }
-      if (stdout.trim()) parseCodexEventLine(stdout.trim(), parsed, onProgress);
+      if (stdout.trim() && !parseFailure) {
+        parseCodexEventLine(stdout.trim(), parsed, onProgress);
+      }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {
         throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Codex runtime timed out");
@@ -423,6 +440,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
           "Codex output exceeded the configured limit",
         );
       }
+      if (parseFailure) throw parseFailure;
       if (exitCode !== 0) {
         throw classifyProviderFailure(
           "codex",
@@ -444,7 +462,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         durationMs: Date.now() - startedAt,
       };
     } finally {
-      clearTimeout(timeout);
+      watchdog.stop();
       if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
       this.active.delete(request.agentId);
     }

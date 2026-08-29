@@ -12,6 +12,7 @@ import type {
   NormalizedRunResult,
   RuntimeProgressEvent,
 } from "./runtime-contract.js";
+import { RuntimeProviderError } from "./runtime-errors.js";
 import { RuntimeProviderRegistry } from "./runtime-provider-registry.js";
 import { JsonStore } from "./store.js";
 import type { AgentRunner, RunnerRequest, RunnerResult } from "./types.js";
@@ -256,6 +257,73 @@ describe("AgentService middleware turns", () => {
       error: "Run cancelled",
     });
     await expect(service.cancelMiddlewareTurn(agent.id)).resolves.toBe(false);
+  });
+
+  it("returns the Agent to ready after a provider timeout", async () => {
+    const runner: MiddlewareProviderRunner = {
+      provider: "codex",
+      runStructured: async () => {
+        throw new RuntimeProviderError(
+          "RUNTIME_TIMEOUT",
+          "Codex runtime timed out",
+        );
+      },
+      cancel: async () => false,
+      capability: async () => ({ installed: true, authenticated: true, reason: null }),
+    };
+    const { service } = await makeService(runner);
+    const agent = await service.createAgent({ name: "Timeout Bob" });
+
+    await expect(
+      service.runMiddlewareTurn(middlewareRequest(agent.id, agent.workspacePath)),
+    ).rejects.toMatchObject({ code: "RUNTIME_TIMEOUT" });
+    expect(service.getAgent(agent.id)).toMatchObject({
+      status: "ready",
+      lastError: "Codex runtime timed out",
+    });
+    expect(service.getRuns(agent.id)[0]).toMatchObject({
+      status: "failed",
+      error: "Codex runtime timed out",
+    });
+  });
+
+  it("clears a crashed execution so the next turn can succeed", async () => {
+    let attempts = 0;
+    const runner: MiddlewareProviderRunner = {
+      provider: "codex",
+      runStructured: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("spawn EPIPE C:\\private\\provider-state");
+        }
+        return {
+          provider: "codex",
+          final: { state: "ready" },
+          changedFiles: [],
+          exitCode: 0,
+          durationMs: 5,
+        };
+      },
+      cancel: async () => false,
+      capability: async () => ({ installed: true, authenticated: true, reason: null }),
+    };
+    const { service, store } = await makeService(runner);
+    const agent = await service.createAgent({ name: "Recoverable Bob" });
+
+    await expect(
+      service.runMiddlewareTurn(middlewareRequest(agent.id, agent.workspacePath)),
+    ).rejects.toThrow("Agent runtime failed");
+    expect(service.getAgent(agent.id).status).toBe("error");
+
+    await expect(
+      service.runMiddlewareTurn(
+        middlewareRequest(agent.id, agent.workspacePath, {
+          correlationId: "corr-retry",
+        }),
+      ),
+    ).resolves.toMatchObject({ final: { state: "ready" } });
+    expect(service.getAgent(agent.id).status).toBe("ready");
+    expect(JSON.stringify(store.snapshot())).not.toContain("provider-state");
   });
 
   it("rejects cross-workspace and writable planning requests before execution", async () => {

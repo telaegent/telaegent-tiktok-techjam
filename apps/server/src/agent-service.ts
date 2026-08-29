@@ -16,7 +16,7 @@ import {
   ProviderConnectionService,
   type ProviderConnectionStatus,
 } from "./provider-connection-service.js";
-import { safeRuntimeError } from "./runtime-errors.js";
+import { RuntimeProviderError, safeRuntimeError } from "./runtime-errors.js";
 import { RuntimeProviderRegistry } from "./runtime-provider-registry.js";
 import { createRuntimeProviderRegistry } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
@@ -431,6 +431,8 @@ export class AgentService {
     } catch (error) {
       const completedAt = now();
       const cancelled = error instanceof RunCancelledError;
+      const timedOut =
+        error instanceof RuntimeProviderError && error.code === "RUNTIME_TIMEOUT";
       const message = safeRuntimeError(error).message;
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
@@ -442,7 +444,7 @@ export class AgentService {
         }
         if (agent) {
           if (agent.status !== "stopped") {
-            agent.status = cancelled ? "ready" : "error";
+            agent.status = cancelled || timedOut ? "ready" : "error";
           }
           agent.lastError = cancelled ? null : message;
           agent.updatedAt = completedAt;
@@ -523,6 +525,8 @@ export class AgentService {
     } catch (error) {
       const completedAt = now();
       const cancelled = error instanceof RunCancelledError;
+      const timedOut =
+        error instanceof RuntimeProviderError && error.code === "RUNTIME_TIMEOUT";
       const safeError = safeRuntimeError(error);
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
@@ -534,7 +538,7 @@ export class AgentService {
         }
         if (agent) {
           if (agent.status !== "stopped") {
-            agent.status = cancelled ? "ready" : "error";
+            agent.status = cancelled || timedOut ? "ready" : "error";
           }
           agent.lastError = cancelled ? null : safeError.message;
           agent.updatedAt = completedAt;

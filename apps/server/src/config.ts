@@ -14,10 +14,11 @@ const envSchema = z.object({
   CODEX_SANDBOX_MODE: z
     .enum(["read-only", "workspace-write", "danger-full-access"])
     .default("workspace-write"),
-  CODEX_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(600_000),
+  RUNTIME_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(60_000),
+  CODEX_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(300_000),
   CODEX_MAX_OUTPUT_BYTES: z.coerce.number().int().min(65_536).default(2_097_152),
   CLAUDE_BIN: z.string().default("claude"),
-  CLAUDE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(600_000),
+  CLAUDE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(300_000),
   CLAUDE_MAX_OUTPUT_BYTES: z.coerce.number().int().min(65_536).default(2_097_152),
   CLAUDE_API_KEY: z.string().optional(),
   CLAUDE_BASE_URL: z.string().url().optional(),
@@ -84,6 +85,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     codexBin: env.CODEX_BIN,
     codexApiKey: env.CODEX_API_KEY?.trim() ?? "",
     codexSandboxMode: env.CODEX_SANDBOX_MODE,
+    runtimeIdleTimeoutMs: env.RUNTIME_IDLE_TIMEOUT_MS,
     codexTimeoutMs: env.CODEX_TIMEOUT_MS,
     codexMaxOutputBytes: env.CODEX_MAX_OUTPUT_BYTES,
     claudeBin: env.CLAUDE_BIN,

@@ -15,6 +15,7 @@ import {
   RuntimeProviderError,
   classifyProviderFailure,
 } from "./runtime-errors.js";
+import { RuntimeWatchdog } from "./runtime-watchdog.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -275,7 +276,17 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
     let totalBytes = 0;
     let parseFailure: RuntimeProviderError | null = null;
 
+    const watchdog = new RuntimeWatchdog(
+      this.config.runtimeIdleTimeoutMs,
+      this.config.claudeTimeoutMs,
+      () => {
+        active.timedOut = true;
+        this.terminate(active);
+      },
+    );
+
     const consume = (chunk: Buffer, target: "stdout" | "stderr") => {
+      watchdog.activity();
       totalBytes += chunk.byteLength;
       if (totalBytes > this.config.claudeMaxOutputBytes) {
         active.outputExceeded = true;
@@ -303,11 +314,6 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
 
     child.stdout?.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
     child.stderr?.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
-    const timeout = setTimeout(() => {
-      active.timedOut = true;
-      this.terminate(active);
-    }, this.config.claudeTimeoutMs);
-    timeout.unref();
 
     try {
       let exitCode: number;
@@ -348,7 +354,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
         durationMs: Date.now() - startedAt,
       };
     } finally {
-      clearTimeout(timeout);
+      watchdog.stop();
       if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
       this.active.delete(request.agentId);
     }

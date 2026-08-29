@@ -138,6 +138,32 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     );
   });
 
+  it("distinguishes a safe timeout from an unknown provider failure", async () => {
+    const coordinator = new PrivateRuntimeTurnCoordinator(
+      manager(async () => {
+        throw new RuntimeProviderError(
+          "RUNTIME_TIMEOUT",
+          "private provider timeout detail",
+        );
+      }),
+    );
+    const started = coordinator.start(scope, request);
+    const listener = vi.fn();
+    coordinator.subscribe(started.streamId, scope, listener);
+
+    await expect(started.completion).rejects.toMatchObject({
+      code: "RUNTIME_TIMEOUT",
+    });
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        progress: { type: "turn_timed_out", provider: "codex" },
+      }),
+    );
+    expect(JSON.stringify(listener.mock.calls)).not.toContain(
+      "private provider timeout detail",
+    );
+  });
+
   it("only lets the owner cancel the active provider turn", async () => {
     let rejectTurn!: (reason: unknown) => void;
     const pending = new Promise<NormalizedRunResult>((_resolve, reject) => {

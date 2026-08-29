@@ -5,6 +5,7 @@ import type {
   ProviderSessionManager,
   ProviderSessionScope,
 } from "./provider-session-manager.js";
+import { RuntimeProviderError } from "./runtime-errors.js";
 import {
   RuntimeProgressChannel,
   type RuntimeProgressEnvelope,
@@ -88,10 +89,7 @@ export class PrivateRuntimeTurnCoordinator {
       )
       .catch((error: unknown) => {
         this.progress.publish(streamId, {
-          type:
-            error instanceof RunCancelledError
-              ? "turn_cancelled"
-              : "turn_failed",
+          type: terminalFailureEvent(error),
           provider: scope.provider,
         });
         throw error;
@@ -133,6 +131,19 @@ export class PrivateRuntimeTurnCoordinator {
     if (closed) this.turns.delete(streamId);
     return closed;
   }
+}
+
+function terminalFailureEvent(
+  error: unknown,
+): "turn_cancelled" | "turn_timed_out" | "turn_failed" {
+  if (error instanceof RunCancelledError) return "turn_cancelled";
+  if (
+    error instanceof RuntimeProviderError &&
+    error.code === "RUNTIME_TIMEOUT"
+  ) {
+    return "turn_timed_out";
+  }
+  return "turn_failed";
 }
 
 function scheduleCleanup(cleanup: () => void, delayMs: number): void {
