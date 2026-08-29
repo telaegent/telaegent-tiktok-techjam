@@ -1,8 +1,8 @@
 {
-  "name": "volc-agent-launchpad",
+  "name": "telaegent",
   "version": "1.0.0",
   "private": true,
-  "description": "A middleware-free Agent platform starter kit running Codex CLI locally or on Volcengine ECS.",
+  "description": "Telaegent — project-scoped, human-gated messaging between separately owned coding agents.",
   "type": "module",
   "workspaces": [
     "apps/*"
@@ -11,13 +11,13 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w @launchpad/server\" \"npm run dev -w @launchpad/web\"",
-    "build": "npm run build -w @launchpad/web && npm run build -w @launchpad/server",
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w @telaegent/server\" \"npm run dev -w @telaegent/web\"",
+    "build": "npm run build -w @telaegent/web && npm run build -w @telaegent/landing && npm run build -w @telaegent/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @launchpad/server",
+    "test": "npm run test -w @telaegent/server",
     "check": "npm run typecheck && npm run test && npm run build",
     "poc:v1-legacy": "./legacy/local-container-runtime/start-local-poc.sh",
-    "start": "npm run start -w @launchpad/server"
+    "start": "npm run start -w @telaegent/server"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

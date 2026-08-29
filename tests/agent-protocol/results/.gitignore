@@ -1,0 +1,4 @@
+# Ignore raw evaluation output — it is large, provider-specific and often
+# contains repository content. Summaries belong in docs/, not here.
+*
+!.gitignore
