@@ -75,6 +75,7 @@ export type RuntimeProgressEvent =
       maxRetries: number;
       retryDelayMs: number;
     }
+  | { type: "turn_cancelled"; provider: AgentProvider }
   | { type: "turn_failed"; provider: AgentProvider }
   | { type: "turn_completed"; provider: AgentProvider };
 

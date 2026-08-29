@@ -71,6 +71,7 @@ export class ProviderSessionManager {
     scope: ProviderSessionScope,
     request: ManagedAgentTurnRequest,
     onProgress?: RuntimeProgressSink,
+    onExecutionStarted?: () => void,
   ): Promise<ManagedAgentTurnResult<T>> {
     this.validateScope(scope);
     const key = sessionKey(scope);
@@ -84,6 +85,11 @@ export class ProviderSessionManager {
 
     await previous;
     try {
+      try {
+        onExecutionStarted?.();
+      } catch {
+        // Realtime coordination is best-effort and cannot fail a provider turn.
+      }
       return await this.runExclusive<T>(scope, request, onProgress);
     } finally {
       release();

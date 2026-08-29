@@ -368,6 +368,26 @@ export class AgentService {
     }
   }
 
+  /**
+   * Cancels an active managed provider turn without stopping the Agent.
+   * Authorization belongs at the owner-scoped coordinator/transport boundary;
+   * this runtime primitive accepts only the already-bound Agent ID.
+   */
+  async cancelMiddlewareTurn(agentId: string): Promise<boolean> {
+    this.getAgent(agentId);
+    if (!this.activeExecutions.has(agentId)) return false;
+    this.cancellationRequests.add(agentId);
+    try {
+      const cancelled = await this.runtimeProviders.cancel(agentId);
+      if (!cancelled) return false;
+      const execution = this.activeExecutions.get(agentId);
+      if (execution) await execution;
+      return true;
+    } finally {
+      this.cancellationRequests.delete(agentId);
+    }
+  }
+
   private async executeRun(agentAtStart: Agent, run: AgentRun): Promise<void> {
     await this.store.mutate((database) => {
       const storedRun = database.runs.find((item) => item.id === run.id);

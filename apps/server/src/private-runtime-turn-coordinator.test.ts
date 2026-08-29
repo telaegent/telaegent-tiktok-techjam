@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RunCancelledError } from "./errors.js";
 import type {
   MiddlewareRunRequest,
   NormalizedRunResult,
@@ -135,5 +136,102 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     expect(JSON.stringify(listener.mock.calls)).not.toContain(
       "secret provider detail",
     );
+  });
+
+  it("only lets the owner cancel the active provider turn", async () => {
+    let rejectTurn!: (reason: unknown) => void;
+    const pending = new Promise<NormalizedRunResult>((_resolve, reject) => {
+      rejectTurn = reject;
+    });
+    const run = vi.fn(() => pending);
+    const canceller = {
+      cancelMiddlewareTurn: vi.fn(async () => {
+        rejectTurn(new RunCancelledError());
+        return true;
+      }),
+    };
+    const coordinator = new PrivateRuntimeTurnCoordinator(
+      manager(run),
+      new RuntimeProgressChannel(10),
+      { canceller },
+    );
+    const started = coordinator.start(scope, request);
+    const listener = vi.fn();
+    coordinator.subscribe(started.streamId, scope, listener);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+
+    await expect(
+      coordinator.cancel(started.streamId, { ...scope, userId: "user-b" }),
+    ).resolves.toBe(false);
+    expect(canceller.cancelMiddlewareTurn).not.toHaveBeenCalled();
+
+    await expect(coordinator.cancel(started.streamId, scope)).resolves.toBe(true);
+    await expect(started.completion).rejects.toBeInstanceOf(RunCancelledError);
+    expect(canceller.cancelMiddlewareTurn).toHaveBeenCalledWith(request.agentId);
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        progress: { type: "turn_cancelled", provider: "codex" },
+      }),
+    );
+    await expect(coordinator.cancel(started.streamId, scope)).resolves.toBe(false);
+  });
+
+  it("does not let a queued turn cancel the active turn ahead of it", async () => {
+    let finishFirst!: (value: NormalizedRunResult) => void;
+    const firstPending = new Promise<NormalizedRunResult>((resolve) => {
+      finishFirst = resolve;
+    });
+    const run = vi
+      .fn<ProviderSessionRuntime["run"]>()
+      .mockImplementationOnce(() => firstPending)
+      .mockResolvedValueOnce(result());
+    const canceller = { cancelMiddlewareTurn: vi.fn(async () => true) };
+    const coordinator = new PrivateRuntimeTurnCoordinator(
+      manager(run),
+      new RuntimeProgressChannel(10),
+      { canceller },
+    );
+    const first = coordinator.start(scope, request);
+    const second = coordinator.start(scope, {
+      ...request,
+      correlationId: "correlation-2",
+    });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+
+    await expect(coordinator.cancel(second.streamId, scope)).resolves.toBe(false);
+    expect(canceller.cancelMiddlewareTurn).not.toHaveBeenCalled();
+
+    finishFirst(result());
+    await first.completion;
+    await second.completion;
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains terminal replay briefly, then removes the stream", async () => {
+    let cleanup!: () => void;
+    const scheduleCleanup = vi.fn((callback: () => void) => {
+      cleanup = callback;
+    });
+    const coordinator = new PrivateRuntimeTurnCoordinator(
+      manager(async (_request, onProgress) => {
+        onProgress?.({ type: "turn_completed", provider: "codex" });
+        return result();
+      }),
+      new RuntimeProgressChannel(10),
+      { terminalRetentionMs: 5_000, scheduleCleanup },
+    );
+    const started = coordinator.start(scope, request);
+    await started.completion;
+
+    const lateSubscription = coordinator.subscribe(started.streamId, scope, vi.fn());
+    expect(lateSubscription?.replay).toEqual([
+      expect.objectContaining({
+        progress: { type: "turn_completed", provider: "codex" },
+      }),
+    ]);
+    expect(scheduleCleanup).toHaveBeenCalledWith(expect.any(Function), 5_000);
+
+    cleanup();
+    expect(coordinator.subscribe(started.streamId, scope, vi.fn())).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentService } from "./agent-service.js";
 import { loadConfig } from "./config.js";
+import { RunCancelledError } from "./errors.js";
 import type {
   AgentServiceRuntimeOptions,
   MiddlewareProviderRunner,
@@ -224,6 +225,37 @@ describe("AgentService middleware turns", () => {
       { type: "text_delta", provider: "codex", text: "Working" },
     ]);
     expect(callerProgress).toEqual(lifecycleProgress);
+  });
+
+  it("cancels a middleware turn without stopping the Agent", async () => {
+    let rejectTurn!: (reason: unknown) => void;
+    const pending = new Promise<NormalizedRunResult>((_resolve, reject) => {
+      rejectTurn = reject;
+    });
+    const runner: MiddlewareProviderRunner = {
+      provider: "codex",
+      runStructured: () => pending,
+      cancel: async (agentId) => {
+        rejectTurn(new RunCancelledError());
+        return Boolean(agentId);
+      },
+      capability: async () => ({ installed: true, authenticated: true, reason: null }),
+    };
+    const { service } = await makeService(runner);
+    const agent = await service.createAgent({ name: "Cancelable Bob" });
+    const active = service.runMiddlewareTurn(
+      middlewareRequest(agent.id, agent.workspacePath),
+    );
+    await expect.poll(() => service.getAgent(agent.id).status).toBe("busy");
+
+    await expect(service.cancelMiddlewareTurn(agent.id)).resolves.toBe(true);
+    await expect(active).rejects.toBeInstanceOf(RunCancelledError);
+    expect(service.getAgent(agent.id).status).toBe("ready");
+    expect(service.getRuns(agent.id)[0]).toMatchObject({
+      status: "cancelled",
+      error: "Run cancelled",
+    });
+    await expect(service.cancelMiddlewareTurn(agent.id)).resolves.toBe(false);
   });
 
   it("rejects cross-workspace and writable planning requests before execution", async () => {
