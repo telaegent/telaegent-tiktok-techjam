@@ -1,82 +1,96 @@
-# Architecture
+# Telaegent Architecture
 
-Volc Agent Launchpad is a single-node control plane for hackathon use.
+## Status
+
+This document describes the canonical target architecture from `plan.md`. It is not a claim that the cloud runtime has already been implemented. The inherited Starter Kit and earlier prototypes remain in the tree as legacy scaffold.
+
+## Product topology
 
 ```mermaid
-flowchart LR
-    UI["React Web UI"] --> API["Fastify API"]
-    API --> Service["AgentService"]
-    Service --> Store["JSON store"]
-    Service --> Workspace["Agent workspace"]
-    Service --> Runner{"AgentRunner"}
-    Runner -->|Local POC| Container["Disposable Runtime container"]
-    Runner -->|ECS| Process["Codex child process"]
-    Container --> Ark["Volcengine Ark"]
-    Process --> Ark
+flowchart TB
+    Browser["React/Vite browser product"] --> API["Caddy + Fastify control plane"]
+    API --> DB["Supabase Auth / Postgres / Realtime"]
+    API --> RM["Cloud runtime manager"]
+    RM --> A["User A x Repo X isolated runtime"]
+    RM --> B["User B x Repo X isolated runtime"]
+    A --> AGH["GitHub CLI as User A"]
+    A --> AREPO["User A repository checkout"]
+    A --> AP["Claude Code and/or Codex CLI"]
+    B --> BGH["GitHub CLI as User B"]
+    B --> BREPO["User B repository checkout"]
+    B --> BP["Claude Code and/or Codex CLI"]
 ```
 
-## Components
+Frontend hosting is provisionally Vercel. The control plane is provisionally Azure behind Caddy/HTTPS. Supabase is provisionally in Southeast Asia/Singapore. The exact Azure execution primitive remains a research decision.
 
-### Web UI
+## Isolation boundary
 
-Lists Agents, manages lifecycle actions, submits prompts, and polls asynchronous
-Runs. It never receives the Ark API key.
+The minimum trust unit is user x repository.
 
-### Fastify API
+Each unit requires:
 
-Validates requests, protects remote demos with a shared bearer token, and
-serves the compiled Web UI. The token is not user identity or authorization.
+- separate repository workspace
+- separate process/container boundary
+- no cross-user or sibling-repository mounts
+- backend-selected workspace binding, never a collaborator-provided path
+- owning user's GitHub/provider credentials only
+- bounded CPU, memory, time, output, and cancellation
+- log redaction and safe cleanup/revocation
 
-### AgentService
+A new process is not automatically a new identity. GitHub, Claude, and Codex home/config/session state must be explicitly isolated and persisted only where required.
 
-Coordinates lifecycle state, persistence, workspaces, and Runs. One Agent can
-have only one active Run.
+## Control-plane responsibilities
+
+- Telaegent identity and sessions
+- stable GitHub repository identity and proven access
+- project memberships and collaborator connection state
+- shared conversations and approved messages
+- private-draft metadata/status without cross-user visibility
+- exact outbound approval and idempotent send
+- provider/runtime status
+- safe audit and correlation IDs
+- compact conversation memory for provider rehydration
+
+## Runtime responsibilities
+
+- GitHub CLI authorization and clone/fetch inside owning environment
+- Claude Code/Codex installation and provider connection probe
+- fresh or resumed Telaegent-created provider sessions
+- sender draft and recipient answer turns
+- bounded repository inspection
+- structured candidate output
+- timeout, cancel, reconnect, and session-loss behavior
+
+## Conversation state
 
 ```text
-ready -> busy -> ready
-  |       |
-  v       v
-stopped  error
+private draft: created -> agent working -> clarification/ready/blocked
+ready -> human edit/send/cancel
+send -> atomic approved shared message
+incoming shared message -> recipient private agent -> recipient approval -> shared response
 ```
 
-Interrupted Runs become `cancelled` after a restart.
+Only approved content belongs to the shared conversation. Provider sessions are caches; Supabase-backed Telaegent conversation state is durable memory.
 
-### Storage
+## GitHub access
 
-```text
-data/launchpad.json       Agent, message, and Run metadata
-workspaces/AgentID/       Agent-created files
-workspaces/.deleted/      Archived deleted workspaces
-codex-home/               Codex configuration and sessions
-```
+P0 does not require a GitHub App. The preferred hypothesis is GitHub CLI web/device authorization inside the user's cloud environment, followed by authenticated-user repository API discovery and `gh repo clone`.
 
-`JsonStore` serializes writes and atomically replaces one JSON file. It supports
-one process only.
+Collaborator discovery uses mutual proof: both Telaegent users independently connected the same stable GitHub repository ID. It does not depend on one user having permission to enumerate every repository collaborator.
 
-### Runtime providers
+## Fallback architecture
 
-- `CodexRunner` runs Codex inside the application container for ECS.
-- `ContainerCodexRunner` starts one disposable Docker, Colima, or Podman
-  container for every local turn.
+A local connector may reuse local repositories and CLI auth if cloud authentication/isolation proves infeasible. It is documented only as fallback and is not part of the browser-first judged promise.
 
-Both providers use argv-only process execution, bound output and time, resume
-the stored Codex thread, and escalate termination after a grace period.
+## Unresolved gates
 
-## Deployment profiles
+- exact headless GitHub CLI authorization UX and credential storage
+- supported hosted authentication for Claude Code/Codex
+- Azure VM versus Container Apps/Jobs versus dedicated runtime VM
+- per-user credential layer versus per-user x repository provider home
+- private-draft retention
+- repository refresh/branch policy
+- polling versus SSE versus Supabase Realtime
+- measured latency and cost
 
-| Profile | Control plane | Agent execution |
-| --- | --- | --- |
-| Local POC | Host Node.js | Disposable local container |
-| ECS | Application container | Codex process in the same container |
-| Local development | Host Node.js | Host Codex process |
-
-## Extension seams
-
-| Track | Primary seam | Expected change |
-| --- | --- | --- |
-| Glass Box | `AgentRunner`, `AgentRun` | Emit and display correlated execution events. |
-| Bouncer | API routes, Agent ownership | Add identity and server-side authorization. |
-| Kill Switch | `AgentRunner` | Add threat-specific policy or a stronger sandbox. |
-
-The current container or ECS instance is the POC trust boundary. Ordinary
-containers are not hardened multi-tenant isolation.
+Do not freeze these through code before the owner briefs' experiments are complete.

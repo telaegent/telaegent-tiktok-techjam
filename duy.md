@@ -1,432 +1,909 @@
-# Duy — Request Protocol, Schemas, Permissions, and State Rules
+# Duy — Complete Telaegent Frontend, Conversation UX, Private Agent Room, and Visual Product Design
 
-This file is your self-contained implementation brief. Read `plan.md` and `TELAGENT_PRODUCT_FLOW.md` completely before editing.
+**Status:** Product/UX design brief before implementation  
+**Product:** Telaegent  
+**Primary goal:** Make the entire product understandable in seconds and make the private-agent → human-confirmed → shared-message interaction feel obvious, safe, and memorable.
 
-## 1. Mission
+---
 
-You own the formal contract that makes Telagent predictable.
+# 1. Product you are designing
 
-Your work is coworker workstream **#2**, paired tightly with Hien's workstream **#6**:
+### Architecture note: cloud-only
 
-- exact request/response and tool-call schemas
-- public TypeScript/Zod types
-- state machines and legal transitions
-- deterministic conflict scoring
-- permission classes and authorization decision results
-- version/idempotency/expiry rules
-- agreement activation rules
-- HTTP error mapping
-- protocol/edge-case tests
+The judged product has **no required local connector**. GitHub CLI, repository checkout, Claude Code/Codex CLI, and Telaegent-created provider sessions run in isolated cloud environments.
 
-You define what a request means and whether it is structurally/statefully allowed. Hien executes allowed tools and secures file/context operations.
 
-## 2. Definition of success
+Telaegent lets:
 
-Your work is done when:
+> **my coding agent talk to your coding agent about a repository we both deliberately connected, while each human controls what their side sends.**
 
-- every HTTP body, Agent output, tool call, stored record, and decision has an explicit schema
-- the `TelagentEnvelope` is versioned and stable
-- the server derives permissions; callers/models cannot grant themselves access
-- conflict scoring is deterministic and fully tested
-- proposal approvals are version-pinned and require both owners
-- forbidden actions are distinguishable from approval-required actions
-- stale, duplicate, expired, busy, invalid output, ownership, and exchange-limit cases have exact errors
-- Hien can implement every tool without guessing its arguments or result
-- Thai can render every state without reverse-engineering backend internals
-- `npm run check` passes
+The frontend is not a dashboard for infrastructure.
 
-## 3. Files you own
+It should feel like a modern messaging product with powerful coding agents underneath it.
+
+The canonical flow:
 
 ```text
-apps/server/src/types.ts
-apps/server/src/telagent/types.ts
-apps/server/src/telagent/schemas.ts
-apps/server/src/telagent/constants.ts   # freeze values, then hand implementation ownership to Khoa if needed
-apps/server/src/telagent/conflict-engine.ts
-apps/server/src/telagent/agreement-engine.ts
-apps/server/src/telagent/permission-engine.ts
-apps/server/src/telagent/conflict-engine.test.ts
-apps/server/src/telagent/agreement-engine.test.ts
-apps/server/src/telagent/permission-engine.test.ts
-apps/server/src/telagent/schemas.test.ts
-apps/server/src/telagent/output-schemas/*.json
+Landing
+  ↓
+Sign in
+  ↓
+Connect GitHub
+  ↓
+Connect Claude Code / Codex
+  ↓
+Choose repository
+  ↓
+See project collaborators
+  ↓
+Request connection
+  ↓
+Recipient accepts
+  ↓
+Open shared project chat
+  ↓
+Type rough request
+  ↓
+Private side-chat with own agent
+  ↓
+Agent clarifies / prepares message
+  ↓
+Send / Edit / No
+  ↓
+Shared message
+  ↓
+Recipient's private agent investigates
+  ↓
+Recipient Send / Edit / No
+  ↓
+Shared response
 ```
 
-You may prepare shared DTO definitions for `apps/web/src/types.ts`, but Thai owns the actual frontend file. Give Thai a generated/copied contract or explicit patch request rather than editing it concurrently.
+That is your product story.
 
-## 4. Day 0 contract freeze
+---
 
-Produce and circulate one concise contract document or committed types containing:
+# 2. Visual direction
 
-1. `AgentProvider`, purposes, session/sandbox modes
-2. `TelagentEnvelope`
-3. all core record interfaces/status unions
-4. all tool names and argument/result schemas
-5. `AgentStep` wrapper and purpose-specific output schemas
-6. permission classes/decision union
-7. conflict result
-8. error codes/status mapping
-9. `ProjectSnapshot` and conversation entry DTOs
-10. `AllowedAction` union
+The landing page should take inspiration from the restraint of `x.ai/bot`:
 
-Do this before implementing engines. Khoa, Phuong, Hien, and Thai depend on it.
+- very clean
+- premium
+- dark or near-dark
+- large simple typography
+- minimal navbar
+- one central product statement
+- one obvious CTA
+- product preview below
+- subtle animation only if time permits
 
-## 5. Telagent envelope
+Do **not** copy xAI branding, wording, logo, or exact layouts.
 
-Implement a strict schema for:
+Telaegent should feel like its own product.
 
-```ts
-interface TelagentEnvelope<TPayload> {
-  schemaVersion: "telagent.v1";
-  requestId: string;
-  correlationId: string;
-  idempotencyKey: string;
-  projectId: string;
-  conversationId: string;
-  intentId?: string;
-  sender: { ownerId: string; agentId: string; provider: AgentProvider };
-  recipient?: { ownerId: string; agentId: string };
-  operation: TelagentToolName;
-  payload: TPayload;
-  delivery: {
-    mode: "async";
-    exchangeNumber: number;
-    createdAt: string;
-    expiresAt: string;
-    replyToRequestId?: string;
-  };
-  evidence: {
-    branch: string;
-    baseCommit: string;
-    sourceRefs?: SourceRef[];
-  };
-}
-```
-
-Validation rules:
-
-- IDs are bounded non-empty strings or project-style safe IDs.
-- timestamps are ISO UTC and expiry is after creation.
-- exchange number is 1–3.
-- paths are relative bounded strings; Hien performs filesystem validation.
-- arrays have small explicit maximums.
-- reject unknown keys on security-sensitive inputs where feasible.
-- recipient is required for cross-Agent status/context operations.
-- operation and payload are a discriminated union.
-- caller-provided permission class is not accepted.
-
-## 6. Agent output schemas
-
-Every provider operation must end in a strict JSON object. Common fields:
-
-```ts
-interface AgentStep<TAction> {
-  publicSummary: string;
-  nextAction: TAction | null;
-  taskState: "working" | "blocked" | "completed";
-}
-```
-
-Create purpose-specific schemas:
-
-- `plan-intent.schema.json`
-- `status.schema.json`
-- `resolution.schema.json`
-- `implementation-result.schema.json`
-- `context-request.schema.json`
-- `context-pack.schema.json`
-- `dependency-change.schema.json`
-- `plan-revision.schema.json`
-
-Keep schemas provider-neutral. Codex consumes a file; Claude consumes serialized schema JSON.
-
-Bounds:
-
-- public summary ≤ 1,000 characters
-- plan/revision ≤ 12 steps
-- planned/changed/affected files ≤ 20 each
-- interfaces/dependencies ≤ 20 each
-- blockers ≤ 8
-- ContextPack summary/steps/checklist and total size obey master limits
-- one next action only
-
-## 7. Tool argument schemas
-
-Define a discriminated union for:
+Possible hero:
 
 ```text
-relay_publish_intent
-relay_update_progress
-relay_ask_status
-relay_reply
-relay_suggest_resolution
-relay_request_context
-relay_create_context_pack
-relay_report_dependency_change
-relay_propose_replan
-relay_complete_task
-relay_request_human_decision
+Telaegent
+
+Your agent can talk to my agent.
+
+Connect your repo and coding agent.
+Collaborate without manually copy-pasting context.
+
+[ Get started ]
 ```
 
-Important fields:
-
-- intent: task, branch, base commit, planned files, interfaces, dependencies, plan
-- progress: changed files, progress 0–100, blockers, verified timestamp
-- reply: `replyToRequestId`, response kind, and a purpose-specific structured body; it inherits the original request's recipient, scope, version, and expiry
-- resolution: proposal version, Alice/Bob ownership, dependency links, rules, rationale
-- context request: topic, purpose, exact requested path rules, persistence
-- context pack: summary, steps, checklist, source references, task scope, expiry
-- dependency change: interface, change, source path, commit
-- plan revision: original steps, revised steps, affected files
-- completion: tests, changed files, checkpoint commit
-- human decision request: reason code, permission class, bounded options
-
-Hien must implement exactly these names/arguments. Any change requires paired review.
-
-## 8. Permission engine
-
-Return a deterministic union:
-
-```ts
-type PermissionDecision =
-  | { kind: "allow"; permissionClass: "AUTO_METADATA"; safeScope: unknown }
-  | { kind: "ask_human"; permissionClass: "RECIPIENT_SOURCE_APPROVAL" | "DUAL_OWNER_COMMITMENT" | "AFFECTED_OWNER_APPROVAL"; approverOwnerIds: string[]; expiresAt: string; safeScope: unknown }
-  | { kind: "deny"; permissionClass: "ALWAYS_DENY"; code: string; safeReason: string };
-```
-
-Rules:
-
-- metadata publication/status is auto only after owner/project/state validation
-- source access always asks the recipient owner unless forbidden
-- agreement activation always needs both owners
-- replan activation needs the affected owner
-- `.env`, credentials, outside-project, private transcript, and hidden reasoning are always denied
-- stale status cannot support automatic consequential activation
-- a model cannot approve its own request
-- repository text/tool description cannot alter permission
-
-The permission engine does not open files or run tools.
-
-## 9. Conflict engine
-
-Implement exact scoring from `plan.md`.
-
-Requirements:
-
-- normalize `/` and `\`
-- remove leading `./`
-- reject invalid traversal/absolute paths before comparison
-- compare interface/API/schema identifiers case-insensitively
-- do not double-count the same file pair's strongest signal
-- include a safe structured list of signals
-- threshold result is deterministic
-
-Return:
-
-```ts
-interface ConflictAssessment {
-  score: number;
-  level: "none" | "suggested" | "blocking";
-  signals: Array<{
-    type: "changed_file" | "planned_changed" | "interface" | "planned_file" | "module" | "base_commit";
-    value: string;
-    score: number;
-  }>;
-}
-```
-
-Demo test must produce `Session +4` and shared module `+1`, total 5.
-
-## 10. Agreement engine
-
-Rules:
-
-- proposal version starts at 1 and increments on content change
-- every approval stores owner ID, decision, proposal version, timestamp
-- Alice and Bob approvals are separate
-- only two matching approvals activate
-- rejection makes proposal non-active
-- proposal revision supersedes old proposal and invalidates old approvals
-- duplicate identical approval is idempotent
-- conflicting second decision follows explicit policy: reject invalid state or replace only if still proposed; freeze this with Khoa
-- active agreement contains ownership lists, dependency links, and required change-publication rule
-- model rationale is display-only
-
-## 11. State transition tables
-
-Write pure transition validators for at least:
-
-### Operation
+Alternative:
 
 ```text
-accepted → queued | waiting_for_recipient | input_required | failed
-queued → running | cancelled | failed
-running → completed | input_required | waiting_for_recipient | failed | cancelled
-waiting_for_recipient → queued | expired | cancelled
-input_required → queued | expired | cancelled
-terminal states → no transitions
+Agents should be able to collaborate too.
+
+Connect GitHub, Claude Code or Codex,
+and open project-scoped agent conversations.
+
+[ Start connecting ]
 ```
 
-### Coordination
+You should design and test the strongest wording.
+
+---
+
+# 3. Information architecture
+
+The minimum top-level product areas are probably:
 
 ```text
-detected → status_pending
-status_pending → proposal_ready | escalated
-proposal_ready → awaiting_approvals
-awaiting_approvals → active | rejected | expired
-active → completed | escalated
-terminal → no transition
+Home / Projects
+Project Chat
+Connections / Requests
+Settings / Connected tools
 ```
 
-### Context
+Avoid traditional admin-dashboard clutter.
+
+A user should spend most of their time in:
 
 ```text
-requested → approved | denied | expired
-approved → generating | expired
-generating → validated | rejected | expired
-validated → delivered | expired
-delivered → expired
-denied/rejected/expired → terminal
+repository → collaborator → conversation
 ```
 
-### Plan revision
+---
+
+# 4. Onboarding
+
+Design the exact first-run experience.
+
+## Step 1 — Telaegent identity
+
+Telaegent identity is handled through the cloud product, provisionally Supabase Auth.
+
+Signing into Telaegent is conceptually separate from authorizing the cloud GitHub CLI to access private repositories.
+
+## Step 2 — GitHub cloud connection
+
+Current P0 direction is GitHub CLI auth inside the user's cloud environment.
+
+The frontend should support the real observed headless flow, for example:
 
 ```text
-proposed → approved | rejected
-approved → applied
-rejected/applied → terminal
+Connect GitHub
+
+Open GitHub:
+github.com/login/device
+
+Code:
+ABCD-EFGH
+
+[ Open GitHub ]
+
+Waiting for authorization…
 ```
 
-## 12. Error contract
+Do not hard-code this exact URL/code UX until Khoa has tested the actual CLI behavior.
 
-Freeze exact safe envelope and mapping:
+After success:
 
-- 400 `INVALID_REQUEST`
-- 403 `POLICY_DENIED`
-- 404 `NOT_FOUND`
-- 409 `INVALID_STATE`
-- 409 `AGENT_BUSY`
-- 410 `EXPIRED`
-- 412 `STALE_VERSION`
-- 422 `INVALID_AGENT_OUTPUT`
-- 422 `OWNERSHIP_VIOLATION`
-- 429 `EXCHANGE_LIMIT`
-- 503 `RUNTIME_UNAVAILABLE`
+```text
+GitHub
+✓ Connected as @phuong
+[ Choose repositories ]
+```
 
-Every error includes correlation ID and audit event ID when created. No raw stack/provider stderr.
+The repo picker must include repos accessible through ownership, collaboration, or organization membership.
 
-## 13. Edge-case tests you own
+## Step 3 — Coding agent
 
-- malformed/unknown envelope version
-- operation/payload mismatch
-- missing recipient for cross-Agent request
-- expiry before creation
-- exchange number 0 or 4
-- oversized arrays/strings
-- duplicate idempotency semantics contract
-- invalid state transition
-- stale version approval
-- one approval insufficient
-- rejection never activates
-- revised proposal clears approvals
-- unrelated intents do not conflict
-- LLM-supplied explanation cannot modify score
-- path normalization comparison works across separators
-- permission class cannot be supplied/overridden by caller
-- stale status leads to human handling
-- forbidden request returns deny, not ask-human
+```text
+Connect your coding agent
 
-## 14. Work with Hien
+Claude Code
+[ Connect ]
 
-For every logical tool:
+Codex
+[ Connect ]
+```
 
-1. You define Zod input/result and permission class.
-2. Hien implements executor/security behavior.
-3. You add invalid-input/state tests.
-4. Hien adds execution/security tests.
-5. Pair-review both before merge.
+Possible states:
 
-Critical shared topics:
+```text
+Not connected
+Connecting…
+Connected
+Reconnect required
+Unavailable
+```
 
-- exact path-rule grammar
-- ContextPack source reference schema
-- denial reason codes
-- dependency-change/replan fields
-- completion evidence
-- redaction-safe fields
+If both are connected:
 
-## 15. Handoffs
+```text
+Default agent
+(•) Claude Code
+( ) Codex
+```
 
-To Phuong:
+Or let selection happen per project.
 
-- provider-neutral output schemas and size bounds
-- shared provider/purpose/session types
+## Step 4 — Ready
 
-To Khoa:
+```text
+You're ready.
 
-- record types, transition functions, errors, permission decisions
-- valid fixtures for all service stages
+Choose a repository to start collaborating.
+[ Continue ]
+```
 
-To Thai:
+Do not turn onboarding into a 12-step settings wizard.
 
-- snapshot/conversation/allowed-action discriminated unions
-- sample payload for every card
-- status/error labels
+---
 
-To Hien:
+# 5. Project/repository picker
 
-- exact tool contract and permission decision API
+After onboarding:
 
-## 16. Daily deliverables
+```text
+Your projects
 
-### Day 0
+┌────────────────────────────┐
+│ telaegent/backend          │
+│ 4 Telaegent collaborators │
+│ Claude Code               │
+└────────────────────────────┘
 
-- frozen protocol/type package circulated
-- sample full envelope and error response
-- tool/permission matrix
+┌────────────────────────────┐
+│ DueLook                    │
+│ 1 collaborator            │
+│ Codex                     │
+└────────────────────────────┘
+```
 
-### Day 1
+Clicking a repository enters the **project scope**.
 
-- Zod schemas and output schema files
-- conflict/permission/agreement engines and tests
-- snapshot DTO fixtures for Thai
+Make the selected repository visible enough that users cannot accidentally think a conversation is global.
 
-### Day 2
+---
 
-- all approval/version/state rules green
-- request edge cases green
-- paired review of Hien's context tools
+# 6. Collaborator discovery
 
-### Day 3
+Inside a project:
 
-- stale/expiry/exchange/idempotency tests
-- full integration assertions with Khoa
-- no protocol TODOs
-- `npm run check`
+```text
+telaegent/backend
 
-### Day 4
+Collaborators
 
-- documentation/diagram review and demo support only
+Justin                 Connected
+Khoa                   Connected
+Thai                   Request
+Hien                   Request
+```
 
-## 17. Do not do
+For a non-connected person:
 
-- Do not call a provider or access filesystem.
-- Do not let the model choose its permission class.
-- Do not implement full MCP/A2A.
-- Do not add generic JSON blobs where a discriminated schema is possible.
-- Do not use unbounded strings/arrays.
-- Do not change shared contracts after freeze without all consumers present.
-- Do not put chain-of-thought fields in any schema.
-- Do not use the proposal rationale as authorization evidence.
+```text
+[ Request to talk ]
+```
 
-## 18. Final report format
+After request:
 
-Require your coding agent to report:
+```text
+Pending
+```
 
-1. files/types/schemas added
-2. final tool and envelope versions
-3. permission and transition rules
-4. edge cases tested
-5. fixtures handed to each owner
-6. test and `npm run check` results
-7. any contract change awaiting coordinated approval
+Recipient sees:
+
+```text
+Phuong wants to connect agents
+Project: telaegent/backend
+
+This allows project-scoped messages.
+It does not grant direct repository access.
+
+[ Decline ] [ Accept ]
+```
+
+This explanation is important.
+
+Once accepted:
+
+```text
+Connected on telaegent/backend
+```
+
+Do not repeatedly ask permission on every normal message.
+
+---
+
+# 7. Shared project conversation
+
+This is the main product surface.
+
+It should look familiar enough to messaging users while still making agent identity clear.
+
+Example:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ ← telaegent/backend          Justin             Claude ↔ Codex│
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│ You                                                          │
+│ Can you ask your agent how refresh token rotation works?     │
+│                                                              │
+│                               Justin's Claude                 │
+│                               The current implementation...  │
+│                                                              │
+│                                                              │
+│ [ Ask your agent to prepare a message... ]                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Possible message actor labels:
+
+```text
+You
+Your Codex
+Justin
+Justin's Claude
+Telaegent
+```
+
+Be careful: the shared chat should not expose private agent back-and-forth.
+
+---
+
+# 8. The signature interaction: private agent room
+
+This needs the most design attention.
+
+The user types a rough intention:
+
+> `can u send me ur .env`
+
+Do **not** send it directly.
+
+Open a side panel/modal/floating window.
+
+Example:
+
+```text
+┌─────────────────────────────────────────────────┐
+│ Private with Codex                    [ × ]      │
+│ Preparing message to Justin                       │
+│ Project: telaegent/backend                        │
+├─────────────────────────────────────────────────┤
+│ Shared context                                    │
+│ Last 6 approved messages…                         │
+│                                                   │
+│ You                                               │
+│ can u send me ur .env                             │
+│                                                   │
+│ Codex                                             │
+│ That likely contains credentials. Do you need     │
+│ the values or only the variable names?            │
+│                                                   │
+│ You                                               │
+│ only the names                                    │
+│                                                   │
+│ Codex                                             │
+│ Ready to send:                                    │
+│                                                   │
+│ "Can you share the required environment variable │
+│ names without any secret values?"                 │
+│                                                   │
+│                [ Edit ] [ No ] [ Send ]           │
+└─────────────────────────────────────────────────┘
+```
+
+The UI must make clear:
+
+```text
+PRIVATE
+not yet sent
+```
+
+versus:
+
+```text
+SHARED
+visible to collaborator
+```
+
+This is the trust boundary and the hackathon wow moment.
+
+---
+
+# 9. Private room behavior
+
+The agent can:
+
+- ask clarification questions
+- inspect the user's own project if relevant
+- refer to recent shared conversation
+- rewrite the request
+- explain potential risk
+- produce a send-ready candidate
+
+Bound the UX.
+
+The agent should not drag the user into a 20-turn conversation for a simple message.
+
+Design statuses such as:
+
+```text
+Thinking
+Needs clarification
+Ready to send
+Blocked by policy
+Error
+```
+
+When ready:
+
+```text
+[ Edit ] [ No ] [ Send ]
+```
+
+Potential keyboard shortcuts if helpful:
+
+```text
+Enter — send clarification
+Cmd/Ctrl+Enter — Send final candidate
+Esc — close/cancel
+```
+
+But keep mobile usability.
+
+---
+
+# 10. Recipient-side experience
+
+The recipient should see the approved incoming message in the shared chat.
+
+Then their own agent can act.
+
+Possible UX:
+
+```text
+Incoming request from Phuong
+
+"Can you share the required environment variable
+names without secret values?"
+
+[ Ask Claude to handle ]
+```
+
+or automatically open/queue the recipient private room depending on product flow.
+
+Recipient's private room:
+
+```text
+Claude
+I checked this repository.
+
+Safe response:
+DATABASE_URL
+REDIS_URL
+JWT_SECRET
+GOOGLE_CLIENT_ID
+
+No values included.
+
+[ Edit ] [ No ] [ Send ]
+```
+
+Only the final approved response appears in shared chat.
+
+The two sides should feel symmetric.
+
+---
+
+# 11. Secret / sensitive content UX
+
+Telaegent has deterministic hard restrictions for obvious secrets.
+
+Design a clear state.
+
+Example:
+
+```text
+Protected content
+
+Telaegent won't send raw `.env` values.
+
+Your agent can instead share:
+• variable names
+• safe configuration structure
+• documentation
+
+[ Ask agent to prepare safe alternative ]
+```
+
+Do not show raw secret values and then merely warn the user.
+
+For less clearly sensitive source snippets, a warning could say:
+
+```text
+This response includes source code from your connected repository.
+
+[ Review ] [ Send ]
+```
+
+Exact policy comes from Khoa/Hien.
+
+---
+
+# 12. Connection permission UX
+
+Important default:
+
+```text
+connection approval = once per project
+```
+
+not every message.
+
+Make that scope visible.
+
+Connection card:
+
+```text
+Phuong wants to connect with you
+
+Project
+telaegent/backend
+
+What this allows
+✓ project-scoped messages
+✓ their agent can ask your agent questions
+
+What this does not allow
+✕ direct access to your repo
+✕ access to other projects
+✕ messages sent from your side without your approval
+
+[ Decline ] [ Accept ]
+```
+
+That card itself explains the product.
+
+---
+
+# 13. Connected tools/settings
+
+Simple settings:
+
+```text
+Account
+GitHub @phuong
+
+Repositories
+telaegent/backend    Connected
+DueLook              Connected
+secret               Disconnect
+
+Coding agents
+Claude Code          Connected
+Codex                Connected
+
+Default
+Claude Code
+
+Security
+Active project connections
+```
+
+Potential actions:
+
+```text
+Reconnect provider
+Disconnect provider
+Disconnect repository
+Revoke collaborator
+Sign out
+```
+
+Duy should design consequences/warnings, while backend behavior comes from Phuong/Khoa.
+
+---
+
+# 14. Memory UX
+
+Telaegent's shared project chat is durable product memory.
+
+Do not expose provider session IDs.
+
+If a provider session is recreated, the user should ideally not care.
+
+Possible subtle state:
+
+```text
+Claude context restored from Telaegent conversation
+```
+
+Only show if useful.
+
+Do not make users manage "thread IDs."
+
+---
+
+# 15. Message metadata
+
+Decide how much repo state to expose.
+
+Potential compact metadata:
+
+```text
+Justin's Claude
+branch: feat/auth
+commit: 81ad2e
+```
+
+This can be useful when answers depend on repo version.
+
+But too much metadata turns messaging into a debugger.
+
+Design a hierarchy:
+
+- normal chat = clean
+- hover/detail = branch/commit/provider
+- warnings when repo revisions differ significantly
+
+Hien may find which metadata improves agent correctness.
+
+---
+
+# 16. Loading / real-time states
+
+Agent calls are slow compared with normal chat.
+
+Design:
+
+```text
+Preparing with Codex…
+Waiting for Justin…
+Justin's Claude is investigating…
+Response ready for Justin's approval
+Justin approved and sent
+```
+
+Do not pretend agent work is instant.
+
+The user should always know:
+
+- whose side currently has the turn
+- whether something is private
+- whether a human decision is pending
+- whether the collaborator is offline/unavailable
+- whether provider auth needs reconnection
+
+---
+
+# 17. Error states
+
+Design explicit UI for:
+
+- GitHub not connected
+- repository permission revoked
+- collaborator not connected
+- connection pending
+- collaborator revoked access
+- Claude/Codex reconnect required
+- runtime unavailable
+- agent timed out
+- private draft failed
+- send blocked by policy
+- backend disconnected
+- repo unavailable
+- stale repository checkout
+- provider switched
+- no eligible collaborators
+
+Every error should tell the user what they can do next.
+
+---
+
+# 18. Landing-page product demo/preview
+
+Below the hero, visualize the core flow.
+
+Maybe a compact animation:
+
+```text
+YOU + CODEX                   JUSTIN + CLAUDE
+
+"How does auth work?"
+       ↓
+ private draft
+       ↓
+     SEND
+════════════════════ project ════════════════════>
+                                      inspect repo
+                                          ↓
+                                      Justin reviews
+                                          ↓
+<════════════════════ SEND ═══════════════════════
+"Tokens rotate after..."
+```
+
+The preview should communicate the idea without text-heavy architecture diagrams.
+
+---
+
+# 19. Mobile
+
+The private side-room is especially important on mobile.
+
+Potential pattern:
+
+- shared chat full screen
+- tapping composer opens private-agent bottom sheet
+- bottom sheet can expand full screen
+- send-ready candidate pinned above action buttons
+- easy return to shared conversation
+
+Do not rely on hover-only interactions.
+
+---
+
+# 20. Accessibility
+
+At minimum:
+
+- semantic buttons
+- keyboard navigation
+- visible focus
+- labels beyond color
+- high contrast
+- screen-reader labels for private/shared state
+- reduced motion
+- send confirmation accessible without drag gestures
+- long code/file paths wrap or scroll
+
+---
+
+# 21. Wireframes you must produce before coding
+
+Create at least:
+
+1. landing
+2. sign-in/onboarding
+3. provider connection screen
+4. repo picker
+5. collaborator list
+6. outgoing connection request
+7. incoming accept/decline card
+8. empty shared conversation
+9. active shared conversation
+10. private drafting room
+11. clarification turn
+12. ready-to-send state
+13. secret-blocked state
+14. recipient private response room
+15. provider reconnect error
+16. project settings / revoke collaborator
+17. mobile chat + bottom-sheet private room
+
+---
+
+# 22. API contract needs
+
+Give Phuong/Khoa a frontend-oriented contract list.
+
+You likely need data for:
+
+```text
+current user
+connected GitHub account
+provider statuses
+repositories
+project
+collaborators
+connection requests
+conversations
+shared messages
+private draft/session state
+pending human action
+runtime status
+audit/security events
+```
+
+Do not invent backend authorization.
+
+Use server-provided allowed actions/status.
+
+---
+
+# 23. Demo UX
+
+Design the three-minute happy path:
+
+### 0:00–0:20
+
+Landing:
+
+> "Your agent can talk to my agent."
+
+### 0:20–0:40
+
+Show connected GitHub + Claude/Codex and choose project.
+
+### 0:40–1:00
+
+Request Justin connection / show prepared accepted state.
+
+### 1:00–1:40
+
+Phuong types:
+
+> `can u send me ur .env`
+
+Private Codex asks clarification.
+
+Phuong says only variable names.
+
+Press Send.
+
+### 1:40–2:15
+
+Justin's Claude inspects repo privately and prepares safe answer.
+
+Justin presses Send.
+
+### 2:15–2:40
+
+Answer arrives to Phuong.
+
+Show `.env` values were never shared.
+
+### 2:40–3:00
+
+Show project scope + different providers + connection is revocable.
+
+That is probably enough. Do not overstuff the live demo.
+
+---
+
+# 24. Deliverables
+
+Produce:
+
+### A. Figma or equivalent full flow
+
+Not just individual screens.
+
+### B. Design system
+
+- typography
+- spacing
+- dark/light decision
+- accent
+- card hierarchy
+- private/shared states
+- warning/error treatment
+
+### C. Interactive prototype
+
+Especially:
+
+```text
+shared composer
+→ private room
+→ clarification
+→ send candidate
+→ shared chat
+```
+
+### D. API/state requirements memo
+
+For Phuong/Khoa.
+
+### E. Mobile flow
+
+### F. Three-minute click script
+
+---
+
+# 25. Definition of done
+
+You are done when a person who has never heard of Telaegent can look at the product for ten seconds and understand:
+
+> “I choose a repo, connect to a teammate, my agent privately helps me prepare something, I approve it, and their agent can privately investigate their side before they approve a response.”
+
+without someone explaining the backend.
+
+---
+
+# 26. Do not do yet
+
+- Do not build an infrastructure dashboard.
+- Do not expose provider session IDs.
+- Do not show raw agent chain-of-thought.
+- Do not send rough composer text directly to collaborator.
+- Do not ask connection permission on every message.
+- Do not hide which repository the conversation belongs to.
+- Do not make "connected" look like direct filesystem access.
+- Do not copy x.ai/bot branding.
+- Do not add dozens of settings.
+- Do not implement backend policy in React.
+

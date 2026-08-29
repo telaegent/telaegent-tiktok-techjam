@@ -85,8 +85,8 @@ dedicated ECS instance for this POC.
 ### Deploy
 
 ```bash
-git clone https://github.com/your-org/volc-agent-launchpad.git
-cd volc-agent-launchpad
+git clone https://github.com/telaegent/telaegent-tiktok-techjam.git
+cd telaegent-tiktok-techjam
 cp .env.example .env.production
 openssl rand -hex 32
 ```
