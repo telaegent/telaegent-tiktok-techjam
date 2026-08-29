@@ -188,8 +188,9 @@ describe("AgentService middleware turns", () => {
     expect(service.getAgent(agent.id).codexThreadId).toBe("detached-session");
   });
 
-  it("forwards provider progress to the private runtime lifecycle", async () => {
-    const progress: RuntimeProgressEvent[] = [];
+  it("forwards provider progress to lifecycle and the managed-turn caller", async () => {
+    const lifecycleProgress: RuntimeProgressEvent[] = [];
+    const callerProgress: RuntimeProgressEvent[] = [];
     const runner: MiddlewareProviderRunner = {
       provider: "codex",
       runStructured: async (_request, _schema, onProgress) => {
@@ -208,19 +209,21 @@ describe("AgentService middleware turns", () => {
     };
     const { service } = await makeService(runner, {
       lifecycle: {
-        onRuntimeProgress: ({ progress: event }) => progress.push(event),
+        onRuntimeProgress: ({ progress: event }) => lifecycleProgress.push(event),
       },
     });
     const agent = await service.createAgent({ name: "Streaming Bob" });
 
     await service.runMiddlewareTurn(
       middlewareRequest(agent.id, agent.workspacePath),
+      (event) => callerProgress.push(event),
     );
 
-    expect(progress).toEqual([
+    expect(lifecycleProgress).toEqual([
       { type: "turn_started", provider: "codex" },
       { type: "text_delta", provider: "codex", text: "Working" },
     ]);
+    expect(callerProgress).toEqual(lifecycleProgress);
   });
 
   it("rejects cross-workspace and writable planning requests before execution", async () => {

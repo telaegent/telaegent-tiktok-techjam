@@ -312,6 +312,7 @@ export class AgentService {
 
   async runMiddlewareTurn<T = unknown>(
     request: MiddlewareRunRequest,
+    onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult<T>> {
     const agent = this.getAgent(request.agentId);
     await this.validateMiddlewareRequest(request, agent);
@@ -347,7 +348,12 @@ export class AgentService {
       return snapshot;
     });
 
-    const execution = this.executeMiddlewareRun<T>(agentAtStart, run, request);
+    const execution = this.executeMiddlewareRun<T>(
+      agentAtStart,
+      run,
+      request,
+      onProgress,
+    );
     const settled = execution.then(
       () => undefined,
       () => undefined,
@@ -429,6 +435,7 @@ export class AgentService {
     agentAtStart: Agent,
     run: AgentRun,
     request: MiddlewareRunRequest,
+    onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult<T>> {
     const lifecycleEvent: MiddlewareLifecycleEvent = {
       agentId: request.agentId,
@@ -449,12 +456,21 @@ export class AgentService {
         throw new RunCancelledError();
       }
       await this.runtimeOptions.lifecycle?.onRunStarted?.(lifecycleEvent);
-      const result = await this.runtimeProviders.run(request, (progress) =>
-        this.runtimeOptions.lifecycle?.onRuntimeProgress?.({
-          ...lifecycleEvent,
-          progress,
-        }),
-      );
+      const result = await this.runtimeProviders.run(request, (progress) => {
+        try {
+          this.runtimeOptions.lifecycle?.onRuntimeProgress?.({
+            ...lifecycleEvent,
+            progress,
+          });
+        } catch {
+          // Realtime observers are best-effort and cannot fail the CLI turn.
+        }
+        try {
+          onProgress?.(progress);
+        } catch {
+          // A disconnected caller cannot fail or cancel the CLI turn.
+        }
+      });
       const completedAt = now();
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
