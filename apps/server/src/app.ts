@@ -7,6 +7,8 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { HttpError } from "./errors.js";
 import type { AgentService } from "./agent-service.js";
+import { registerTelagentRoutes } from "./telagent/routes.js";
+import type { TelagentService } from "./telagent/service.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
@@ -26,6 +28,7 @@ const messageBody = z.object({
 export async function createApp(
   config: AppConfig,
   service: AgentService,
+  telagentService?: TelagentService,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -127,6 +130,10 @@ export async function createApp(
     const { id } = runIdParams.parse(request.params);
     return { run: service.getRun(id) };
   });
+
+  if (telagentService) {
+    registerTelagentRoutes(app, telagentService);
+  }
 
   if (config.nodeEnv === "production") {
     const webRoot = fileURLToPath(new URL("../../web/dist", import.meta.url));

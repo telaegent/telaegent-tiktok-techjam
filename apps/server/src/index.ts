@@ -5,6 +5,11 @@ import { loadConfig, writeCodexConfig } from "./config.js";
 import { createRunner } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
+import {
+  RuntimeUnavailableConflictEvaluator,
+  RuntimeUnavailableConversationOrchestrator,
+} from "./telagent/conversation-orchestrator.js";
+import { TelagentService } from "./telagent/service.js";
 
 const config = loadConfig();
 await writeCodexConfig(config);
@@ -14,8 +19,14 @@ const workspaces = new WorkspaceManager(config.workspaceRoot);
 const runner = createRunner(config);
 const service = new AgentService(config, store, workspaces, runner);
 await service.initialize();
+const telagentService = new TelagentService(
+  store,
+  new RuntimeUnavailableConversationOrchestrator(),
+  new RuntimeUnavailableConflictEvaluator(),
+);
+await telagentService.reconcileOnStartup();
 
-const app = await createApp(config, service);
+const app = await createApp(config, service, telagentService);
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");

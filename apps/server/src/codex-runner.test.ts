@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildCodexArgs, parseCodexEventLine } from "./codex-runner.js";
+import {
+  buildCodexArgs,
+  buildCodexMiddlewareArgs,
+  parseCodexEventLine,
+} from "./codex-runner.js";
 
 describe("Codex runner protocol", () => {
   it("builds a new-session invocation", () => {
@@ -69,5 +73,32 @@ describe("Codex runner protocol", () => {
     expect(parsed.threadId).toBe("thread-123");
     expect(parsed.messages).toEqual(["Done."]);
     expect(parsed.usage).toEqual({ inputTokens: 10, outputTokens: 4 });
+  });
+
+  it("builds a structured read-only middleware invocation", () => {
+    const args = buildCodexMiddlewareArgs(
+      {
+        agentId: "agent",
+        provider: "codex",
+        purpose: "status",
+        workspacePath: "/tmp/workspace",
+        runtimePrompt: "Return status",
+        persistedSummary: "Status",
+        sessionId: "thread-123",
+        sessionMode: "continue",
+        sandboxMode: "read-only",
+        networkMode: "default",
+        outputSchemaName: "status.schema.json",
+        correlationId: "corr-1",
+        maxTurns: 2,
+      },
+      "/tmp/status.schema.json",
+    );
+    expect(args).toContain("read-only");
+    expect(args).toContain("--output-schema");
+    expect(args).toContain("/tmp/status.schema.json");
+    expect(args.slice(-3)).toEqual(["resume", "thread-123", "-"]);
+    expect(args).not.toContain("Return status");
+    expect(args).not.toContain("danger-full-access");
   });
 });

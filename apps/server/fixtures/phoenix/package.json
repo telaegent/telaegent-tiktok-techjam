@@ -1,0 +1,12 @@
+{
+  "name": "phoenix-web-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Seeded demo repository for the Telagent Phoenix project.",
+  "scripts": {
+    "test": "telagent runs these with the host Vitest; the fixture has no dependencies"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

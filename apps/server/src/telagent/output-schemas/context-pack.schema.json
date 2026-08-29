@@ -1,0 +1,410 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "publicSummary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "nextAction": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "const": "relay_create_context_pack"
+                },
+                "arguments": {
+                  "type": "object",
+                  "properties": {
+                    "contextRequestId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                    },
+                    "topic": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "summary": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "implementationSteps": {
+                      "maxItems": 12,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      }
+                    },
+                    "validationChecklist": {
+                      "maxItems": 12,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      }
+                    },
+                    "sources": {
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512
+                          },
+                          "commit": {
+                            "type": "string",
+                            "pattern": "^[a-fA-F0-9]{7,64}$"
+                          },
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "commit",
+                          "sha256"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "taskScope": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    }
+                  },
+                  "required": [
+                    "contextRequestId",
+                    "topic",
+                    "summary",
+                    "implementationSteps",
+                    "validationChecklist",
+                    "sources",
+                    "taskScope",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "name",
+                "arguments"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "const": "relay_reply"
+                },
+                "arguments": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "replyToRequestId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                        },
+                        "responseKind": {
+                          "type": "string",
+                          "const": "status"
+                        },
+                        "body": {
+                          "type": "object",
+                          "properties": {
+                            "task": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "planning",
+                                "in_progress",
+                                "blocked",
+                                "completed",
+                                "failed"
+                              ]
+                            },
+                            "branch": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255,
+                              "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))(?!.*\\.\\.\\/)[A-Za-z0-9._\\/-]+$"
+                            },
+                            "changedFiles": {
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 512
+                              }
+                            },
+                            "interfaces": {
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "progress": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            "blockers": {
+                              "maxItems": 8,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1000
+                              }
+                            },
+                            "lastVerifiedAt": {
+                              "type": "string",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                            },
+                            "stale": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "task",
+                            "state",
+                            "branch",
+                            "changedFiles",
+                            "interfaces",
+                            "progress",
+                            "blockers",
+                            "lastVerifiedAt",
+                            "stale"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "replyToRequestId",
+                        "responseKind",
+                        "body"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "replyToRequestId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                        },
+                        "responseKind": {
+                          "type": "string",
+                          "const": "clarification"
+                        },
+                        "body": {
+                          "type": "object",
+                          "properties": {
+                            "summary": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1000
+                            },
+                            "requestedClarification": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1000
+                            }
+                          },
+                          "required": [
+                            "summary"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "replyToRequestId",
+                        "responseKind",
+                        "body"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "replyToRequestId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                        },
+                        "responseKind": {
+                          "type": "string",
+                          "const": "acknowledgement"
+                        },
+                        "body": {
+                          "type": "object",
+                          "properties": {
+                            "acknowledged": {
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "summary": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1000
+                            }
+                          },
+                          "required": [
+                            "acknowledged",
+                            "summary"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "replyToRequestId",
+                        "responseKind",
+                        "body"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "arguments"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "const": "relay_request_human_decision"
+                },
+                "arguments": {
+                  "type": "object",
+                  "properties": {
+                    "reasonCode": {
+                      "type": "string",
+                      "enum": [
+                        "SOURCE_ACCESS_REQUIRED",
+                        "DUAL_COMMITMENT_REQUIRED",
+                        "AFFECTED_PLAN_APPROVAL_REQUIRED",
+                        "STALE_STATUS",
+                        "AMBIGUOUS_RESOLUTION",
+                        "EXCHANGE_LIMIT_REACHED"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "options": {
+                      "minItems": 2,
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "safeDescription": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label",
+                          "safeDescription"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "reasonCode",
+                    "reason",
+                    "options"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "name",
+                "arguments"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "taskState": {
+      "type": "string",
+      "enum": [
+        "working",
+        "blocked",
+        "completed"
+      ]
+    }
+  },
+  "required": [
+    "publicSummary",
+    "nextAction",
+    "taskState"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:telagent:output-schema:context-pack:v1",
+  "title": "Telagent ContextPack Agent Output v1"
+}

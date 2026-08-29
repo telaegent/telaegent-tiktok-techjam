@@ -1,7 +1,18 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import type { AppConfig } from "./config.js";
 import { isArkConfigured } from "./config.js";
 import { HttpError, RunCancelledError } from "./errors.js";
+import type {
+  AgentServiceRuntimeOptions,
+  MiddlewareLifecycleEvent,
+  MiddlewareRunRequest,
+  NormalizedRunResult,
+  RuntimeCapabilities,
+} from "./runtime-contract.js";
+import { safeRuntimeError } from "./runtime-errors.js";
+import { RuntimeProviderRegistry } from "./runtime-provider-registry.js";
+import { createRuntimeProviderRegistry } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
 import type {
   Agent,
@@ -14,17 +25,38 @@ import type {
 import { WorkspaceManager } from "./workspace.js";
 
 const now = () => new Date().toISOString();
+const middlewareProviders = new Set(["codex", "claude"]);
+const middlewarePurposes = new Set([
+  "plan_intent",
+  "implement",
+  "status",
+  "propose_resolution",
+  "create_context_pack",
+  "publish_dependency_change",
+  "revise_plan",
+]);
+const middlewareSessionModes = new Set(["continue", "fresh", "ephemeral"]);
+const middlewareSandboxModes = new Set(["read-only", "workspace-write"]);
+const middlewareNetworkModes = new Set(["none", "default"]);
 
 export class AgentService {
   private readonly activeExecutions = new Map<string, Promise<void>>();
   private readonly cancellationRequests = new Set<string>();
+  private readonly runtimeProviders: RuntimeProviderRegistry;
+  private readonly runtimeOptions: AgentServiceRuntimeOptions;
 
   constructor(
     private readonly config: AppConfig,
     private readonly store: JsonStore,
     private readonly workspaces: WorkspaceManager,
     private readonly runner: AgentRunner,
-  ) {}
+    runtimeProviders?: RuntimeProviderRegistry,
+    runtimeOptions: AgentServiceRuntimeOptions = {},
+  ) {
+    this.runtimeProviders =
+      runtimeProviders ?? createRuntimeProviderRegistry(config);
+    this.runtimeOptions = runtimeOptions;
+  }
 
   async initialize(): Promise<void> {
     await this.store.initialize();
@@ -232,6 +264,62 @@ export class AgentService {
     };
   }
 
+  async runtimeCapabilities(): Promise<RuntimeCapabilities> {
+    return this.runtimeProviders.capabilities();
+  }
+
+  async runMiddlewareTurn<T = unknown>(
+    request: MiddlewareRunRequest,
+  ): Promise<NormalizedRunResult<T>> {
+    const agent = this.getAgent(request.agentId);
+    await this.validateMiddlewareRequest(request, agent);
+    const timestamp = now();
+    const run: AgentRun = {
+      id: randomUUID(),
+      agentId: request.agentId,
+      status: "queued",
+      prompt: request.persistedSummary.trim(),
+      output: null,
+      error: null,
+      usage: null,
+      startedAt: null,
+      completedAt: null,
+      createdAt: timestamp,
+    };
+    const agentAtStart = await this.store.mutate((database) => {
+      const storedAgent = database.agents.find(
+        (item) => item.id === request.agentId,
+      );
+      if (!storedAgent) throw new HttpError(404, "Agent not found");
+      if (storedAgent.status === "stopped") {
+        throw new HttpError(409, "Start the Agent before running middleware");
+      }
+      if (storedAgent.status === "busy") {
+        throw new HttpError(409, "This Agent is already running");
+      }
+      database.runs.push(run);
+      const snapshot = structuredClone(storedAgent);
+      storedAgent.status = "busy";
+      storedAgent.lastError = null;
+      storedAgent.updatedAt = timestamp;
+      return snapshot;
+    });
+
+    const execution = this.executeMiddlewareRun<T>(agentAtStart, run, request);
+    const settled = execution.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.activeExecutions.set(request.agentId, settled);
+    try {
+      return await execution;
+    } finally {
+      if (this.activeExecutions.get(request.agentId) === settled) {
+        this.activeExecutions.delete(request.agentId);
+      }
+    }
+  }
+
   private async executeRun(agentAtStart: Agent, run: AgentRun): Promise<void> {
     await this.store.mutate((database) => {
       const storedRun = database.runs.find((item) => item.id === run.id);
@@ -275,7 +363,7 @@ export class AgentService {
     } catch (error) {
       const completedAt = now();
       const cancelled = error instanceof RunCancelledError;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = safeRuntimeError(error).message;
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
         const agent = database.agents.find((item) => item.id === agentAtStart.id);
@@ -292,6 +380,147 @@ export class AgentService {
           agent.updatedAt = completedAt;
         }
       });
+    }
+  }
+
+  private async executeMiddlewareRun<T>(
+    agentAtStart: Agent,
+    run: AgentRun,
+    request: MiddlewareRunRequest,
+  ): Promise<NormalizedRunResult<T>> {
+    const lifecycleEvent: MiddlewareLifecycleEvent = {
+      agentId: request.agentId,
+      runId: run.id,
+      provider: request.provider,
+      purpose: request.purpose,
+      correlationId: request.correlationId,
+    };
+    await this.store.mutate((database) => {
+      const storedRun = database.runs.find((item) => item.id === run.id);
+      if (storedRun) {
+        storedRun.status = "running";
+        storedRun.startedAt = now();
+      }
+    });
+    try {
+      if (this.cancellationRequests.has(agentAtStart.id)) {
+        throw new RunCancelledError();
+      }
+      await this.runtimeOptions.lifecycle?.onRunStarted?.(lifecycleEvent);
+      const result = await this.runtimeProviders.run(request);
+      const completedAt = now();
+      await this.store.mutate((database) => {
+        const storedRun = database.runs.find((item) => item.id === run.id);
+        const agent = database.agents.find((item) => item.id === agentAtStart.id);
+        if (storedRun) {
+          storedRun.status = "completed";
+          storedRun.completedAt = completedAt;
+        }
+        if (agent) {
+          agent.status = "ready";
+          if (
+            request.provider === "codex" &&
+            request.sessionMode === "continue" &&
+            result.sessionId
+          ) {
+            agent.codexThreadId = result.sessionId;
+          }
+          agent.lastError = null;
+          agent.updatedAt = completedAt;
+        }
+      });
+      if (request.sessionMode === "continue" && result.sessionId) {
+        await this.runtimeOptions.lifecycle?.onSessionUpdated?.({
+          ...lifecycleEvent,
+          sessionId: result.sessionId,
+        });
+      }
+      await this.runtimeOptions.lifecycle?.onRunCompleted?.(lifecycleEvent);
+      return result as NormalizedRunResult<T>;
+    } catch (error) {
+      const completedAt = now();
+      const cancelled = error instanceof RunCancelledError;
+      const safeError = safeRuntimeError(error);
+      await this.store.mutate((database) => {
+        const storedRun = database.runs.find((item) => item.id === run.id);
+        const agent = database.agents.find((item) => item.id === agentAtStart.id);
+        if (storedRun) {
+          storedRun.status = cancelled ? "cancelled" : "failed";
+          storedRun.error = safeError.message;
+          storedRun.completedAt = completedAt;
+        }
+        if (agent) {
+          if (agent.status !== "stopped") {
+            agent.status = cancelled ? "ready" : "error";
+          }
+          agent.lastError = cancelled ? null : safeError.message;
+          agent.updatedAt = completedAt;
+        }
+      });
+      if (cancelled) {
+        await this.runtimeOptions.lifecycle?.onRunCancelled?.(lifecycleEvent);
+      } else {
+        await this.runtimeOptions.lifecycle?.onRunFailed?.(lifecycleEvent);
+      }
+      throw safeError;
+    }
+  }
+
+  private async validateMiddlewareRequest(
+    request: MiddlewareRunRequest,
+    agent: Agent,
+  ): Promise<void> {
+    if (
+      !middlewareProviders.has(request.provider) ||
+      !middlewarePurposes.has(request.purpose) ||
+      !middlewareSessionModes.has(request.sessionMode) ||
+      !middlewareSandboxModes.has(request.sandboxMode) ||
+      !middlewareNetworkModes.has(request.networkMode)
+    ) {
+      throw new HttpError(400, "Middleware runtime policy is invalid");
+    }
+    if (!request.runtimePrompt.trim() || request.runtimePrompt.length > 100_000) {
+      throw new HttpError(400, "Middleware runtime prompt is invalid");
+    }
+    if (request.persistedSummary.length > 1_000) {
+      throw new HttpError(400, "Middleware persisted summary is too long");
+    }
+    if (
+      !request.correlationId.trim() ||
+      request.correlationId.length > 128 ||
+      /[\r\n]/.test(request.correlationId)
+    ) {
+      throw new HttpError(400, "Middleware correlation ID is invalid");
+    }
+    if (!Number.isInteger(request.maxTurns) || request.maxTurns < 1 || request.maxTurns > 3) {
+      throw new HttpError(400, "Middleware maxTurns must be between 1 and 3");
+    }
+    if (request.purpose !== "implement" && request.sandboxMode !== "read-only") {
+      throw new HttpError(400, "This middleware purpose must use a read-only sandbox");
+    }
+    if (request.sessionMode !== "continue" && request.sessionId) {
+      throw new HttpError(400, "Fresh middleware sessions cannot resume a provider session");
+    }
+    if (request.sessionId && (request.sessionId.length > 256 || /[\r\n]/.test(request.sessionId))) {
+      throw new HttpError(400, "Middleware session ID is invalid");
+    }
+    if (
+      request.purpose === "create_context_pack" &&
+      (request.sandboxMode !== "read-only" ||
+        request.networkMode !== "none" ||
+        request.sessionMode === "continue")
+    ) {
+      throw new HttpError(
+        400,
+        "ContextPack runs require a fresh read-only session with no tool network",
+      );
+    }
+
+    const authorized = this.runtimeOptions.authorizeWorkspace
+      ? await this.runtimeOptions.authorizeWorkspace(request, agent)
+      : path.resolve(request.workspacePath) === path.resolve(agent.workspacePath);
+    if (!authorized) {
+      throw new HttpError(403, "Middleware workspace is not authorized for this Agent");
     }
   }
 
@@ -314,7 +543,10 @@ export class AgentService {
   private async cancelExecution(agentId: string): Promise<void> {
     this.cancellationRequests.add(agentId);
     try {
-      await this.runner.cancel(agentId);
+      await Promise.all([
+        this.runner.cancel(agentId),
+        this.runtimeProviders.cancel(agentId),
+      ]);
       const execution = this.activeExecutions.get(agentId);
       if (execution) {
         await execution;

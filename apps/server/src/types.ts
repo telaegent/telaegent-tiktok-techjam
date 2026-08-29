@@ -1,6 +1,20 @@
+import type { TelagentDatabase } from "./telagent/types.js";
+
 export type AgentStatus = "ready" | "busy" | "stopped" | "error";
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type MessageRole = "user" | "assistant";
+export type AgentProvider = "codex" | "claude";
+export type RunPurpose =
+  | "plan_intent"
+  | "implement"
+  | "status"
+  | "propose_resolution"
+  | "create_context_pack"
+  | "publish_dependency_change"
+  | "revise_plan";
+export type SessionMode = "continue" | "fresh" | "ephemeral";
+export type SandboxMode = "read-only" | "workspace-write";
+export type NetworkMode = "none" | "default";
 
 export interface Agent {
   id: string;
@@ -48,6 +62,8 @@ export interface Database {
   agents: Agent[];
   messages: Message[];
   runs: AgentRun[];
+  /** Optional only while old version-1 files are being backfilled by JsonStore. */
+  telagent?: TelagentDatabase | undefined;
 }
 
 export interface CreateAgentInput {
@@ -73,6 +89,33 @@ export interface RunnerRequest {
   workspacePath: string;
   prompt: string;
   threadId: string | null;
+}
+
+/** Provider-neutral request used by Telagent middleware runs. */
+export interface MiddlewareRunRequest {
+  agentId: string;
+  provider: AgentProvider;
+  purpose: RunPurpose;
+  workspacePath: string;
+  runtimePrompt: string;
+  persistedSummary: string;
+  sessionId?: string | undefined;
+  sessionMode: SessionMode;
+  sandboxMode: SandboxMode;
+  networkMode: NetworkMode;
+  outputSchemaName: string;
+  correlationId: string;
+  maxTurns: number;
+}
+
+/** Safe, normalized result returned after provider output validation. */
+export interface NormalizedRunResult<T> {
+  provider: AgentProvider;
+  sessionId?: string | undefined;
+  final: T;
+  changedFiles: string[];
+  exitCode: number;
+  durationMs: number;
 }
 
 export interface AgentRunner {

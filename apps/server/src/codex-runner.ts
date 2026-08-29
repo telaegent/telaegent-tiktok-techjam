@@ -1,8 +1,22 @@
-import { execFile } from "node:child_process";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { AppConfig } from "./config.js";
+import { isArkConfigured } from "./config.js";
 import { RunCancelledError } from "./errors.js";
+import type {
+  JsonSchemaDocument,
+  MiddlewareProviderRunner,
+  MiddlewareRunRequest,
+  NormalizedRunResult,
+  RuntimeProviderCapability,
+} from "./runtime-contract.js";
+import {
+  RuntimeProviderError,
+  classifyProviderFailure,
+} from "./runtime-errors.js";
 import type {
   AgentRunner,
   RunUsage,
@@ -17,6 +31,27 @@ export interface ParsedEvents {
   threadId: string | null;
   usage: RunUsage | null;
   errors: string[];
+}
+
+interface ActiveCodexProcess {
+  child: ChildProcess;
+  cancelled: boolean;
+  timedOut: boolean;
+  outputExceeded: boolean;
+  settled: Promise<void>;
+  forceKillTimer: NodeJS.Timeout | null;
+}
+
+interface CodexProcessRequest {
+  agentId: string;
+  workspacePath: string;
+  threadId: string | null;
+  args: string[];
+}
+
+interface CodexProcessResult extends RunnerResult {
+  exitCode: number;
+  durationMs: number;
 }
 
 export function buildCodexArgs(
@@ -41,6 +76,40 @@ export function buildCodexArgs(
   return args;
 }
 
+export function buildCodexMiddlewareArgs(
+  request: MiddlewareRunRequest,
+  outputSchemaPath: string,
+  workspacePath = request.workspacePath,
+): string[] {
+  const args = [
+    "exec",
+    "--json",
+    "-c",
+    'approval_policy="never"',
+    "--sandbox",
+    request.sandboxMode,
+    "--skip-git-repo-check",
+    "-C",
+    workspacePath,
+    "--output-schema",
+    outputSchemaPath,
+  ];
+  if (request.sandboxMode === "workspace-write") {
+    args.push(
+      "-c",
+      "sandbox_workspace_write.network_access=" +
+        (request.networkMode === "default" ? "true" : "false"),
+    );
+  }
+  if (request.sessionMode === "ephemeral") args.push("--ephemeral");
+  if (request.sessionMode === "continue" && request.sessionId) {
+    args.push("resume", request.sessionId, "-");
+  } else {
+    args.push("-");
+  }
+  return args;
+}
+
 export function parseCodexEventLine(line: string, parsed: ParsedEvents): void {
   let event: Record<string, unknown>;
   try {
@@ -52,14 +121,12 @@ export function parseCodexEventLine(line: string, parsed: ParsedEvents): void {
   if (event.type === "thread.started" && typeof event.thread_id === "string") {
     parsed.threadId = event.thread_id;
   }
-
   if (event.type === "item.completed" && event.item && typeof event.item === "object") {
     const item = event.item as Record<string, unknown>;
     if (item.type === "agent_message" && typeof item.text === "string") {
       parsed.messages.push(item.text);
     }
   }
-
   if (event.type === "turn.completed" && event.usage && typeof event.usage === "object") {
     const usage = event.usage as Record<string, unknown>;
     parsed.usage = {
@@ -74,7 +141,6 @@ export function parseCodexEventLine(line: string, parsed: ParsedEvents): void {
         : {}),
     };
   }
-
   if (event.type === "error") {
     const message =
       typeof event.message === "string"
@@ -86,18 +152,9 @@ export function parseCodexEventLine(line: string, parsed: ParsedEvents): void {
   }
 }
 
-export class CodexRunner implements AgentRunner {
-  private readonly active = new Map<
-    string,
-    {
-      child: ChildProcess;
-      cancelled: boolean;
-      timedOut: boolean;
-      outputExceeded: boolean;
-      settled: Promise<void>;
-      forceKillTimer: NodeJS.Timeout | null;
-    }
-  >();
+export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
+  readonly provider = "codex" as const;
+  private readonly active = new Map<string, ActiveCodexProcess>();
 
   constructor(private readonly config: AppConfig) {}
 
@@ -113,11 +170,20 @@ export class CodexRunner implements AgentRunner {
     }
   }
 
+  async capability(): Promise<RuntimeProviderCapability> {
+    const installed = await this.isAvailable();
+    if (!installed) {
+      return { installed: false, authenticated: false, reason: "not_installed" };
+    }
+    if (!isArkConfigured(this.config)) {
+      return { installed: true, authenticated: false, reason: "not_configured" };
+    }
+    return { installed: true, authenticated: true, reason: null };
+  }
+
   async cancel(agentId: string): Promise<boolean> {
     const active = this.active.get(agentId);
-    if (!active) {
-      return false;
-    }
+    if (!active) return false;
     active.cancelled = true;
     this.terminate(active);
     await active.settled;
@@ -125,30 +191,94 @@ export class CodexRunner implements AgentRunner {
   }
 
   async run(request: RunnerRequest): Promise<RunnerResult> {
-    if (this.active.has(request.agentId)) {
-      throw new Error("Agent already has an active Codex process");
-    }
+    const result = await this.runProcess({
+      agentId: request.agentId,
+      workspacePath: request.workspacePath,
+      threadId: request.threadId,
+      args: buildCodexArgs(request, this.config.codexSandboxMode),
+    });
+    return { output: result.output, threadId: result.threadId, usage: result.usage };
+  }
 
-    const args = buildCodexArgs(request, this.config.codexSandboxMode);
-    const child = spawn(this.config.codexBin, args, {
+  async runStructured(
+    request: MiddlewareRunRequest,
+    outputSchema: JsonSchemaDocument,
+  ): Promise<NormalizedRunResult> {
+    if (!isArkConfigured(this.config)) {
+      throw new RuntimeProviderError(
+        "RUNTIME_UNAVAILABLE",
+        "Codex runtime credentials are not configured",
+      );
+    }
+    const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
+    const schemaPath = path.join(schemaDirectory, "output.schema.json");
+    try {
+      await writeFile(schemaPath, JSON.stringify(outputSchema), {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      const result = await this.runProcess({
+        agentId: request.agentId,
+        workspacePath: request.workspacePath,
+        threadId:
+          request.sessionMode === "continue" ? request.sessionId ?? null : null,
+        args: buildCodexMiddlewareArgs(request, schemaPath),
+      }, request.runtimePrompt);
+      let final: unknown;
+      try {
+        final = JSON.parse(result.output) as unknown;
+      } catch {
+        throw new RuntimeProviderError(
+          "INVALID_AGENT_OUTPUT",
+          "Codex completed without structured output",
+        );
+      }
+      return {
+        provider: "codex",
+        ...(request.sessionMode === "continue" && result.threadId
+          ? { sessionId: result.threadId }
+          : {}),
+        final,
+        changedFiles: [],
+        exitCode: result.exitCode,
+        durationMs: result.durationMs,
+      };
+    } finally {
+      await rm(schemaDirectory, { recursive: true, force: true });
+    }
+  }
+
+  private async runProcess(
+    request: CodexProcessRequest,
+    stdinPayload?: string,
+  ): Promise<CodexProcessResult> {
+    if (this.active.has(request.agentId)) {
+      throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
+    }
+    const startedAt = Date.now();
+    const child = spawn(this.config.codexBin, request.args, {
       cwd: request.workspacePath,
       env: this.childEnvironment(),
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [stdinPayload === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      shell: false,
     });
+    if (stdinPayload !== undefined) {
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(stdinPayload);
+    }
     const settled = new Promise<void>((resolve) => {
       child.once("close", () => resolve());
       child.once("error", () => resolve());
     });
-    const active = {
+    const active: ActiveCodexProcess = {
       child,
       cancelled: false,
       timedOut: false,
       outputExceeded: false,
       settled,
-      forceKillTimer: null as NodeJS.Timeout | null,
+      forceKillTimer: null,
     };
     this.active.set(request.agentId, active);
-
     const parsed: ParsedEvents = {
       messages: [],
       threadId: request.threadId,
@@ -170,20 +300,15 @@ export class CodexRunner implements AgentRunner {
         stdout += chunk.toString("utf8");
         const lines = stdout.split(/\r?\n/);
         stdout = lines.pop() ?? "";
-        for (const line of lines) {
-          parseCodexEventLine(line, parsed);
-        }
+        for (const line of lines) parseCodexEventLine(line, parsed);
       } else {
         stderr += chunk.toString("utf8");
-        if (stderr.length > 16_384) {
-          stderr = stderr.slice(-16_384);
-        }
+        if (stderr.length > 16_384) stderr = stderr.slice(-16_384);
       }
     };
 
-    child.stdout.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
-    child.stderr.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
-
+    child.stdout?.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
+    child.stderr?.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
     const timeout = setTimeout(() => {
       active.timedOut = true;
       this.terminate(active);
@@ -191,34 +316,45 @@ export class CodexRunner implements AgentRunner {
     timeout.unref();
 
     try {
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("close", (code) => resolve(code ?? 1));
-      });
-      if (stdout.trim()) {
-        parseCodexEventLine(stdout.trim(), parsed);
+      let exitCode: number;
+      try {
+        exitCode = await new Promise<number>((resolve, reject) => {
+          child.once("error", reject);
+          child.once("close", (code) => resolve(code ?? 1));
+        });
+      } catch (error) {
+        throw classifyProviderFailure("codex", error);
       }
-      if (active.cancelled) {
-        throw new RunCancelledError();
-      }
+      if (stdout.trim()) parseCodexEventLine(stdout.trim(), parsed);
+      if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {
-        throw new Error("Codex timed out after " + this.config.codexTimeoutMs + " ms");
+        throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Codex runtime timed out");
       }
       if (active.outputExceeded) {
-        throw new Error("Codex output exceeded CODEX_MAX_OUTPUT_BYTES");
+        throw new RuntimeProviderError(
+          "RUNTIME_OUTPUT_LIMIT",
+          "Codex output exceeded the configured limit",
+        );
       }
       if (exitCode !== 0) {
-        const detail = parsed.errors.at(-1) ?? stderr.trim() ?? "No error detail";
-        throw new Error("Codex exited with code " + exitCode + ": " + detail);
+        throw classifyProviderFailure(
+          "codex",
+          parsed.errors.at(-1) ?? stderr ?? "provider failure",
+        );
       }
       const output = parsed.messages.at(-1)?.trim();
       if (!output) {
-        throw new Error("Codex completed without an agent message");
+        throw new RuntimeProviderError(
+          "INVALID_AGENT_OUTPUT",
+          "Codex completed without an agent message",
+        );
       }
       return {
         output,
         threadId: parsed.threadId,
         usage: parsed.usage,
+        exitCode,
+        durationMs: Date.now() - startedAt,
       };
     } finally {
       clearTimeout(timeout);
@@ -227,10 +363,7 @@ export class CodexRunner implements AgentRunner {
     }
   }
 
-  private terminate(active: {
-    child: ChildProcess;
-    forceKillTimer: NodeJS.Timeout | null;
-  }): void {
+  private terminate(active: ActiveCodexProcess): void {
     if (active.child.exitCode !== null || active.child.signalCode !== null) return;
     active.child.kill("SIGTERM");
     if (!active.forceKillTimer) {
@@ -242,8 +375,14 @@ export class CodexRunner implements AgentRunner {
   private childEnvironment(): NodeJS.ProcessEnv {
     const inheritedNames = [
       "PATH",
+      "PATHEXT",
+      "SystemRoot",
+      "WINDIR",
+      "ComSpec",
       "HOME",
       "TMPDIR",
+      "TEMP",
+      "TMP",
       "LANG",
       "LC_ALL",
       "SSL_CERT_FILE",

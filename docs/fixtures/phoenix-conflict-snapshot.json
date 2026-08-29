@@ -1,0 +1,192 @@
+{
+  "snapshot": {
+    "project": {
+      "projectId": "phoenix",
+      "name": "Phoenix Web App",
+      "agentIds": [],
+      "createdAt": "2026-08-28T00:00:00.000Z",
+      "updatedAt": "2026-08-28T00:00:00.000Z"
+    },
+    "owners": [
+      { "ownerId": "alice", "displayName": "Alice" },
+      { "ownerId": "bob", "displayName": "Bob" }
+    ],
+    "agentBindings": [],
+    "conversation": {
+      "conversationId": "conv_phoenix_demo",
+      "projectId": "phoenix",
+      "title": "Phoenix coordination",
+      "createdAt": "2026-08-28T00:00:00.000Z",
+      "updatedAt": "2026-08-28T00:01:01.000Z"
+    },
+    "entries": [
+      {
+        "entryId": "entry_bob_message",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "actor": { "type": "human", "ownerId": "bob", "agentId": "bob-agent" },
+        "type": "human_message",
+        "payload": { "content": "Migrate session storage to Redis" },
+        "operationId": "op_bob_plan",
+        "correlationId": "corr_bob_plan",
+        "sequence": 1,
+        "createdAt": "2026-08-28T00:00:00.000Z"
+      },
+      {
+        "entryId": "entry_bob_intent",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "actor": { "type": "agent", "ownerId": "bob", "agentId": "bob-agent" },
+        "type": "intent",
+        "payload": { "intentId": "intent_bob_redis" },
+        "operationId": "op_bob_plan",
+        "correlationId": "corr_bob_plan",
+        "sequence": 2,
+        "createdAt": "2026-08-28T00:00:01.000Z"
+      },
+      {
+        "entryId": "entry_bob_summary",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "actor": { "type": "agent", "ownerId": "bob", "agentId": "bob-agent" },
+        "type": "agent_summary",
+        "payload": { "summary": "Bob's session plan is ready." },
+        "operationId": "op_bob_plan",
+        "correlationId": "corr_bob_plan",
+        "sequence": 3,
+        "createdAt": "2026-08-28T00:00:01.000Z"
+      },
+      {
+        "entryId": "entry_alice_message",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "actor": { "type": "human", "ownerId": "alice", "agentId": "alice-agent" },
+        "type": "human_message",
+        "payload": { "content": "Add Google OAuth" },
+        "operationId": "op_alice_plan",
+        "correlationId": "corr_alice_plan",
+        "sequence": 4,
+        "createdAt": "2026-08-28T00:01:00.000Z"
+      },
+      {
+        "entryId": "entry_alice_intent",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "actor": { "type": "agent", "ownerId": "alice", "agentId": "alice-agent" },
+        "type": "intent",
+        "payload": { "intentId": "intent_alice_oauth" },
+        "operationId": "op_alice_plan",
+        "correlationId": "corr_alice_plan",
+        "sequence": 5,
+        "createdAt": "2026-08-28T00:01:01.000Z"
+      },
+      {
+        "entryId": "entry_conflict",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "actor": { "type": "agent", "ownerId": "alice", "agentId": "alice-agent" },
+        "type": "conflict",
+        "payload": { "requestId": "coord_phoenix_01", "score": 5 },
+        "operationId": "op_alice_plan",
+        "correlationId": "corr_alice_plan",
+        "sequence": 6,
+        "createdAt": "2026-08-28T00:01:01.000Z"
+      },
+      {
+        "entryId": "entry_alice_summary",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "actor": { "type": "agent", "ownerId": "alice", "agentId": "alice-agent" },
+        "type": "agent_summary",
+        "payload": { "summary": "Alice's OAuth plan is paused for coordination." },
+        "operationId": "op_alice_plan",
+        "correlationId": "corr_alice_plan",
+        "sequence": 7,
+        "createdAt": "2026-08-28T00:01:01.000Z"
+      }
+    ],
+    "intents": [
+      {
+        "intentId": "intent_bob_redis",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "ownerId": "bob",
+        "agentId": "bob-agent",
+        "task": "Migrate session storage to Redis",
+        "branch": "feature/redis-sessions",
+        "plannedFiles": ["src/auth/session.ts", "src/models/session.ts"],
+        "changedFiles": [],
+        "interfaces": ["Session"],
+        "dependencies": ["User"],
+        "planSteps": ["Implement Redis-backed session persistence"],
+        "baseCommit": null,
+        "status": "active",
+        "progress": 0,
+        "planningOperationId": "op_bob_plan",
+        "conflict": { "score": 0, "signals": [], "severity": "none" },
+        "createdAt": "2026-08-28T00:00:01.000Z",
+        "updatedAt": "2026-08-28T00:00:01.000Z"
+      },
+      {
+        "intentId": "intent_alice_oauth",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "ownerId": "alice",
+        "agentId": "alice-agent",
+        "task": "Add Google OAuth",
+        "branch": "feature/google-oauth",
+        "plannedFiles": ["src/auth/oauth.ts", "src/routes/login.ts"],
+        "changedFiles": [],
+        "interfaces": ["Session", "POST /login", "GET /oauth/callback"],
+        "dependencies": ["User", "Session"],
+        "planSteps": ["Add OAuth routes", "Handle the provider callback"],
+        "baseCommit": null,
+        "status": "coordination_required",
+        "progress": 0,
+        "planningOperationId": "op_alice_plan",
+        "conflict": {
+          "score": 5,
+          "signals": [
+            { "type": "same_interface", "score": 4, "value": "Session" },
+            { "type": "same_module", "score": 1, "value": "src/auth" }
+          ],
+          "severity": "likely_conflict"
+        },
+        "createdAt": "2026-08-28T00:01:01.000Z",
+        "updatedAt": "2026-08-28T00:01:01.000Z"
+      }
+    ],
+    "coordinationRequests": [
+      {
+        "requestId": "coord_phoenix_01",
+        "projectId": "phoenix",
+        "conversationId": "conv_phoenix_demo",
+        "participantIntentIds": ["intent_bob_redis", "intent_alice_oauth"],
+        "participantAgentIds": ["bob-agent", "alice-agent"],
+        "conflict": {
+          "score": 5,
+          "signals": [
+            { "type": "same_interface", "score": 4, "value": "Session" },
+            { "type": "same_module", "score": 1, "value": "src/auth" }
+          ],
+          "severity": "likely_conflict"
+        },
+        "state": "detected",
+        "version": 1,
+        "exchangeCount": 0,
+        "createdAt": "2026-08-28T00:01:01.000Z",
+        "updatedAt": "2026-08-28T00:01:01.000Z",
+        "expiresAt": "2026-08-28T00:31:01.000Z"
+      }
+    ],
+    "agreements": [],
+    "contextRequests": [],
+    "contextPacks": [],
+    "dependencyChanges": [],
+    "planRevisions": [],
+    "operations": [],
+    "events": [],
+    "allowedActions": [],
+    "generatedAt": "2026-08-28T00:01:02.000Z"
+  }
+}

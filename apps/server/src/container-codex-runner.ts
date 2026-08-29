@@ -242,6 +242,10 @@ export class ContainerCodexRunner implements AgentRunner {
     };
     for (const name of [
       "PATH",
+      "PATHEXT",
+      "SystemRoot",
+      "WINDIR",
+      "ComSpec",
       "HOME",
       "TMPDIR",
       "LANG",
