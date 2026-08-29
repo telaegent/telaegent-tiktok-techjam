@@ -14,7 +14,7 @@
  * Flags:
  *   --formats P3,P5     default: all five
  *   --memory M4         default: M4
- *   --cases <substr>    run only case ids containing this substring
+ *   --cases a,b,c       run case ids containing ANY of these substrings
  *   --timeout 120000    per turn
  *   --out <dir>         default: ./src/telagent/protocol/eval/results (gitignored)
  */
@@ -32,6 +32,7 @@ import { PROTOCOL_FORMATS, type MemoryStrategyId, type ProtocolFormatId } from "
 import { ALL_CASES } from "../corpus/index.js";
 import { runCorpus, type HarnessConfig, type HarnessRunResult } from "./harness.js";
 import { renderReport } from "./report.js";
+import { renderReviewSheet, selectForReview } from "./review-sheet.js";
 import {
   createRunner,
   liveEvalEnabled,
@@ -47,7 +48,7 @@ interface Options {
   runner: RunnerId;
   formats: ProtocolFormatId[];
   memory: MemoryStrategyId;
-  caseFilter: string | null;
+  caseFilters: string[];
   timeoutMs: number;
   outDir: string;
 }
@@ -68,7 +69,13 @@ function parseArgs(argv: readonly string[]): Options {
         ? [...PROTOCOL_FORMATS]
         : (formatsArg.split(",").map((value) => value.trim()) as ProtocolFormatId[]),
     memory: (get("--memory") ?? "M4") as MemoryStrategyId,
-    caseFilter: get("--cases"),
+    // Comma-separated so a run can select a whole theme. Case ids are prefixed
+    // by concern (`.secret`, `.inject`, `.poison`), so "the safety cases" is
+    // expressible without listing thirty-four ids.
+    caseFilters: (get("--cases") ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
     timeoutMs: Number(get("--timeout") ?? "120000"),
     outDir:
       get("--out") ??
@@ -140,12 +147,14 @@ async function main(): Promise<void> {
   }
 
   const cases =
-    options.caseFilter === null
+    options.caseFilters.length === 0
       ? ALL_CASES
-      : ALL_CASES.filter((entry) => entry.id.includes(options.caseFilter ?? ""));
+      : ALL_CASES.filter((entry) =>
+          options.caseFilters.some((filter) => entry.id.includes(filter)),
+        );
 
   if (cases.length === 0) {
-    console.error("No cases matched --cases " + String(options.caseFilter));
+    console.error("No cases matched --cases " + options.caseFilters.join(","));
     process.exitCode = 1;
     return;
   }
@@ -202,8 +211,20 @@ async function main(): Promise<void> {
   // fixture file contents.
   await writeFile(rawPath, JSON.stringify(results, null, 2), "utf8");
 
+  // hien.md §14. Written on every run because the moment to ask three people
+  // for twenty minutes is while the numbers are fresh, not a week later when
+  // the sheet would have to be regenerated from raw JSON nobody kept.
+  const reviewPath = path.join(options.outDir, "review-" + options.runner + "-" + stamp + ".md");
+  await writeFile(
+    reviewPath,
+    renderReviewSheet(selectForReview(results), { generatedAt, reviewerCount: 3 }),
+    "utf8",
+  );
+
   console.log(report);
-  process.stderr.write("\nreport: " + reportPath + "\nraw:    " + rawPath + "\n");
+  process.stderr.write(
+    "\nreport: " + reportPath + "\nraw:    " + rawPath + "\nreview: " + reviewPath + "\n",
+  );
 }
 
 main().catch((error: unknown) => {

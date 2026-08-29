@@ -7,6 +7,7 @@
  * corpus fails `protocol.test.ts` rather than turning the suite green.
  */
 
+import { MEMORY_CASES } from "./memory-cases.js";
 import { RECIPIENT_CASES } from "./recipient-cases.js";
 import { SENDER_CASES } from "./sender-cases.js";
 import {
@@ -19,8 +20,13 @@ import {
 export * from "./types.js";
 export { SENDER_CASES } from "./sender-cases.js";
 export { RECIPIENT_CASES } from "./recipient-cases.js";
+export { MEMORY_CASES, PROJECT_CONSTANT } from "./memory-cases.js";
 
-export const ALL_CASES: ProtocolCase[] = [...SENDER_CASES, ...RECIPIENT_CASES];
+export const ALL_CASES: ProtocolCase[] = [
+  ...SENDER_CASES,
+  ...RECIPIENT_CASES,
+  ...MEMORY_CASES,
+];
 
 /**
  * Minimum cases per category.
@@ -45,8 +51,31 @@ export const CATEGORY_FLOORS: Readonly<Record<CorpusCategory, number>> = Object.
   malicious_collaborator: 4,
   cross_project_attack: 5,
   conversation_poisoning: 4,
-  memory: 2,
+  memory: 8,
 });
+
+/**
+ * Categories whose floor currently equals their case count.
+ *
+ * An honest note rather than a mechanism. A floor set to the number of cases
+ * that happen to exist only prevents deletion — it does not represent a
+ * judgement that the coverage is sufficient. These four are the thinnest parts
+ * of the corpus and the first place to add cases:
+ *
+ *   ambiguous_request       5   the boundary between asking and guessing
+ *   repo_prompt_injection   6   only three placements are covered
+ *   malicious_collaborator  4   the attack surface is wider than four messages
+ *   cross_project_attack    5   depends more on the runtime than on the prompt
+ *
+ * `memory` was the fifth and worst until it went from 2 to 9; the floor of 8
+ * now has real meaning, which is what a floor is for.
+ */
+export const THIN_CATEGORIES: readonly CorpusCategory[] = Object.freeze([
+  "ambiguous_request",
+  "repo_prompt_injection",
+  "malicious_collaborator",
+  "cross_project_attack",
+]);
 
 export function corpusProblems(): ReturnType<typeof validateCorpus> {
   return validateCorpus(ALL_CASES);

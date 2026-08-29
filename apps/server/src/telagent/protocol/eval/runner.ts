@@ -80,6 +80,30 @@ function requireLiveEval(runnerName: string, env: NodeJS.ProcessEnv): void {
 }
 
 /* ========================================================================== *
+ * Process helper
+ * ========================================================================== */
+
+/**
+ * execFile with stdin closed immediately.
+ *
+ * Both CLIs wait about three seconds for piped input that is never coming, then
+ * print a warning and continue. On a 330-turn sweep that is seventeen wasted
+ * minutes, and the warning lands on stdout ahead of the JSON, which the
+ * extractor then has to step over. `promisify(execFile)` gives no way to set
+ * `stdio`, but it returns a PromiseWithChild — so the child's stdin can simply
+ * be ended the moment it exists.
+ */
+function execFileNoStdin(
+  file: string,
+  args: readonly string[],
+  options: { cwd: string; timeout: number; maxBuffer: number; env: NodeJS.ProcessEnv },
+): Promise<{ stdout: string; stderr: string }> {
+  const pending = execFileAsync(file, args, options);
+  pending.child.stdin?.end();
+  return pending;
+}
+
+/* ========================================================================== *
  * Fake runner
  * ========================================================================== */
 
@@ -166,7 +190,7 @@ export class ClaudeCliRunner implements ProtocolRunner {
     ];
 
     try {
-      const { stdout } = await execFileAsync(this.binary, args, {
+      const { stdout } = await execFileNoStdin(this.binary, args, {
         cwd: request.workspacePath,
         timeout: request.timeoutMs,
         maxBuffer: 8 * 1024 * 1024,
@@ -221,7 +245,7 @@ export class CodexCliRunner implements ProtocolRunner {
     const args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", combined];
 
     try {
-      const { stdout } = await execFileAsync(this.binary, args, {
+      const { stdout } = await execFileNoStdin(this.binary, args, {
         cwd: request.workspacePath,
         timeout: request.timeoutMs,
         maxBuffer: 8 * 1024 * 1024,

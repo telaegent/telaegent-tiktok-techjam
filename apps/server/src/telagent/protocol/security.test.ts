@@ -69,14 +69,33 @@ describe("non-negotiable 1: .env is denied before it is opened", () => {
     }
   });
 
-  it("does not deny .env.example, which exists to be shared", () => {
-    // Over-broad blocking is a real failure with a real cost: .env.example is
-    // documentation, and refusing it teaches users the product is broken.
-    const normalized = normalizeCandidatePath(".env.example");
+  it("does not deny the .env documentation variants, which exist to be shared", () => {
+    // This test used to assert the opposite of what its own name said, and the
+    // contradiction survived review because the assertion matched the code. The
+    // live run settled it: `.env.example` came back blocked on a corpus case
+    // that expects it shareable. Over-broad blocking is a real failure with a
+    // real cost — these files hold variable names and no values, and they are
+    // the canonical safe answer to "what configuration does this need?".
+    for (const candidate of [
+      ".env.example",
+      ".env.template",
+      ".env.sample",
+      "config/.env.example",
+    ]) {
+      const normalized = normalizeCandidatePath(candidate);
+      expect(normalized.ok).toBe(true);
+      if (!normalized.ok) continue;
+      expect(checkAlwaysDenied(normalized.value), candidate + " should be shareable").toBeNull();
+    }
+  });
+
+  it("still denies a real env file wearing a documentation prefix", () => {
+    // `.env.example.local` is a real environment file whose name happens to
+    // start with a safe one. An allowlist matched by prefix would hand it over;
+    // the exact-match set does not.
+    const normalized = normalizeCandidatePath(".env.example.local");
     expect(normalized.ok).toBe(true);
     if (!normalized.ok) return;
-    // `.env.` prefix matching would wrongly catch this; the corpus case
-    // r.secret.env_example_ok is the behavioural half of the same assertion.
     expect(checkAlwaysDenied(normalized.value)?.code).toBe("FORBID_ENV_FILES");
   });
 
