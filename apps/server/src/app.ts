@@ -12,6 +12,10 @@ import type { TelagentService } from "./telagent/service.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
+const providerParams = z.object({
+  id: z.string().uuid(),
+  provider: z.enum(["codex", "claude"]),
+});
 const createAgentBody = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().max(500).optional(),
@@ -117,6 +121,22 @@ export async function createApp(
   app.get("/api/agents/:id/runs", async (request) => {
     const { id } = agentIdParams.parse(request.params);
     return { runs: service.getRuns(id) };
+  });
+
+  app.get("/api/agents/:id/providers", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return { connections: await service.providerConnectionStatuses(id) };
+  });
+
+  app.post("/api/agents/:id/providers/:provider/probe", async (request) => {
+    const { id, provider } = providerParams.parse(request.params);
+    return {
+      connection: await service.probeProviderConnection(
+        id,
+        provider,
+        request.id,
+      ),
+    };
   });
 
   app.post("/api/agents/:id/messages", async (request, reply) => {

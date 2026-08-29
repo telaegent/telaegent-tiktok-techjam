@@ -4,12 +4,18 @@ import type { AppConfig } from "./config.js";
 import { isArkConfigured } from "./config.js";
 import { HttpError, RunCancelledError } from "./errors.js";
 import type {
+  AgentProvider,
   AgentServiceRuntimeOptions,
   MiddlewareLifecycleEvent,
   MiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeCapabilities,
+  RuntimeProgressSink,
 } from "./runtime-contract.js";
+import {
+  ProviderConnectionService,
+  type ProviderConnectionStatus,
+} from "./provider-connection-service.js";
 import { safeRuntimeError } from "./runtime-errors.js";
 import { RuntimeProviderRegistry } from "./runtime-provider-registry.js";
 import { createRuntimeProviderRegistry } from "./runner-factory.js";
@@ -45,6 +51,7 @@ export class AgentService {
   private readonly activeExecutions = new Map<string, Promise<void>>();
   private readonly cancellationRequests = new Set<string>();
   private readonly runtimeProviders: RuntimeProviderRegistry;
+  private readonly providerConnections: ProviderConnectionService;
   private readonly runtimeOptions: AgentServiceRuntimeOptions;
 
   constructor(
@@ -57,6 +64,9 @@ export class AgentService {
   ) {
     this.runtimeProviders =
       runtimeProviders ?? createRuntimeProviderRegistry(config);
+    this.providerConnections = new ProviderConnectionService(
+      this.runtimeProviders,
+    );
     this.runtimeOptions = runtimeOptions;
   }
 
@@ -268,6 +278,36 @@ export class AgentService {
 
   async runtimeCapabilities(): Promise<RuntimeCapabilities> {
     return this.runtimeProviders.capabilities();
+  }
+
+  async providerConnectionStatuses(
+    agentId: string,
+  ): Promise<ProviderConnectionStatus[]> {
+    this.getAgent(agentId);
+    return Promise.all(
+      (["codex", "claude"] as const).map((provider) =>
+        this.providerConnections.inspect(agentId, provider),
+      ),
+    );
+  }
+
+  async probeProviderConnection(
+    agentId: string,
+    provider: AgentProvider,
+    correlationId: string = randomUUID(),
+    onProgress?: RuntimeProgressSink,
+  ): Promise<ProviderConnectionStatus> {
+    const agent = this.getAgent(agentId);
+    return this.providerConnections.probe(
+      {
+        bindingId: agent.id,
+        agentId: agent.id,
+        provider,
+        workspacePath: agent.workspacePath,
+        correlationId,
+      },
+      onProgress,
+    );
   }
 
   async runMiddlewareTurn<T = unknown>(

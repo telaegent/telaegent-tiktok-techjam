@@ -92,6 +92,18 @@ export interface RuntimeProviderCapability {
   reason: RuntimeCapabilityReason | null;
 }
 
+export interface RuntimeProviderProbeRequest {
+  agentId: string;
+  provider: AgentProvider;
+  workspacePath: string;
+  correlationId: string;
+}
+
+export interface RuntimeProviderProbeResult {
+  provider: AgentProvider;
+  durationMs: number;
+}
+
 export type RuntimeCapabilities = Record<
   AgentProvider,
   RuntimeProviderCapability
