@@ -2,8 +2,8 @@
 
 ## Before work
 
-1. Read `AGENTS.md` and `plan.md` completely.
-2. Read the relevant owner brief: `phuong.md`, `khoa.md`, `duy.md`, `hien.md`, or `thai.md`.
+1. Read `docs/product/high-level-plan.md` and `docs/product/product-flow.md` completely.
+2. Read the relevant owner brief under `docs/team/`.
 3. Inspect the current branch and working tree; preserve teammate changes.
 4. State whether the work is research, documentation, legacy maintenance, or authorized implementation.
 

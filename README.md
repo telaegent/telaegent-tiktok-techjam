@@ -115,15 +115,15 @@ Superseded standalone plans, research, and deployment assets are preserved under
 
 ## Project documents
 
-- [Canonical high-level product plan](plan.md)
-- [Canonical product flow](TELAEGENT_PRODUCT_FLOW.md)
-- [Architecture](docs/ARCHITECTURE.md)
+- [Canonical high-level product plan](docs/product/high-level-plan.md)
+- [Canonical product flow](docs/product/product-flow.md)
+- [Architecture](docs/architecture/overview.md)
 - [Security and trust model](SECURITY.md)
-- [Phuong research brief](phuong.md)
-- [Khoa research brief](khoa.md)
-- [Duy research brief](duy.md)
-- [Hien research brief](hien.md)
-- [Thai research brief](thai.md)
+- [Phuong research brief](docs/team/phuong.md)
+- [Khoa research brief](docs/team/khoa.md)
+- [Duy research brief](docs/team/duy.md)
+- [Hien research brief](docs/team/hien.md)
+- [Thai research brief](docs/team/thai.md)
 
 ## Current scaffold verification
 

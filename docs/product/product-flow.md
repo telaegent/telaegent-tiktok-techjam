@@ -1,6 +1,6 @@
 # Telaegent: Canonical Product Flow
 
-The complete authoritative product direction is [`plan.md`](plan.md). This file is the compact execution story used by contributors, demos, and product reviews.
+The complete authoritative product direction is the [high-level product plan](high-level-plan.md). This file is the compact execution story used by contributors, demos, and product reviews.
 
 ## Product primitive
 

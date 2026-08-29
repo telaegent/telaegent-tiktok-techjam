@@ -1379,13 +1379,13 @@ If implementation details change later, these principles should survive:
 
 ## Companion research briefs
 
-This ZIP also contains five self-contained next-phase briefs:
+This repository also contains five self-contained next-phase briefs under [`docs/team/`](../team/):
 
-- `khoa.md` — backend, GitHub, repository/collaborator access, user authorization and trust
-- `thai.md` — cloud deployment, runtime isolation, database/storage, cost and latency
-- `duy.md` — complete frontend/product UX from landing through private/shared conversations
-- `hien.md` — agent protocol experiments, API/prompt format evaluation, security/leakage tests and test architecture
-- `phuong.md` — backend co-ownership, Claude Code/Codex CLI runtimes, provider sessions, Telaegent memory and integration
+- [`khoa.md`](../team/khoa.md) — backend, GitHub, repository/collaborator access, user authorization and trust
+- [`thai.md`](../team/thai.md) — cloud deployment, runtime isolation, database/storage, cost and latency
+- [`duy.md`](../team/duy.md) — complete frontend/product UX from landing through private/shared conversations
+- [`hien.md`](../team/hien.md) — agent protocol experiments, API/prompt format evaluation, security/leakage tests and test architecture
+- [`phuong.md`](../team/phuong.md) — backend co-ownership, Claude Code/Codex CLI runtimes, provider sessions, Telaegent memory and integration
 
 These are investigation/design responsibilities, not irreversible implementation boundaries.
 
@@ -1531,4 +1531,3 @@ The highest priority is not adding more autonomous behavior. It is making one in
 > **I ask my agent to ask your agent something about our project. My agent privately helps me formulate the request. I approve it. Your agent investigates your side. You approve the answer. I get useful, repository-grounded context without either of us manually copy-pasting between agents.**
 
 If that experience works smoothly with two real users, one real GitHub repository, and two real coding-agent CLIs, Telaegent already has a compelling hackathon demo.
-

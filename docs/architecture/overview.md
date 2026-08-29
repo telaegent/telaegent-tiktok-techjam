@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the canonical target architecture from `plan.md`. It is not a claim that the cloud runtime has already been implemented. The inherited Starter Kit and earlier prototypes remain in the tree as legacy scaffold.
+This document describes the target architecture from the [canonical product plan](../product/high-level-plan.md). It is not a claim that the cloud runtime has already been implemented. The inherited Starter Kit and earlier prototypes remain in the tree as legacy scaffold.
 
 ## Product topology
 
