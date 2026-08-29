@@ -1,4 +1,4 @@
-import type { TelagentDatabase } from "./telagent/types.js";
+import type { TelaegentDatabase } from "./telaegent/types.js";
 
 export type AgentStatus = "ready" | "busy" | "stopped" | "error";
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -63,7 +63,7 @@ export interface Database {
   messages: Message[];
   runs: AgentRun[];
   /** Optional only while old version-1 files are being backfilled by JsonStore. */
-  telagent?: TelagentDatabase | undefined;
+  telaegent?: TelaegentDatabase | undefined;
 }
 
 export interface CreateAgentInput {
@@ -91,7 +91,7 @@ export interface RunnerRequest {
   threadId: string | null;
 }
 
-/** Provider-neutral request used by Telagent middleware runs. */
+/** Provider-neutral request used by Telaegent middleware runs. */
 export interface MiddlewareRunRequest {
   agentId: string;
   provider: AgentProvider;

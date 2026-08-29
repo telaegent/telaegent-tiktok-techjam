@@ -1,10 +1,10 @@
 # Duy — Request Protocol, Schemas, Permissions, and State Rules
 
-This file is your self-contained implementation brief. Read `plan.md` and `TELAGENT_PRODUCT_FLOW.md` completely before editing.
+This file is your self-contained implementation brief. Read `plan.md` and `TELAEGENT_PRODUCT_FLOW.md` completely before editing.
 
 ## 1. Mission
 
-You own the formal contract that makes Telagent predictable.
+You own the formal contract that makes Telaegent predictable.
 
 Your work is coworker workstream **#2**, paired tightly with Hien's workstream **#6**:
 
@@ -25,7 +25,7 @@ You define what a request means and whether it is structurally/statefully allowe
 Your work is done when:
 
 - every HTTP body, Agent output, tool call, stored record, and decision has an explicit schema
-- the `TelagentEnvelope` is versioned and stable
+- the `TelaegentEnvelope` is versioned and stable
 - the server derives permissions; callers/models cannot grant themselves access
 - conflict scoring is deterministic and fully tested
 - proposal approvals are version-pinned and require both owners
@@ -39,17 +39,17 @@ Your work is done when:
 
 ```text
 apps/server/src/types.ts
-apps/server/src/telagent/types.ts
-apps/server/src/telagent/schemas.ts
-apps/server/src/telagent/constants.ts   # freeze values, then hand implementation ownership to Khoa if needed
-apps/server/src/telagent/conflict-engine.ts
-apps/server/src/telagent/agreement-engine.ts
-apps/server/src/telagent/permission-engine.ts
-apps/server/src/telagent/conflict-engine.test.ts
-apps/server/src/telagent/agreement-engine.test.ts
-apps/server/src/telagent/permission-engine.test.ts
-apps/server/src/telagent/schemas.test.ts
-apps/server/src/telagent/output-schemas/*.json
+apps/server/src/telaegent/types.ts
+apps/server/src/telaegent/schemas.ts
+apps/server/src/telaegent/constants.ts   # freeze values, then hand implementation ownership to Khoa if needed
+apps/server/src/telaegent/conflict-engine.ts
+apps/server/src/telaegent/agreement-engine.ts
+apps/server/src/telaegent/permission-engine.ts
+apps/server/src/telaegent/conflict-engine.test.ts
+apps/server/src/telaegent/agreement-engine.test.ts
+apps/server/src/telaegent/permission-engine.test.ts
+apps/server/src/telaegent/schemas.test.ts
+apps/server/src/telaegent/output-schemas/*.json
 ```
 
 You may prepare shared DTO definitions for `apps/web/src/types.ts`, but Thai owns the actual frontend file. Give Thai a generated/copied contract or explicit patch request rather than editing it concurrently.
@@ -59,7 +59,7 @@ You may prepare shared DTO definitions for `apps/web/src/types.ts`, but Thai own
 Produce and circulate one concise contract document or committed types containing:
 
 1. `AgentProvider`, purposes, session/sandbox modes
-2. `TelagentEnvelope`
+2. `TelaegentEnvelope`
 3. all core record interfaces/status unions
 4. all tool names and argument/result schemas
 5. `AgentStep` wrapper and purpose-specific output schemas
@@ -71,13 +71,13 @@ Produce and circulate one concise contract document or committed types containin
 
 Do this before implementing engines. Khoa, Phuong, Hien, and Thai depend on it.
 
-## 5. Telagent envelope
+## 5. Telaegent envelope
 
 Implement a strict schema for:
 
 ```ts
-interface TelagentEnvelope<TPayload> {
-  schemaVersion: "telagent.v1";
+interface TelaegentEnvelope<TPayload> {
+  schemaVersion: "telaegent.v1";
   requestId: string;
   correlationId: string;
   idempotencyKey: string;
@@ -86,7 +86,7 @@ interface TelagentEnvelope<TPayload> {
   intentId?: string;
   sender: { ownerId: string; agentId: string; provider: AgentProvider };
   recipient?: { ownerId: string; agentId: string };
-  operation: TelagentToolName;
+  operation: TelaegentToolName;
   payload: TPayload;
   delivery: {
     mode: "async";

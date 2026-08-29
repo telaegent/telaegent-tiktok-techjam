@@ -16,7 +16,7 @@ const root = process.env.VITEST_FIXTURE_ROOT ?? "fixtures/phoenix";
 
 export default defineConfig({
   root,
-  cacheDir: path.join(tmpdir(), "telagent-fixture-vite-cache"),
+  cacheDir: path.join(tmpdir(), "telaegent-fixture-vite-cache"),
   test: {
     include: ["tests/**/*.test.ts"],
     exclude: ["**/node_modules/**"],

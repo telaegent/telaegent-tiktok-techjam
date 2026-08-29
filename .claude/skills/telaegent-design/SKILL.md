@@ -37,7 +37,7 @@ word "Telaegent" — the mark already contains the wordmark, so the pair reads a
 duplicate.
 
 **Name spelling.** The logo art spells it **Telaegent**; the written specs
-(`docs/plan.md`, `docs/TELAGENT_PRODUCT_FLOW.md`, `CLAUDE.md`) spell it **Telagent**. UI
+(`docs/plan.md`, `docs/TELAEGENT_PRODUCT_FLOW.md`, `CLAUDE.md`) spell it **Telaegent**. UI
 follows the logo. Keep the name in one exported constant so it can be flipped in
 one edit rather than hunted through JSX.
 

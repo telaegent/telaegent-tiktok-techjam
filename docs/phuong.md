@@ -1,10 +1,10 @@
 # Phuong — Runtime Providers and Execution Lifecycle
 
-This file is your self-contained implementation brief. Read `plan.md` and `TELAGENT_PRODUCT_FLOW.md` before editing code. If this file and the master plan appear inconsistent, stop and resolve the contract with Khoa before implementation.
+This file is your self-contained implementation brief. Read `plan.md` and `TELAEGENT_PRODUCT_FLOW.md` before editing code. If this file and the master plan appear inconsistent, stop and resolve the contract with Khoa before implementation.
 
 ## 1. Mission
 
-You own the connection between Telagent and real coding Agents.
+You own the connection between Telaegent and real coding Agents.
 
 Your work covers coworker workstream **#1** and the runtime half of **#5**:
 
@@ -55,7 +55,7 @@ Do not edit without owner handoff:
 
 - `apps/server/src/types.ts` — Duy owns the shared types
 - `apps/server/src/store.ts` — Khoa owns persistence
-- `apps/server/src/telagent/**` — Khoa, Duy, or Hien owns these by responsibility
+- `apps/server/src/telaegent/**` — Khoa, Duy, or Hien owns these by responsibility
 - `apps/web/**` — Thai owns frontend
 
 When a shared type is missing, send Duy the exact type change rather than editing concurrently.
@@ -207,7 +207,7 @@ Implement this through existing Agent/run lifecycle primitives:
 9. Mark Agent ready in success and failure paths.
 10. Propagate a safe typed failure.
 
-Normal Playground messages must not call this method unless Telagent explicitly invokes it.
+Normal Playground messages must not call this method unless Telaegent explicitly invokes it.
 
 ### 6.6 `sendVisibleCoordinatedMessage()`
 
@@ -256,7 +256,7 @@ Khoa owns the Operation state machine. You provide these signals:
 
 Required mapping:
 
-- process running → Telagent Operation `running`
+- process running → Telaegent Operation `running`
 - provider returns structured result → orchestrator validates before `completed`
 - process cancelled/restart → Operation `cancelled` or `failed`
 - provider waiting for interactive permission is a configuration defect; fail safely instead of hanging

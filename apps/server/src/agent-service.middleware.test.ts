@@ -57,7 +57,7 @@ const middlewareRequest = (
 });
 
 async function makeService(runner: MiddlewareProviderRunner) {
-  const root = await mkdtemp(path.join(tmpdir(), "telagent-runtime-test-"));
+  const root = await mkdtemp(path.join(tmpdir(), "telaegent-runtime-test-"));
   temporaryDirectories.push(root);
   const config = loadConfig({
     NODE_ENV: "test",

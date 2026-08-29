@@ -25,7 +25,7 @@ import {
 } from "./runtime-errors.js";
 
 const execFileAsync = promisify(execFile);
-const containerSchemaPath = "/tmp/telagent-output-schema.json";
+const containerSchemaPath = "/tmp/telaegent-output-schema.json";
 
 interface ActiveContainer {
   child: ChildProcess;
@@ -152,7 +152,7 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
       throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
     }
     const startedAt = Date.now();
-    const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
+    const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telaegent-schema-"));
     const hostSchemaPath = path.join(schemaDirectory, "output.schema.json");
     await writeFile(hostSchemaPath, JSON.stringify(outputSchema), {
       encoding: "utf8",

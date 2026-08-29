@@ -1,6 +1,6 @@
 # Hien — Tool Calls, Context Security, Phoenix Fixture, and End-to-End Tests
 
-This file is your self-contained implementation brief. Read `plan.md` and `TELAGENT_PRODUCT_FLOW.md` completely before editing.
+This file is your self-contained implementation brief. Read `plan.md` and `TELAEGENT_PRODUCT_FLOW.md` completely before editing.
 
 ## 1. Mission
 
@@ -39,19 +39,19 @@ Your work is done when:
 ## 3. Files you own
 
 ```text
-apps/server/src/telagent/tool-dispatcher.ts
-apps/server/src/telagent/context-policy.ts
-apps/server/src/telagent/context-workspace.ts
-apps/server/src/telagent/context-pack-validator.ts
-apps/server/src/telagent/dependency-impact.ts
-apps/server/src/telagent/redaction.ts
-apps/server/src/telagent/git-helper.ts
-apps/server/src/telagent/phoenix-fixture.ts
-apps/server/src/telagent/context-policy.test.ts
-apps/server/src/telagent/context-pack-validator.test.ts
-apps/server/src/telagent/dependency-impact.test.ts
-apps/server/src/telagent/redaction.test.ts
-apps/server/src/telagent/integration.test.ts
+apps/server/src/telaegent/tool-dispatcher.ts
+apps/server/src/telaegent/context-policy.ts
+apps/server/src/telaegent/context-workspace.ts
+apps/server/src/telaegent/context-pack-validator.ts
+apps/server/src/telaegent/dependency-impact.ts
+apps/server/src/telaegent/redaction.ts
+apps/server/src/telaegent/git-helper.ts
+apps/server/src/telaegent/phoenix-fixture.ts
+apps/server/src/telaegent/context-policy.test.ts
+apps/server/src/telaegent/context-pack-validator.test.ts
+apps/server/src/telaegent/dependency-impact.test.ts
+apps/server/src/telaegent/redaction.test.ts
+apps/server/src/telaegent/integration.test.ts
 ```
 
 You may add Phoenix fixture source files under the location agreed with Khoa.
@@ -80,7 +80,7 @@ Input:
 ```ts
 interface AuthorizedToolCall {
   callId: string;
-  name: TelagentToolName;
+  name: TelaegentToolName;
   arguments: unknown;
   permissionDecision: PermissionDecision;
   actor: { ownerId: string; agentId: string };
@@ -224,7 +224,7 @@ Add tests proving secret values do not appear in serialized results, snapshots, 
 Create a small TypeScript fixture with:
 
 ```text
-.telagent/project.json
+.telaegent/project.json
 .env
 .gitignore
 package.json

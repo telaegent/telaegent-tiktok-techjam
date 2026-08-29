@@ -2,7 +2,7 @@
 
 ## Project
 
-Telagent is coordination and trust middleware for separately owned coding agents. The TikTok TechJam prototype extends the Agent Launchpad Starter Kit with one Phoenix demo project, two mock owners, and two isolated coding-agent workspaces. Its canonical flow is: publish intent → detect conflict → exchange structured status → propose a resolution → obtain separate human approvals → transfer a permissioned, source-backed ContextPack → detect a dependency change → adapt the affected plan → complete with an auditable history.
+Telaegent is coordination and trust middleware for separately owned coding agents. The TikTok TechJam prototype extends the Agent Launchpad Starter Kit with one Phoenix demo project, two mock owners, and two isolated coding-agent workspaces. Its canonical flow is: publish intent → detect conflict → exchange structured status → propose a resolution → obtain separate human approvals → transfer a permissioned, source-backed ContextPack → detect a dependency change → adapt the affected plan → complete with an auditable history.
 
 ## Stack (locked)
 
@@ -31,7 +31,7 @@ Stay within the current owner's files unless that owner explicitly hands work ov
 ## Hard constraints
 
 1. Extend the Starter Kit; preserve its Agent CRUD, Playground, Fastify control plane, `AgentService`, `AgentRunner`, persistent sessions, isolated workspaces, Runtime containers, and JSON persistence.
-2. `TelagentService` invokes providers only through `AgentService`; no route or tool calls a runner directly. `AgentService` remains the sole owner of busy locks, lifecycle, cancellation, and session updates.
+2. `TelaegentService` invokes providers only through `AgentService`; no route or tool calls a runner directly. `AgentService` remains the sole owner of busy locks, lifecycle, cancellation, and session updates.
 3. A run receives exactly one validated workspace. Never let two agents write the same working directory, mount both workspaces together, or merge/push branches automatically.
 4. Treat model output, repository content, paths, and tool arguments as untrusted. Zod schemas and deterministic policy checks must precede state changes or disclosure.
 5. The model may propose; deterministic code authorizes and humans approve. A model cannot grant permission, approve an agreement, or weaken a path rule.
@@ -40,7 +40,7 @@ Stay within the current owner's files unless that owner explicitly hands work ov
 8. Planning, status, proposal, ContextPack, dependency, and replan runs are read-only. Only `implement` may use workspace-write, and ContextPack runs are fresh/ephemeral with no network.
 9. Do not silently fall back between providers or claim a fake/fixture run is live. Describe the design as A2A-inspired, not A2A-compliant, and state local encryption/auth limitations honestly.
 10. Keep loops bounded to three internal steps and three inter-agent exchanges. Preserve idempotency, TTL, version-pinned decisions, safe errors, and append-only audit evidence.
-11. Never reduce Telagent to a lock manager, task queue, generic chat, or direct agent-to-agent transcript exchange. Preserve the entire canonical flow.
+11. Never reduce Telaegent to a lock manager, task queue, generic chat, or direct agent-to-agent transcript exchange. Preserve the entire canonical flow.
 12. Keep P0 narrow: two agents, two owners, one Phoenix project, one conflict, one dual approval, one valid pack, one forbidden request, one dependency change, and one adaptive replan.
 
 ## Response discipline

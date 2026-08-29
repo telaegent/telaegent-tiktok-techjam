@@ -8,8 +8,8 @@ import { WorkspaceManager } from "./workspace.js";
 import {
   RuntimeUnavailableConflictEvaluator,
   RuntimeUnavailableConversationOrchestrator,
-} from "./telagent/conversation-orchestrator.js";
-import { TelagentService } from "./telagent/service.js";
+} from "./telaegent/conversation-orchestrator.js";
+import { TelaegentService } from "./telaegent/service.js";
 
 const config = loadConfig();
 await writeCodexConfig(config);
@@ -19,14 +19,14 @@ const workspaces = new WorkspaceManager(config.workspaceRoot);
 const runner = createRunner(config);
 const service = new AgentService(config, store, workspaces, runner);
 await service.initialize();
-const telagentService = new TelagentService(
+const telaegentService = new TelaegentService(
   store,
   new RuntimeUnavailableConversationOrchestrator(),
   new RuntimeUnavailableConflictEvaluator(),
 );
-await telagentService.reconcileOnStartup();
+await telaegentService.reconcileOnStartup();
 
-const app = await createApp(config, service, telagentService);
+const app = await createApp(config, service, telaegentService);
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");

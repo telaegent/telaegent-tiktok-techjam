@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  emptyTelagentDatabase,
+  emptyTelaegentDatabase,
   JsonStore,
-  nextTelagentEventSequence,
+  nextTelaegentEventSequence,
 } from "./store.js";
 
 const temporaryDirectories: string[] = [];
@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 describe("JsonStore", () => {
-  it("loads an old version-1 database with an empty Telagent shape", async () => {
+  it("loads an old version-1 database with an empty Telaegent shape", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "launchpad-store-test-"));
     temporaryDirectories.push(root);
     const databasePath = path.join(root, "db.json");
@@ -49,11 +49,11 @@ describe("JsonStore", () => {
 
     expect(store.snapshot()).toEqual({
       ...legacyDatabase,
-      telagent: emptyTelagentDatabase(),
+      telaegent: emptyTelaegentDatabase(),
     });
   });
 
-  it("normalizes missing Telagent collections without dropping existing data", async () => {
+  it("normalizes missing Telaegent collections without dropping existing data", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "launchpad-store-test-"));
     temporaryDirectories.push(root);
     const databasePath = path.join(root, "db.json");
@@ -65,9 +65,9 @@ describe("JsonStore", () => {
         messages: [],
         runs: [],
         futureTopLevelField: { preserve: true },
-        telagent: {
+        telaegent: {
           projects: [{ projectId: "phoenix" }],
-          futureTelagentCollection: [{ preserve: true }],
+          futureTelaegentCollection: [{ preserve: true }],
         },
       }),
       "utf8",
@@ -76,28 +76,28 @@ describe("JsonStore", () => {
     const store = new JsonStore(databasePath);
     await store.initialize();
 
-    expect(store.snapshot().telagent.projects).toEqual([
+    expect(store.snapshot().telaegent.projects).toEqual([
       { projectId: "phoenix" },
     ]);
-    expect(store.snapshot().telagent.operations).toEqual([]);
-    expect(store.snapshot().telagent.idempotencyRecords).toEqual([]);
+    expect(store.snapshot().telaegent.operations).toEqual([]);
+    expect(store.snapshot().telaegent.idempotencyRecords).toEqual([]);
     expect(store.snapshot().futureTopLevelField).toEqual({ preserve: true });
-    expect(store.snapshot().telagent.futureTelagentCollection).toEqual([
+    expect(store.snapshot().telaegent.futureTelaegentCollection).toEqual([
       { preserve: true },
     ]);
 
     await store.mutate(() => undefined);
     const persisted = JSON.parse(await readFile(databasePath, "utf8")) as {
       futureTopLevelField: unknown;
-      telagent: { futureTelagentCollection: unknown };
+      telaegent: { futureTelaegentCollection: unknown };
     };
     expect(persisted.futureTopLevelField).toEqual({ preserve: true });
-    expect(persisted.telagent.futureTelagentCollection).toEqual([
+    expect(persisted.telaegent.futureTelaegentCollection).toEqual([
       { preserve: true },
     ]);
   });
 
-  it("rejects a malformed known Telagent collection", async () => {
+  it("rejects a malformed known Telaegent collection", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "launchpad-store-test-"));
     temporaryDirectories.push(root);
     const databasePath = path.join(root, "db.json");
@@ -108,14 +108,14 @@ describe("JsonStore", () => {
         agents: [],
         messages: [],
         runs: [],
-        telagent: { operations: "not-an-array" },
+        telaegent: { operations: "not-an-array" },
       }),
       "utf8",
     );
 
     const store = new JsonStore(databasePath);
     await expect(store.initialize()).rejects.toThrow(
-      "Unsupported Telagent database collection: operations",
+      "Unsupported Telaegent database collection: operations",
     );
   });
 
@@ -129,8 +129,8 @@ describe("JsonStore", () => {
     await Promise.all(
       Array.from({ length: 12 }, (_, index) =>
         store.mutate((database) => {
-          const sequence = nextTelagentEventSequence(database);
-          database.telagent.events.push({
+          const sequence = nextTelaegentEventSequence(database);
+          database.telaegent.events.push({
             eventId: `event-${index}`,
             projectId: index % 2 === 0 ? "phoenix" : "another-project",
             sequence,
@@ -141,13 +141,13 @@ describe("JsonStore", () => {
 
     const sequences = store
       .snapshot()
-      .telagent.events.map((event) => (event as { sequence: number }).sequence);
+      .telaegent.events.map((event) => (event as { sequence: number }).sequence);
     expect(sequences).toEqual(Array.from({ length: 12 }, (_, index) => index + 1));
 
     const persisted = JSON.parse(await readFile(databasePath, "utf8")) as {
-      telagent: { events: Array<{ sequence: number }> };
+      telaegent: { events: Array<{ sequence: number }> };
     };
-    expect(persisted.telagent.events.map((event) => event.sequence)).toEqual(
+    expect(persisted.telaegent.events.map((event) => event.sequence)).toEqual(
       sequences,
     );
   });

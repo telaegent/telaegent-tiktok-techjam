@@ -210,7 +210,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         "Codex runtime credentials are not configured",
       );
     }
-    const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
+    const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telaegent-schema-"));
     const schemaPath = path.join(schemaDirectory, "output.schema.json");
     try {
       await writeFile(schemaPath, JSON.stringify(outputSchema), {

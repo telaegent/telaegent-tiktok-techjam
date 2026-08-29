@@ -1,15 +1,15 @@
-# Telagent Final Build Plan
+# Telaegent Final Build Plan
 
 Status: final implementation plan for the 3–4 day hackathon build  
 Audience: the five developers and their coding agents  
-Canonical product specification: `TELAGENT_PRODUCT_FLOW.md`
+Canonical product specification: `TELAEGENT_PRODUCT_FLOW.md`
 
 ## 0. Instructions for every human and coding agent
 
 Before changing code:
 
-1. Read this file and `TELAGENT_PRODUCT_FLOW.md` completely.
-2. Preserve the product name **Telagent**.
+1. Read this file and `TELAEGENT_PRODUCT_FLOW.md` completely.
+2. Preserve the product name **Telaegent**.
 3. Preserve the full product sequence:
 
    > Publish intent → detect conflict → exchange structured status → propose a resolution → collect separate human approvals → transfer a permissioned, source-backed ContextPack → detect a dependency change → adapt the affected plan → complete with an auditable history.
@@ -30,7 +30,7 @@ The implementation target is a convincing, real vertical slice, not a general mu
 
 ### 1.1 Product definition
 
-**Telagent is coordination and trust middleware for separately owned coding agents.** It allows agents working on the same logical repository to expose bounded work intent, detect conflicts, negotiate a proposed work split, obtain human authorization, share only approved source-backed context, and adapt when a dependency changes.
+**Telaegent is coordination and trust middleware for separately owned coding agents.** It allows agents working on the same logical repository to expose bounded work intent, detect conflicts, negotiate a proposed work split, obtain human authorization, share only approved source-backed context, and adapt when a dependency changes.
 
 The demonstration uses:
 
@@ -53,8 +53,8 @@ The coworker's proposal changes the implementation shape without changing the ca
 
 | Feedback | Final adaptation |
 | --- | --- |
-| Connect Codex and Claude Code in the same repo | Add provider adapters behind the Starter Kit's runner interface. Agents share a logical `projectId`, but write in separate branches/workspaces. They communicate through Telagent, not by directly calling each other. |
-| Specify the request format and permissions | Define a versioned `TelagentEnvelope`, Zod schemas, idempotency, expiry, evidence, permission classes, error codes, and state machines. |
+| Connect Codex and Claude Code in the same repo | Add provider adapters behind the Starter Kit's runner interface. Agents share a logical `projectId`, but write in separate branches/workspaces. They communicate through Telaegent, not by directly calling each other. |
+| Specify the request format and permissions | Define a versioned `TelaegentEnvelope`, Zod schemas, idempotency, expiry, evidence, permission classes, error codes, and state machines. |
 | Build a frontend/UI demo | Make the shared coordination conversation the main product surface. Tool actions, approvals, artifacts, and plan changes appear as inline cards. Add a small premium dark landing view inspired by the visual restraint of `x.ai/bot`, without copying its branding. |
 | Decide whether to store Agent memory | Persist only bounded coordination memory and audit evidence in the existing JSON database. Keep private provider sessions separate. Do not add a vector database or copy full Agent memory. |
 | Handle unanswered requests and security | Use durable asynchronous Operations and recipient inbox state. Return `202`, persist waiting state, poll snapshots, apply TTLs, and resume later. Use HTTPS only when remotely hosted; local MVP traffic stays on loopback or in-process. |
@@ -84,7 +84,7 @@ The Day 0 go/no-go gate is credentials:
 
 ### 2.2 Why the request is a stateful asynchronous task
 
-The A2A specification distinguishes messages, stateful tasks, artifacts, context identifiers, polling, streaming, and push updates. Telagent borrows those proven concepts but implements only a small local HTTP contract:
+The A2A specification distinguishes messages, stateful tasks, artifacts, context identifiers, polling, streaming, and push updates. Telaegent borrows those proven concepts but implements only a small local HTTP contract:
 
 - `requestId` identifies one request.
 - `conversationId` groups related turns.
@@ -93,17 +93,17 @@ The A2A specification distinguishes messages, stateful tasks, artifacts, context
 - HTTP `202` plus polling handles an Agent or owner who has not answered yet.
 - TTL, cancellation, terminal states, and idempotency handle retries and stale work.
 
-Telagent must be described as **A2A-inspired**, not A2A-compliant.
+Telaegent must be described as **A2A-inspired**, not A2A-compliant.
 
 ### 2.3 Why permissions are visible and deterministic
 
-The MCP tool specification recommends clear UI indicators for exposed tools, visible invocation state, and human ability to deny calls. Telagent follows that interaction model, but the model does not enforce authorization. The TypeScript policy engine calculates the effective permission class from the operation and arguments.
+The MCP tool specification recommends clear UI indicators for exposed tools, visible invocation state, and human ability to deny calls. Telaegent follows that interaction model, but the model does not enforce authorization. The TypeScript policy engine calculates the effective permission class from the operation and arguments.
 
 ### 2.4 Why memory is bounded
 
 Hermes Agent separates small curated memory from searchable session history, injects bounded memory at session start, and warns against two Agents writing the same memory home. MemGPT similarly motivates separate memory tiers instead of treating the whole transcript as active context.
 
-Telagent adopts four explicit tiers:
+Telaegent adopts four explicit tiers:
 
 1. **Run working context**: internal prompt/output for one runtime call; kept in memory and discarded after validation.
 2. **Private provider session**: Codex or Claude session ID owned by one Agent; never shared with the other Agent.
@@ -114,7 +114,7 @@ No long-term semantic memory provider or vector database is needed for the proto
 
 ### 2.5 Why the loop is action/observation based
 
-ReAct demonstrates the usefulness of interleaving model reasoning and environment actions. Telagent implements the externally visible part of that loop while keeping hidden reasoning private:
+ReAct demonstrates the usefulness of interleaving model reasoning and environment actions. Telaegent implements the externally visible part of that loop while keeping hidden reasoning private:
 
 ```text
 Human message
@@ -154,7 +154,7 @@ OWASP guidance for Agent and prompt-injection security emphasizes deterministic 
 - Runtime capability detection for Codex and Claude Code.
 - Normalized Codex and Claude runner adapters.
 - Phoenix fixture and two separate Agent workspaces/branches.
-- Conversation-centered Telagent UI.
+- Conversation-centered Telaegent UI.
 - Publish and persist structured intents.
 - Deterministic conflict detection.
 - Bounded status retrieval from Bob's private Agent session.
@@ -216,17 +216,17 @@ The build is complete only when a fresh local setup can demonstrate this sequenc
 5. Alice submits “Add Google OAuth.”
 6. Alice's Agent plans without writing conflicting code.
 7. The deterministic engine blocks/suspends implementation because the score is at least 5.
-8. Telagent obtains Bob's bounded structured status.
+8. Telaegent obtains Bob's bounded structured status.
 9. An Agent proposes the canonical ownership agreement.
 10. Alice and Bob approve on separate controls; the agreement becomes active only after the second approval.
 11. Alice's Agent resumes and implements only Alice-owned files/interfaces.
 12. Alice's Agent requests Redis session architecture context.
 13. Bob approves `docs/architecture/**`, `src/auth/**`, and `tests/auth/**` for that purpose and TTL.
 14. Bob's Agent produces a source-backed ContextPack from an isolated workspace.
-15. Telagent validates and injects the pack into Alice's current task only.
+15. Telaegent validates and injects the pack into Alice's current task only.
 16. A `.env` request is denied before any file content is opened.
 17. Bob changes `SessionRepository.create` so `deviceId` is required.
-18. Telagent finds Alice's dependency and asks her Agent to revise its plan.
+18. Telaegent finds Alice's dependency and asks her Agent to revise its plan.
 19. Alice sees original/revised steps and approves the plan delta.
 20. Alice's Agent updates code, runs tests, and completes.
 21. The visible audit timeline contains attributable evidence for every important stage.
@@ -256,7 +256,7 @@ Use the actual Starter Kit seams already researched for this project:
   - `apps/server/src/workspace.ts`
   - `apps/server/src/config.ts`
 - Existing `JsonStore` serializes mutations and performs atomic temporary-write plus rename. Extend it; do not replace it.
-- Existing database version 1 contains Agents, messages, and runs. Add a `telagent` property with safe defaults.
+- Existing database version 1 contains Agents, messages, and runs. Add a `telaegent` property with safe defaults.
 - Existing `AgentService` owns the one-active-run-per-Agent invariant and persistent Codex thread ID.
 - Existing restart behavior cancels queued/running runs and resets busy Agents.
 - Existing runner request has Agent ID, workspace, prompt, and thread ID.
@@ -308,8 +308,8 @@ Do not add LangChain, a multi-agent framework, Prisma, React Router, Redux, Tail
 ┌───────────────────────────────▼─────────────────────────────────────────────┐
 │ Fastify                                                                    │
 │  ├─ Existing Agent routes                                                  │
-│  └─ /api/telagent routes                                                   │
-│       └─ TelagentService / ConversationOrchestrator                         │
+│  └─ /api/telaegent routes                                                   │
+│       └─ TelaegentService / ConversationOrchestrator                         │
 │            ├─ Envelope/schema validation                                   │
 │            ├─ Agent-loop controller                                        │
 │            ├─ Conflict + dependency engines                                │
@@ -339,12 +339,12 @@ Do not add LangChain, a multi-agent framework, Prisma, React Router, Redux, Tail
 
 ### 7.1 Non-negotiable boundaries
 
-- `TelagentService` may invoke an Agent only through `AgentService`.
-- No Telagent route may call a runner directly.
+- `TelaegentService` may invoke an Agent only through `AgentService`.
+- No Telaegent route may call a runner directly.
 - `AgentService` remains the single owner of busy locks, run lifecycle, cancellation, and provider session updates.
 - Normal Playground messages keep their existing behavior.
 - Internal middleware prompts and raw outputs do not enter the public message history.
-- Only `TelagentService` may turn validated internal output into a shared conversation entry.
+- Only `TelaegentService` may turn validated internal output into a shared conversation entry.
 - Only the deterministic policy engine may authorize source access.
 
 ---
@@ -365,7 +365,7 @@ Seed the repository with:
 }
 ```
 
-at `.telagent/project.json`. Copies and worktrees inherit the same `projectId`. The server also records:
+at `.telaegent/project.json`. Copies and worktrees inherit the same `projectId`. The server also records:
 
 - normalized Git remote when present
 - base commit
@@ -384,7 +384,7 @@ For the prototype, matching `projectId` is authoritative. Remote URL and base co
 - Each run receives exactly one workspace root.
 - No run can write outside its workspace.
 - ContextPack generation receives a third temporary read-only workspace containing only approved sources.
-- Telagent never merges the two branches.
+- Telaegent never merges the two branches.
 
 ### 8.3 Git checkpoint rule
 
@@ -471,12 +471,12 @@ Add `apps/server/src/claude-code-runner.ts` implementing the same runner contrac
 - Planning/status/context runs use plan/read-only-compatible permission configuration and no edit tools.
 - Implementation runs expose only the minimum read/edit/test tools needed for the fixture.
 - Do not use `--dangerously-skip-permissions`.
-- Do not forward subagent text or hidden thinking into Telagent.
+- Do not forward subagent text or hidden thinking into Telaegent.
 - Capture only the final validated object and necessary lifecycle metadata.
 
 ### 9.4 Capability endpoint
 
-`GET /api/telagent/runtime-capabilities` returns:
+`GET /api/telaegent/runtime-capabilities` returns:
 
 ```json
 {
@@ -512,7 +512,7 @@ sendVisibleCoordinatedMessage(input: {
 - validate/redact before persistence
 - update the provider session only when `sessionMode === "continue"`
 - ignore/detach session IDs for `fresh` or `ephemeral` runs
-- map restart/cancel to the associated Telagent Operation
+- map restart/cancel to the associated Telaegent Operation
 
 `sendVisibleCoordinatedMessage()` must:
 
@@ -609,13 +609,13 @@ When a human responds, a new service call validates the decision, records it, se
 
 ## 11. Versioned request format
 
-### 11.1 Telagent envelope
+### 11.1 Telaegent envelope
 
-Every Agent-to-Telagent or internal routed request uses this logical structure:
+Every Agent-to-Telaegent or internal routed request uses this logical structure:
 
 ```ts
-interface TelagentEnvelope<TPayload> {
-  schemaVersion: "telagent.v1";
+interface TelaegentEnvelope<TPayload> {
+  schemaVersion: "telaegent.v1";
   requestId: string;
   correlationId: string;
   idempotencyKey: string;
@@ -631,7 +631,7 @@ interface TelagentEnvelope<TPayload> {
     ownerId: string;
     agentId: string;
   };
-  operation: TelagentToolName;
+  operation: TelaegentToolName;
   payload: TPayload;
   delivery: {
     mode: "async";
@@ -654,7 +654,7 @@ The caller does **not** provide the authoritative permission class. The server d
 
 ```json
 {
-  "schemaVersion": "telagent.v1",
+  "schemaVersion": "telaegent.v1",
   "requestId": "req_ctx_01",
   "correlationId": "corr_demo_01",
   "idempotencyKey": "alice-context-redis-v1",
@@ -707,7 +707,7 @@ Content-Type: application/json
   "requestId": "req_ctx_01",
   "correlationId": "corr_demo_01",
   "state": "waiting_for_recipient",
-  "pollUrl": "/api/telagent/operations/op_01"
+  "pollUrl": "/api/telaegent/operations/op_01"
 }
 ```
 
@@ -966,10 +966,10 @@ interface Database {
   agents: Agent[];
   messages: AgentMessage[];
   runs: AgentRun[];
-  telagent: TelagentDatabase;
+  telaegent: TelaegentDatabase;
 }
 
-interface TelagentDatabase {
+interface TelaegentDatabase {
   projects: Project[];
   owners: Owner[];
   agentBindings: AgentBinding[];
@@ -988,7 +988,7 @@ interface TelagentDatabase {
 }
 ```
 
-On reading an old database, initialize `telagent` with empty arrays without changing existing Agent data.
+On reading an old database, initialize `telaegent` with empty arrays without changing existing Agent data.
 
 ### 15.3 Core records
 
@@ -1100,39 +1100,39 @@ Operation states:
 
 ```text
 apps/server/src/claude-code-runner.ts
-apps/server/src/telagent/types.ts
-apps/server/src/telagent/schemas.ts
-apps/server/src/telagent/constants.ts
-apps/server/src/telagent/service.ts
-apps/server/src/telagent/routes.ts
-apps/server/src/telagent/conversation-orchestrator.ts
-apps/server/src/telagent/tool-dispatcher.ts
-apps/server/src/telagent/conflict-engine.ts
-apps/server/src/telagent/agreement-engine.ts
-apps/server/src/telagent/permission-engine.ts
-apps/server/src/telagent/context-policy.ts
-apps/server/src/telagent/context-workspace.ts
-apps/server/src/telagent/context-pack-validator.ts
-apps/server/src/telagent/dependency-impact.ts
-apps/server/src/telagent/redaction.ts
-apps/server/src/telagent/git-helper.ts
-apps/server/src/telagent/phoenix-fixture.ts
-apps/server/src/telagent/prompts/plan-intent.ts
-apps/server/src/telagent/prompts/ask-status.ts
-apps/server/src/telagent/prompts/propose-resolution.ts
-apps/server/src/telagent/prompts/implement-with-agreement.ts
-apps/server/src/telagent/prompts/request-context.ts
-apps/server/src/telagent/prompts/create-context-pack.ts
-apps/server/src/telagent/prompts/publish-dependency-change.ts
-apps/server/src/telagent/prompts/revise-plan.ts
-apps/server/src/telagent/output-schemas/*.json
+apps/server/src/telaegent/types.ts
+apps/server/src/telaegent/schemas.ts
+apps/server/src/telaegent/constants.ts
+apps/server/src/telaegent/service.ts
+apps/server/src/telaegent/routes.ts
+apps/server/src/telaegent/conversation-orchestrator.ts
+apps/server/src/telaegent/tool-dispatcher.ts
+apps/server/src/telaegent/conflict-engine.ts
+apps/server/src/telaegent/agreement-engine.ts
+apps/server/src/telaegent/permission-engine.ts
+apps/server/src/telaegent/context-policy.ts
+apps/server/src/telaegent/context-workspace.ts
+apps/server/src/telaegent/context-pack-validator.ts
+apps/server/src/telaegent/dependency-impact.ts
+apps/server/src/telaegent/redaction.ts
+apps/server/src/telaegent/git-helper.ts
+apps/server/src/telaegent/phoenix-fixture.ts
+apps/server/src/telaegent/prompts/plan-intent.ts
+apps/server/src/telaegent/prompts/ask-status.ts
+apps/server/src/telaegent/prompts/propose-resolution.ts
+apps/server/src/telaegent/prompts/implement-with-agreement.ts
+apps/server/src/telaegent/prompts/request-context.ts
+apps/server/src/telaegent/prompts/create-context-pack.ts
+apps/server/src/telaegent/prompts/publish-dependency-change.ts
+apps/server/src/telaegent/prompts/revise-plan.ts
+apps/server/src/telaegent/output-schemas/*.json
 ```
 
 If the Starter Kit layout differs after cloning, keep responsibilities the same and document the mapping in the pull request.
 
 ### 16.3 Service responsibilities
 
-`TelagentService` is the transaction boundary for each state transition. Every public method must:
+`TelaegentService` is the transaction boundary for each state transition. Every public method must:
 
 1. Parse input.
 2. Load required records.
@@ -1164,7 +1164,7 @@ Do not hold the store mutation queue while waiting for a provider run.
 15. Inject the pack into Alice's next current-task prompt.
 16. Expire the pack on completion or TTL.
 
-Known limitation to disclose: provider session data may remain on the local host according to provider behavior. Telagent detaches the ContextPack session and never shares its ID, but does not claim secure deletion of provider-owned session files.
+Known limitation to disclose: provider session data may remain on the local host according to provider behavior. Telaegent detaches the ContextPack session and never shares its ID, but does not claim secure deletion of provider-owned session files.
 
 ### 16.5 Redaction
 
@@ -1183,7 +1183,7 @@ Store a safe reason and hash/digest when evidence is needed; do not store the se
 
 ## 17. HTTP API
 
-All routes use the `/api/telagent` prefix.
+All routes use the `/api/telaegent` prefix.
 
 ### 17.1 Setup and read APIs
 
@@ -1240,7 +1240,7 @@ This avoids races from fetching many endpoints independently during the demo.
 Do not add React Router. Use a small hash/view switch:
 
 - `#/` → landing view
-- `#/demo` → Telagent product
+- `#/demo` → Telaegent product
 - Playground remains accessible from the product header
 
 ### 18.2 Landing direction
@@ -1261,7 +1261,7 @@ Suggested copy:
 ```text
 Agents can work together without oversharing.
 
-Telagent detects collisions, asks the right people, transfers only approved
+Telaegent detects collisions, asks the right people, transfers only approved
 context, and keeps every decision auditable.
 ```
 
@@ -1324,24 +1324,24 @@ Modify:
 Add:
 
 ```text
-apps/web/src/telagent/LandingPage.tsx
-apps/web/src/telagent/TelagentApp.tsx
-apps/web/src/telagent/AgentRail.tsx
-apps/web/src/telagent/ConversationView.tsx
-apps/web/src/telagent/Composer.tsx
-apps/web/src/telagent/DetailDrawer.tsx
-apps/web/src/telagent/cards/IntentCard.tsx
-apps/web/src/telagent/cards/ConflictCard.tsx
-apps/web/src/telagent/cards/StatusCard.tsx
-apps/web/src/telagent/cards/ProposalCard.tsx
-apps/web/src/telagent/cards/ApprovalCard.tsx
-apps/web/src/telagent/cards/ToolCallCard.tsx
-apps/web/src/telagent/cards/PermissionCard.tsx
-apps/web/src/telagent/cards/ContextPackCard.tsx
-apps/web/src/telagent/cards/DependencyChangeCard.tsx
-apps/web/src/telagent/cards/PlanDiffCard.tsx
-apps/web/src/telagent/cards/OperationStatusCard.tsx
-apps/web/src/telagent/cards/AuditTimeline.tsx
+apps/web/src/telaegent/LandingPage.tsx
+apps/web/src/telaegent/TelaegentApp.tsx
+apps/web/src/telaegent/AgentRail.tsx
+apps/web/src/telaegent/ConversationView.tsx
+apps/web/src/telaegent/Composer.tsx
+apps/web/src/telaegent/DetailDrawer.tsx
+apps/web/src/telaegent/cards/IntentCard.tsx
+apps/web/src/telaegent/cards/ConflictCard.tsx
+apps/web/src/telaegent/cards/StatusCard.tsx
+apps/web/src/telaegent/cards/ProposalCard.tsx
+apps/web/src/telaegent/cards/ApprovalCard.tsx
+apps/web/src/telaegent/cards/ToolCallCard.tsx
+apps/web/src/telaegent/cards/PermissionCard.tsx
+apps/web/src/telaegent/cards/ContextPackCard.tsx
+apps/web/src/telaegent/cards/DependencyChangeCard.tsx
+apps/web/src/telaegent/cards/PlanDiffCard.tsx
+apps/web/src/telaegent/cards/OperationStatusCard.tsx
+apps/web/src/telaegent/cards/AuditTimeline.tsx
 ```
 
 ### 18.7 Accessibility and polish
@@ -1362,8 +1362,8 @@ apps/web/src/telagent/cards/AuditTimeline.tsx
 Seed a small TypeScript project requiring no external services:
 
 ```text
-.telagent/project.json
-.env                         # dummy, ignored, never read by Telagent
+.telaegent/project.json
+.env                         # dummy, ignored, never read by Telaegent
 .gitignore
 package.json
 package-lock.json
@@ -1504,7 +1504,7 @@ Never record:
 | Agent edits Bob-owned file | Reject checkpoint as ownership violation; do not mark complete. |
 | Dependency change while Alice is running | Finish/cancel current atomic provider run safely, mark awaiting replan before next run. |
 | UI loses connection | Snapshot reload reconstructs all cards and allowed actions. |
-| Store lacks `telagent` | Backfill empty shape without losing baseline data. |
+| Store lacks `telaegent` | Backfill empty shape without losing baseline data. |
 | ContextPack expires | Remove from injectable context and mark expired; audit remains. |
 | User requests hidden reasoning/transcript | Always deny; share only structured public summary/status. |
 
@@ -1517,13 +1517,13 @@ Never record:
 Add:
 
 ```text
-apps/server/src/telagent/conflict-engine.test.ts
-apps/server/src/telagent/agreement-engine.test.ts
-apps/server/src/telagent/permission-engine.test.ts
-apps/server/src/telagent/context-policy.test.ts
-apps/server/src/telagent/context-pack-validator.test.ts
-apps/server/src/telagent/dependency-impact.test.ts
-apps/server/src/telagent/redaction.test.ts
+apps/server/src/telaegent/conflict-engine.test.ts
+apps/server/src/telaegent/agreement-engine.test.ts
+apps/server/src/telaegent/permission-engine.test.ts
+apps/server/src/telaegent/context-policy.test.ts
+apps/server/src/telaegent/context-pack-validator.test.ts
+apps/server/src/telaegent/dependency-impact.test.ts
+apps/server/src/telaegent/redaction.test.ts
 apps/server/src/claude-code-runner.test.ts
 ```
 
@@ -1557,7 +1557,7 @@ Required cases:
 
 ### 22.3 Store tests
 
-- old version-1 data loads with empty Telagent state
+- old version-1 data loads with empty Telaegent state
 - atomic concurrent decisions cannot both corrupt state
 - event sequence is monotonic
 - idempotency returns original record
@@ -1590,7 +1590,7 @@ Assert runner call count, provider, sandbox, session mode, prompts absent from p
 
 - Fresh install on the demo machine
 - Untouched Playground run
-- One full Telagent flow
+- One full Telaegent flow
 - One real Codex run
 - One real Claude run if credentials gate passed
 - `.env` denial live
@@ -1667,7 +1667,7 @@ Team outcomes:
 - Codex live probe green
 - Claude live probe green or honestly marked unavailable
 - Phoenix fixture contract frozen
-- `TelagentEnvelope`, core records, permission matrix, tool schemas, error codes, and snapshot response frozen
+- `TelaegentEnvelope`, core records, permission matrix, tool schemas, error codes, and snapshot response frozen
 - frontend wireframe frozen
 - file ownership assigned
 
@@ -1686,7 +1686,7 @@ Exit gate: every person can paste their personal `.md` into their coding agent w
 Morning:
 
 - Phuong: provider selection, Claude adapter parser, AgentService middleware seam
-- Khoa: Telagent data backfill, service skeleton, Operations, snapshot, routes
+- Khoa: Telaegent data backfill, service skeleton, Operations, snapshot, routes
 - Duy: Zod schemas, conflict/permission/agreement engines
 - Thai: landing shell, product shell, conversation renderer, polling API
 - Hien: Phoenix fixture, Git helper, tool dispatcher skeleton, fake runners
@@ -1793,7 +1793,7 @@ Detailed self-contained assignments are in `phuong.md`, `khoa.md`, `duy.md`, `th
 | Person | Primary ownership | Coworker workstream |
 | --- | --- | --- |
 | **Phuong** | Codex/Claude runtime adapters, AgentService execution seam, async provider lifecycle and transport/runtime security | #1 plus runtime half of #5 |
-| **Khoa** | Backend lead, store/data model, Telagent service, Operations, conversation loop, waiting/resume/restart, shared memory, integration | #4 plus orchestration half of #5 |
+| **Khoa** | Backend lead, store/data model, Telaegent service, Operations, conversation loop, waiting/resume/restart, shared memory, integration | #4 plus orchestration half of #5 |
 | **Duy** | Versioned request format, Zod schemas, permissions, state machines, agreement/conflict rules, API errors and protocol tests | #2, paired tightly with #6 |
 | **Thai** | Landing, product shell, conversation UI, approval/permission/artifact/plan cards, polling and demo UX | #3, independently consuming frozen APIs |
 | **Hien** | Tool-call schemas/dispatcher, context source policy/isolation/validation, Git/Phoenix fixture, dependency impact, security and E2E tests | #6, paired tightly with #2 |
@@ -1809,7 +1809,7 @@ Detailed self-contained assignments are in `phuong.md`, `khoa.md`, `duy.md`, `th
 
 **Protocol/tool pair: Duy + Hien**
 
-- Freeze `TelagentEnvelope`, tool names, tool argument schemas, permission classes, and errors on Day 0.
+- Freeze `TelaegentEnvelope`, tool names, tool argument schemas, permission classes, and errors on Day 0.
 - Duy owns external/validation contracts and state rules.
 - Hien owns execution, source isolation, and tool-specific security.
 - Every tool schema needs one Duy validation test and one Hien execution/security test.
@@ -1892,7 +1892,7 @@ Target: 3 minutes.
 
 Show the minimal landing view.
 
-> “Two employee-owned coding agents can touch the same repository, but they should not share private memory or make commitments for their owners. Telagent is the coordination and trust layer between them.”
+> “Two employee-owned coding agents can touch the same repository, but they should not share private memory or make commitments for their owners. Telaegent is the coordination and trust layer between them.”
 
 Click `Launch Phoenix demo`.
 
@@ -1920,7 +1920,7 @@ Show changed files, tests, checkpoint commit, expired task-only ContextPack, and
 
 ### 2:50–3:00 — close
 
-> “Telagent does not replace human teamwork. It lets separately owned agents coordinate routine details while people retain ownership, privacy, and authority.”
+> “Telaegent does not replace human teamwork. It lets separately owned agents coordinate routine details while people retain ownership, privacy, and authority.”
 
 ---
 
@@ -1987,7 +1987,7 @@ Show changed files, tests, checkpoint commit, expired task-only ContextPack, and
 
 ## 30. References used for these decisions
 
-- Canonical local product specification: `TELAGENT_PRODUCT_FLOW.md`
+- Canonical local product specification: `TELAEGENT_PRODUCT_FLOW.md`
 - Starter Kit repository: [RrankPyramid/CodeJam](https://github.com/RrankPyramid/CodeJam)
 - Landing-page visual reference: [Grok Bot](https://x.ai/bot)
 - Agent memory reference supplied by the team: [Hermes Agent persistent memory](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory)

@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "publicSummary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "nextAction": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "const": "relay_publish_intent"
+                },
+                "arguments": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "branch": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 255,
+                      "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))(?!.*\\.\\.\\/)[A-Za-z0-9._\\/-]+$"
+                    },
+                    "baseCommit": {
+                      "type": "string",
+                      "pattern": "^[a-fA-F0-9]{7,64}$"
+                    },
+                    "plannedFiles": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      }
+                    },
+                    "interfaces": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      }
+                    },
+                    "dependencies": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      }
+                    },
+                    "plan": {
+                      "maxItems": 12,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      }
+                    }
+                  },
+                  "required": [
+                    "task",
+                    "branch",
+                    "baseCommit",
+                    "plannedFiles",
+                    "interfaces",
+                    "dependencies",
+                    "plan"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "name",
+                "arguments"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "const": "relay_request_human_decision"
+                },
+                "arguments": {
+                  "type": "object",
+                  "properties": {
+                    "reasonCode": {
+                      "type": "string",
+                      "enum": [
+                        "SOURCE_ACCESS_REQUIRED",
+                        "DUAL_COMMITMENT_REQUIRED",
+                        "AFFECTED_PLAN_APPROVAL_REQUIRED",
+                        "STALE_STATUS",
+                        "AMBIGUOUS_RESOLUTION",
+                        "EXCHANGE_LIMIT_REACHED"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "options": {
+                      "minItems": 2,
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "safeDescription": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label",
+                          "safeDescription"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "reasonCode",
+                    "reason",
+                    "options"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "name",
+                "arguments"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "taskState": {
+      "type": "string",
+      "enum": [
+        "working",
+        "blocked",
+        "completed"
+      ]
+    }
+  },
+  "required": [
+    "publicSummary",
+    "nextAction",
+    "taskState"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:telaegent:output-schema:plan-intent:v1",
+  "title": "Telaegent Plan Intent Agent Output v1"
+}

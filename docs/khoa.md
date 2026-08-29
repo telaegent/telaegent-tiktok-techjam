@@ -1,10 +1,10 @@
 # Khoa — Backend Orchestrator, Shared Memory, and Integration Lead
 
-This file is your self-contained implementation brief. Read `plan.md` and `TELAGENT_PRODUCT_FLOW.md` completely before editing.
+This file is your self-contained implementation brief. Read `plan.md` and `TELAEGENT_PRODUCT_FLOW.md` completely before editing.
 
 ## 1. Mission
 
-You own Telagent's backend coordination brain and final integration.
+You own Telaegent's backend coordination brain and final integration.
 
 Your work covers coworker workstream **#4** and the orchestration half of **#5**:
 
@@ -25,11 +25,11 @@ You do not implement provider process mechanics, permission algorithms, frontend
 Your work is done when:
 
 - old Starter Kit database data loads without loss
-- all Telagent state is persisted under one compatible `telagent` property
+- all Telaegent state is persisted under one compatible `telaegent` property
 - each long operation returns HTTP `202` immediately
 - unanswered recipient/human requests survive refresh and are visible in the correct owner inbox
 - human decisions resume the exact paused version, not stale work
-- `TelagentService` never calls a runner directly
+- `TelaegentService` never calls a runner directly
 - all Agent execution goes through Phuong's `AgentService` seam
 - raw prompts/private transcripts/unvalidated output never enter shared memory
 - one project snapshot reconstructs the full conversation and valid actions
@@ -44,17 +44,17 @@ Your work is done when:
 apps/server/src/store.ts
 apps/server/src/app.ts
 apps/server/src/index.ts
-apps/server/src/telagent/service.ts
-apps/server/src/telagent/routes.ts
-apps/server/src/telagent/conversation-orchestrator.ts
-apps/server/src/telagent/constants.ts   # after Duy freezes protocol constants
-apps/server/src/telagent/service.test.ts
-apps/server/src/telagent/routes.test.ts
+apps/server/src/telaegent/service.ts
+apps/server/src/telaegent/routes.ts
+apps/server/src/telaegent/conversation-orchestrator.ts
+apps/server/src/telaegent/constants.ts   # after Duy freezes protocol constants
+apps/server/src/telaegent/service.test.ts
+apps/server/src/telaegent/routes.test.ts
 ```
 
 Coordinate before editing:
 
-- `apps/server/src/types.ts` and `telagent/types.ts` — Duy owns public types
+- `apps/server/src/types.ts` and `telaegent/types.ts` — Duy owns public types
 - `apps/server/src/agent-service.ts` — Phuong owns runtime seam
 - tool/policy/context/Git/fixture files — Hien owns
 - frontend — Thai owns
@@ -75,7 +75,7 @@ With Duy:
 
 - database record types
 - state transition tables
-- `TelagentEnvelope`
+- `TelaegentEnvelope`
 - error envelope
 - version/idempotency semantics
 
@@ -129,7 +129,7 @@ Provider session ID may live only on the owning Agent binding. It is never shown
 Extend the existing version-1 database with:
 
 ```ts
-telagent: {
+telaegent: {
   projects: [],
   owners: [],
   agentBindings: [],
@@ -149,7 +149,7 @@ telagent: {
 ```
 
 - Do not increment the database version unless the actual store requires it.
-- Normalize missing `telagent` to the empty shape at read time.
+- Normalize missing `telaegent` to the empty shape at read time.
 - Keep existing queued mutation and atomic temp-write/rename behavior.
 - Generate audit event sequence inside the same atomic mutation as the corresponding state transition.
 - Never hold the store queue while awaiting an Agent run.
@@ -205,7 +205,7 @@ escalated
 On server startup:
 
 - reuse existing behavior for Agent runs
-- mark Telagent Operations tied to queued/running runs as failed/cancelled with a safe restart reason
+- mark Telaegent Operations tied to queued/running runs as failed/cancelled with a safe restart reason
 - keep `waiting_for_recipient` and `input_required` requests if still valid
 - expire records past TTL
 - do not auto-repeat provider calls
@@ -236,7 +236,7 @@ Implement the bounded loop from `plan.md`:
 
 Do not implement a generic autonomous loop. Each canonical stage has an explicit service method and known allowed tools.
 
-## 9. Telagent service methods
+## 9. Telaegent service methods
 
 Implement clear methods instead of one giant switch:
 
@@ -265,7 +265,7 @@ Every method must validate state and actor, use deterministic engines, create au
 
 ## 10. Routes
 
-Mount the `/api/telagent` APIs listed in `plan.md`.
+Mount the `/api/telaegent` APIs listed in `plan.md`.
 
 Rules:
 
@@ -336,7 +336,7 @@ Do not claim production-grade identity or encryption.
 
 ## 14. Tests you must write
 
-- old database loads with empty Telagent shape
+- old database loads with empty Telaegent shape
 - event sequence monotonic under concurrent mutations
 - duplicate idempotency key returns original Operation
 - stale version approval returns 412

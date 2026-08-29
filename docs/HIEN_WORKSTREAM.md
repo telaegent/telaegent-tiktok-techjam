@@ -24,7 +24,7 @@ Node 22+, npm 10+. No network needed for any test in this workstream.
 
 ## Verified on the demo machine
 
-Run on `C:\Telagent` with the machine's own Node 22.23.2 / npm 10.9.8 / git 2.34.1:
+Run on `C:\Telaegent` with the machine's own Node 22.23.2 / npm 10.9.8 / git 2.34.1:
 
 | Check | Result |
 | --- | --- |
@@ -58,7 +58,7 @@ work on any path.
 The sandbox this was built through cannot delete files, and git needs to remove
 its own `.lock` files after every commit, so only the first commit succeeded and
 a probe file was left behind. Fix it once from a **Git Bash terminal on Windows**
-at `C:\Telagent`:
+at `C:\Telaegent`:
 
 ```bash
 rm -f .git-probe-test
@@ -67,16 +67,16 @@ git init -b main
 
 # 1. untouched Starter Kit baseline, as plan.md §5 requires
 git add -A -- . \
-  ':!apps/server/src/telagent' ':!apps/server/fixtures' \
+  ':!apps/server/src/telaegent' ':!apps/server/fixtures' \
   ':!apps/server/vitest.config.ts' ':!apps/server/vitest.fixture.config.ts' \
-  ':!HIEN_WORKSTREAM.md' ':!docs/TELAGENT_SECURITY.md' \
-  ':!AGENTS.md' ':!plan.md' ':!TELAGENT_PRODUCT_FLOW.md' \
+  ':!HIEN_WORKSTREAM.md' ':!docs/TELAEGENT_SECURITY.md' \
+  ':!AGENTS.md' ':!plan.md' ':!TELAEGENT_PRODUCT_FLOW.md' \
   ':!duy.md' ':!hien.md' ':!khoa.md' ':!phuong.md' ':!thai.md'
 git commit -m "Import Agent Launchpad Starter Kit, untouched baseline"
 
 # 2. the team's plan
-git add AGENTS.md plan.md TELAGENT_PRODUCT_FLOW.md duy.md hien.md khoa.md phuong.md thai.md
-git commit -m "Add Telagent product flow, build plan and personal briefs"
+git add AGENTS.md plan.md TELAEGENT_PRODUCT_FLOW.md duy.md hien.md khoa.md phuong.md thai.md
+git commit -m "Add Telaegent product flow, build plan and personal briefs"
 
 # 3. workstream #6
 git add -A
@@ -91,22 +91,22 @@ Then create the branch the plan assigns you: `git checkout -b feat/tools-context
 
 | File | Purpose |
 | --- | --- |
-| `apps/server/src/telagent/contract.ts` | **Provisional** shared contract — Hien's written request to Duy. Delete its body and re-export `./types.js` when Duy's lands. Everything in #6 imports from here and nowhere else, so the swap is one file. |
-| `apps/server/src/telagent/ports.ts` | The injection boundary. Hien owns the shape, Khoa implements it. |
-| `apps/server/src/telagent/ports.node.ts` | The only file in #6 that imports `node:fs` or `node:child_process`. |
-| `apps/server/src/telagent/tool-schemas.ts` | Provisional Zod argument schemas for all eleven tools. Duy's `schemas.ts` replaces this. |
-| `apps/server/src/telagent/tool-dispatcher.ts` | Executes authorized tool calls. No store writes, no runner calls, no self-approval. |
-| `apps/server/src/telagent/context-policy.ts` | The ten-step path normalization and always-deny list. |
-| `apps/server/src/telagent/context-workspace.ts` | Isolated approved-source workspace + trusted manifest + safe cleanup. |
-| `apps/server/src/telagent/context-pack-validator.ts` | The twelve-step validation sequence. |
-| `apps/server/src/telagent/redaction.ts` | Pure bounded redaction helpers. Khoa calls these on every conversation entry. |
-| `apps/server/src/telagent/git-helper.ts` | Safe Git evidence and ownership validation. |
-| `apps/server/src/telagent/dependency-impact.ts` | Exact-membership impact detection and plan-revision validation. |
-| `apps/server/src/telagent/phoenix-fixture.ts` | Seeds, branches, tests and resets the Phoenix workspaces. |
-| `apps/server/src/telagent/testing/` | Memory filesystem, fake ports, scripted fake runners. **Shared with Khoa** (finding C12). |
+| `apps/server/src/telaegent/contract.ts` | **Provisional** shared contract — Hien's written request to Duy. Delete its body and re-export `./types.js` when Duy's lands. Everything in #6 imports from here and nowhere else, so the swap is one file. |
+| `apps/server/src/telaegent/ports.ts` | The injection boundary. Hien owns the shape, Khoa implements it. |
+| `apps/server/src/telaegent/ports.node.ts` | The only file in #6 that imports `node:fs` or `node:child_process`. |
+| `apps/server/src/telaegent/tool-schemas.ts` | Provisional Zod argument schemas for all eleven tools. Duy's `schemas.ts` replaces this. |
+| `apps/server/src/telaegent/tool-dispatcher.ts` | Executes authorized tool calls. No store writes, no runner calls, no self-approval. |
+| `apps/server/src/telaegent/context-policy.ts` | The ten-step path normalization and always-deny list. |
+| `apps/server/src/telaegent/context-workspace.ts` | Isolated approved-source workspace + trusted manifest + safe cleanup. |
+| `apps/server/src/telaegent/context-pack-validator.ts` | The twelve-step validation sequence. |
+| `apps/server/src/telaegent/redaction.ts` | Pure bounded redaction helpers. Khoa calls these on every conversation entry. |
+| `apps/server/src/telaegent/git-helper.ts` | Safe Git evidence and ownership validation. |
+| `apps/server/src/telaegent/dependency-impact.ts` | Exact-membership impact detection and plan-revision validation. |
+| `apps/server/src/telaegent/phoenix-fixture.ts` | Seeds, branches, tests and resets the Phoenix workspaces. |
+| `apps/server/src/telaegent/testing/` | Memory filesystem, fake ports, scripted fake runners. **Shared with Khoa** (finding C12). |
 | `apps/server/fixtures/phoenix/` | The Phoenix Web App fixture: 18 files, zero dependencies, 9 of its own tests. |
-| `apps/server/src/telagent/demo-evidence.ts` | Runnable proof script — see below. |
-| `docs/TELAGENT_SECURITY.md` | Security section for the submission README: architecture diagram, guarantee-to-test map, honest encryption answer, threat model. |
+| `apps/server/src/telaegent/demo-evidence.ts` | Runnable proof script — see below. |
+| `docs/TELAEGENT_SECURITY.md` | Security section for the submission README: architecture diagram, guarantee-to-test map, honest encryption answer, threat model. |
 
 ## Three guarantees, and where they are proven
 
@@ -117,7 +117,7 @@ Then create the branch the plan assigns you: `git checkout -b feat/tools-context
 ## Showing the security work
 
 ```bash
-npx tsx apps/server/src/telagent/demo-evidence.ts
+npx tsx apps/server/src/telaegent/demo-evidence.ts
 ```
 
 Runs the real code against a real Phoenix workspace and prints, in order: the
@@ -171,12 +171,12 @@ change, and the dispatcher still never reads approval state.
 ## Open asks, by owner
 
 **Duy** — three, none blocking:
-1. **`TELAGENT_LIMITS` has no per-file byte caps.** `plan.md` §12.3 specifies 32 KiB per file and 64 KiB total; without them the isolated workspace is bounded only by file count. Defined in `contract.ts` for now — move them to `constants.ts` and that block becomes a re-export.
+1. **`TELAEGENT_LIMITS` has no per-file byte caps.** `plan.md` §12.3 specifies 32 KiB per file and 64 KiB total; without them the isolated workspace is bounded only by file count. Defined in `contract.ts` for now — move them to `constants.ts` and that block becomes a re-export.
 2. **`ownershipAssignmentSchema.files` accepts only exact relative paths**, so a split cannot be expressed as `src/routes/**`. The ownership gate already supports prefixes; widening `filesSchema` to `pathRuleSchema` for ownership would let the demo express a scope instead of enumerating seven files.
 3. **`ReportDependencyChangeInput` has a single `interface` field**, but `plan.md` §14.2 says to match intents declaring "Session **or** SessionRepository". An optional `relatedInterfaces` array keeps matching exact. The demo still reaches Alice through the approved dependency link, so this is robustness, not a blocker.
 
 **Khoa**
-1. Implement `TelagentPorts` over `AgentService`. `ports.node.ts` gives you the filesystem, git and test-runner implementations already.
+1. Implement `TelaegentPorts` over `AgentService`. `ports.node.ts` gives you the filesystem, git and test-runner implementations already.
 2. `executeToolCall` returns data and never writes — apply `result.record` and `result.entry` inside your atomic mutation, alongside the `auditHint` events.
 3. **ContextPack generation is now yours to sequence.** Call `createApprovedContextWorkspace()`, run the provider with **`contextPackRunOptions(workspace.root)`** — it pins read-only, network-none, ephemeral session and the isolated path — then dispatch `relay_create_context_pack` with the candidate. The dispatcher rebuilds the manifest and validates. `context-workspace.test.ts` asserts those four options, so weakening them fails a test.
 4. Pass `DispatchContext.sourceGrant` (the `ExistingApprovalScope` you already load, plus `contextRequestId`, `sourceCommit`, `taskScope`).

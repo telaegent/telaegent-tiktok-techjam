@@ -42,7 +42,7 @@ describe("Container Codex middleware invocation", () => {
       "type=bind,src=C:\\approved\\workspace,dst=/workspace,readonly",
     );
     expect(args).toContain(
-      "type=bind,src=C:\\temp\\schema.json,dst=/tmp/telagent-output-schema.json,readonly",
+      "type=bind,src=C:\\temp\\schema.json,dst=/tmp/telaegent-output-schema.json,readonly",
     );
     expect(args).toContain("--ephemeral");
     expect(args).toContain("--interactive");

@@ -1,0 +1,41 @@
+import { z } from "zod";
+import { outputSchemasByName } from "./schemas.js";
+
+export type OutputSchemaFileName = keyof typeof outputSchemasByName;
+export type JsonSchemaDocument = Record<string, unknown> & {
+  $schema?: string;
+  $id: string;
+  title: string;
+  additionalProperties?: boolean;
+};
+
+const titleByName: Record<OutputSchemaFileName, string> = {
+  "plan-intent.schema.json": "Telaegent Plan Intent Agent Output v1",
+  "status.schema.json": "Telaegent Status Agent Output v1",
+  "resolution.schema.json": "Telaegent Resolution Agent Output v1",
+  "implementation-result.schema.json": "Telaegent Implementation Result Agent Output v1",
+  "context-request.schema.json": "Telaegent Context Request Agent Output v1",
+  "context-pack.schema.json": "Telaegent ContextPack Agent Output v1",
+  "dependency-change.schema.json": "Telaegent Dependency Change Agent Output v1",
+  "plan-revision.schema.json": "Telaegent Plan Revision Agent Output v1",
+};
+
+export function buildOutputSchemaDocuments(): Record<
+  OutputSchemaFileName,
+  JsonSchemaDocument
+> {
+  return Object.fromEntries(
+    Object.entries(outputSchemasByName).map(([name, schema]) => {
+      const fileName = name as OutputSchemaFileName;
+      const generated = z.toJSONSchema(schema as z.ZodType) as Record<string, unknown>;
+      return [
+        fileName,
+        {
+          ...generated,
+          $id: `urn:telaegent:output-schema:${fileName.replace(".schema.json", "")}:v1`,
+          title: titleByName[fileName],
+        },
+      ];
+    }),
+  ) as unknown as Record<OutputSchemaFileName, JsonSchemaDocument>;
+}

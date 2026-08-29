@@ -1,12 +1,12 @@
 # Thai — Frontend, Conversation UX, and Demo Presentation
 
-This file is your self-contained implementation brief. Read `plan.md` and `TELAGENT_PRODUCT_FLOW.md` completely before editing.
+This file is your self-contained implementation brief. Read `plan.md` and `TELAEGENT_PRODUCT_FLOW.md` completely before editing.
 
 ## 1. Mission
 
 You own coworker workstream **#3**: the complete visible product experience.
 
-Build a polished but restrained frontend that makes Telagent's trust model obvious:
+Build a polished but restrained frontend that makes Telaegent's trust model obvious:
 
 - premium dark landing view inspired by the compositional restraint of `x.ai/bot`
 - Agent/owner/provider/workspace visibility
@@ -46,13 +46,13 @@ apps/web/src/types.ts
 apps/web/src/api.ts
 apps/web/src/App.tsx
 apps/web/src/styles.css
-apps/web/src/telagent/LandingPage.tsx
-apps/web/src/telagent/TelagentApp.tsx
-apps/web/src/telagent/AgentRail.tsx
-apps/web/src/telagent/ConversationView.tsx
-apps/web/src/telagent/Composer.tsx
-apps/web/src/telagent/DetailDrawer.tsx
-apps/web/src/telagent/cards/*.tsx
+apps/web/src/telaegent/LandingPage.tsx
+apps/web/src/telaegent/TelaegentApp.tsx
+apps/web/src/telaegent/AgentRail.tsx
+apps/web/src/telaegent/ConversationView.tsx
+apps/web/src/telaegent/Composer.tsx
+apps/web/src/telaegent/DetailDrawer.tsx
+apps/web/src/telaegent/cards/*.tsx
 ```
 
 Do not edit server code. Ask Duy for types/fixtures and Khoa for route behavior.
@@ -80,7 +80,7 @@ Freeze the information hierarchy before visual polish.
 Do not add React Router. Use hash/location state:
 
 - `#/` landing
-- `#/demo` Telagent
+- `#/demo` Telaegent
 - existing Playground reachable from a top-level view switch
 
 Preserve Starter Kit Agent CRUD/lifecycle UI. If `App.tsx` is monolithic, extract the existing content carefully into a `PlaygroundView` only when necessary; avoid a large rewrite.
@@ -93,7 +93,7 @@ Style direction:
 - off-white primary text
 - subdued gray secondary text
 - thin low-contrast borders
-- one Telagent accent, preferably warm amber or electric teal
+- one Telaegent accent, preferably warm amber or electric teal
 - large centered headline with strong line breaks
 - concise paragraph, two CTAs
 - product preview frame under hero
@@ -103,7 +103,7 @@ Style direction:
 Suggested content:
 
 ```text
-Telagent
+Telaegent
 
 Agents can work together without oversharing.
 
@@ -124,7 +124,7 @@ Desktop:
 - left: Alice/Bob Agent rail with owner, provider, branch, status, progress
 - center: shared coordination conversation and composer
 - right: selected card details or audit timeline
-- top: Telagent/Playground switch, Phoenix project, reset/init controls
+- top: Telaegent/Playground switch, Phoenix project, reset/init controls
 
 Mobile/narrow:
 

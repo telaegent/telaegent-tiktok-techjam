@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Database } from "./types.js";
 
-const telagentCollectionNames = [
+const telaegentCollectionNames = [
   "projects",
   "owners",
   "agentBindings",
@@ -20,16 +20,16 @@ const telagentCollectionNames = [
   "idempotencyRecords",
 ] as const;
 
-type TelagentCollectionName = (typeof telagentCollectionNames)[number];
+type TelaegentCollectionName = (typeof telaegentCollectionNames)[number];
 
-export type TelagentDatabase = Record<TelagentCollectionName, unknown[]> &
+export type TelaegentDatabase = Record<TelaegentCollectionName, unknown[]> &
   Record<string, unknown>;
 
-export type DatabaseWithTelagent = Omit<Database, "telagent"> & {
-  telagent: TelagentDatabase;
+export type DatabaseWithTelaegent = Omit<Database, "telaegent"> & {
+  telaegent: TelaegentDatabase;
 } & Record<string, unknown>;
 
-export const emptyTelagentDatabase = (): TelagentDatabase => ({
+export const emptyTelaegentDatabase = (): TelaegentDatabase => ({
   projects: [],
   owners: [],
   agentBindings: [],
@@ -47,37 +47,37 @@ export const emptyTelagentDatabase = (): TelagentDatabase => ({
   idempotencyRecords: [],
 });
 
-const emptyDatabase = (): DatabaseWithTelagent => ({
+const emptyDatabase = (): DatabaseWithTelaegent => ({
   version: 1,
   agents: [],
   messages: [],
   runs: [],
-  telagent: emptyTelagentDatabase(),
+  telaegent: emptyTelaegentDatabase(),
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const normalizeTelagentDatabase = (value: unknown): TelagentDatabase => {
-  if (value === undefined) return emptyTelagentDatabase();
-  if (!isRecord(value)) throw new Error("Unsupported Telagent database format");
+const normalizeTelaegentDatabase = (value: unknown): TelaegentDatabase => {
+  if (value === undefined) return emptyTelaegentDatabase();
+  if (!isRecord(value)) throw new Error("Unsupported Telaegent database format");
 
-  const normalized: TelagentDatabase = {
+  const normalized: TelaegentDatabase = {
     ...value,
-    ...emptyTelagentDatabase(),
+    ...emptyTelaegentDatabase(),
   };
-  for (const name of telagentCollectionNames) {
+  for (const name of telaegentCollectionNames) {
     const collection = value[name];
     if (collection === undefined) continue;
     if (!Array.isArray(collection)) {
-      throw new Error(`Unsupported Telagent database collection: ${name}`);
+      throw new Error(`Unsupported Telaegent database collection: ${name}`);
     }
     normalized[name] = collection;
   }
   return normalized;
 };
 
-const normalizeDatabase = (value: unknown): DatabaseWithTelagent => {
+const normalizeDatabase = (value: unknown): DatabaseWithTelaegent => {
   if (!isRecord(value) || value.version !== 1) {
     throw new Error("Unsupported database format");
   }
@@ -94,15 +94,15 @@ const normalizeDatabase = (value: unknown): DatabaseWithTelagent => {
     agents: value.agents as Database["agents"],
     messages: value.messages as Database["messages"],
     runs: value.runs as Database["runs"],
-    telagent: normalizeTelagentDatabase(value.telagent),
+    telaegent: normalizeTelaegentDatabase(value.telaegent),
   };
 };
 
-export function nextTelagentEventSequence(
-  database: DatabaseWithTelagent,
+export function nextTelaegentEventSequence(
+  database: DatabaseWithTelaegent,
 ): number {
   let maximum = 0;
-  for (const candidate of database.telagent.events) {
+  for (const candidate of database.telaegent.events) {
     if (!isRecord(candidate)) continue;
     const sequence = candidate.sequence;
     if (typeof sequence === "number" && Number.isSafeInteger(sequence)) {
@@ -113,7 +113,7 @@ export function nextTelagentEventSequence(
 }
 
 export class JsonStore {
-  private data: DatabaseWithTelagent = emptyDatabase();
+  private data: DatabaseWithTelaegent = emptyDatabase();
   private queue: Promise<void> = Promise.resolve();
 
   constructor(private readonly filePath: string) {}
@@ -131,12 +131,12 @@ export class JsonStore {
     }
   }
 
-  snapshot(): DatabaseWithTelagent {
+  snapshot(): DatabaseWithTelaegent {
     return structuredClone(this.data);
   }
 
   async mutate<T>(
-    mutation: (database: DatabaseWithTelagent) => T | Promise<T>,
+    mutation: (database: DatabaseWithTelaegent) => T | Promise<T>,
   ): Promise<T> {
     let result!: T;
     const operation = this.queue.then(async () => {
@@ -150,7 +150,7 @@ export class JsonStore {
     return result;
   }
 
-  private async persist(data: DatabaseWithTelagent = this.data): Promise<void> {
+  private async persist(data: DatabaseWithTelaegent = this.data): Promise<void> {
     const temporaryPath = this.filePath + ".tmp";
     await writeFile(temporaryPath, JSON.stringify(data, null, 2) + "\n", {
       encoding: "utf8",
