@@ -10,6 +10,7 @@ Your work covers coworker workstream **#4** and the orchestration half of **#5**
 
 - decide and implement what coordination memory is persisted
 - extend the existing JSON database safely
+- own the central worker registry, persisted job queue, leases, heartbeats, and worker HTTP routes
 - implement Operations for long-running and unanswered requests
 - orchestrate the bounded conversation-centered Agent loop
 - expose routes and one authoritative frontend snapshot
@@ -30,10 +31,12 @@ Your work is done when:
 - unanswered recipient/human requests survive refresh and are visible in the correct owner inbox
 - human decisions resume the exact paused version, not stale work
 - `TelagentService` never calls a runner directly
-- all Agent execution goes through Phuong's `AgentService` seam
+- all Agent execution is dispatched as a typed job to Phuong's token-bound worker client
 - raw prompts/private transcripts/unvalidated output never enter shared memory
 - one project snapshot reconstructs the full conversation and valid actions
 - restart marks interrupted Operations safely while keeping pending human requests
+- worker disconnect/reconnect, lease expiry, and duplicate completion reconcile deterministically
+- Computer B can execute Bob's job without hosting Fastify, the UI, or a second database
 - the canonical end-to-end flow passes through Fastify with fake runners
 - normal Agent routes and Playground remain intact
 - `npm run check` passes
@@ -47,6 +50,8 @@ apps/server/src/index.ts
 apps/server/src/telagent/service.ts
 apps/server/src/telagent/routes.ts
 apps/server/src/telagent/conversation-orchestrator.ts
+apps/server/src/telagent/worker-service.ts
+apps/server/src/telagent/worker-routes.ts
 apps/server/src/telagent/constants.ts   # after Duy freezes protocol constants
 apps/server/src/telagent/service.test.ts
 apps/server/src/telagent/routes.test.ts
@@ -55,7 +60,7 @@ apps/server/src/telagent/routes.test.ts
 Coordinate before editing:
 
 - `apps/server/src/types.ts` and `telagent/types.ts` — Duy owns public types
-- `apps/server/src/agent-service.ts` — Phuong owns runtime seam
+- `apps/server/src/agent-service.ts` and `apps/server/src/worker/**` — Phuong owns local execution/client
 - tool/policy/context/Git/fixture files — Hien owns
 - frontend — Thai owns
 
@@ -65,8 +70,10 @@ You are merge gatekeeper, but that does not authorize rewriting another owner's 
 
 With Phuong:
 
-- `MiddlewareRunRequest`
+- `WorkerJob` and local `MiddlewareRunRequest` mapping
 - `NormalizedRunResult`
+- worker register/heartbeat/lease/complete/fail contract
+- reconnect/backoff/cancellation behavior
 - provider session rules
 - run lifecycle/cancellation callback
 - safe runtime error codes
@@ -120,7 +127,7 @@ Never persist:
 - credentials or environment values
 - provider home/session files
 
-Provider session ID may live only on the owning Agent binding. It is never shown to or injected into the other Agent.
+Provider session IDs live only in the owning worker's local state. The central Agent binding may store a safe boolean such as `sessionAvailable`, never the session ID itself. A session is never shown to or injected into the other Agent.
 
 ## 6. Persistence implementation
 
@@ -143,6 +150,8 @@ telagent: {
   dependencyChanges: [],
   planRevisions: [],
   operations: [],
+  workers: [],
+  workerJobs: [],
   events: [],
   idempotencyRecords: []
 }
@@ -165,6 +174,29 @@ For long work:
 5. Atomic mutation applies result, state transition, conversation entries, and audit event.
 
 If step 3 fails, step 5 records a safe failure.
+
+### 6.3 Central worker registry and jobs
+
+Persist safe records for:
+
+- worker ID, bound Agent ID, token hash, safe machine label, provider label, capability flags, last heartbeat, and status
+- job ID, Agent ID, Operation ID, purpose, schema/version, correlation/idempotency IDs, created/expiry times, state, lease owner/version/expiry, safe result/error reference
+
+Never persist or return the raw worker token, provider credential, provider home, absolute local workspace, raw provider stream, or private session files.
+
+Required job states:
+
+```text
+queued
+leased
+running
+completed
+failed
+cancelled
+expired
+```
+
+Only the worker whose hashed token is bound to the job's Agent may lease, heartbeat, complete, or fail it. Completion must atomically check job state, lease owner/version, expiry, correlation ID, and result schema. Duplicate terminal calls return the original terminal DTO without repeating workflow effects.
 
 ## 7. Operation and unanswered-request design
 
@@ -224,14 +256,14 @@ Implement the bounded loop from `plan.md`:
 
 1. Choose purpose-specific output schema/tool allowlist.
 2. Build internal runtime prompt from safe current state.
-3. Call `AgentService.runMiddlewareTurn()`.
+3. Create a persisted WorkerJob for the recipient Agent and wait asynchronously for its validated completion.
 4. Ask Duy's schema to parse result.
 5. Append only safe `publicSummary`.
 6. If no tool: complete current stage.
 7. If tool: ask Duy's permission engine.
 8. Deny, pause for a human, or call Hien's dispatcher.
 9. Append safe tool call/result.
-10. Resume the same Agent session with the observation when allowed.
+10. Queue a new job for the same Agent session with the observation when allowed.
 11. Stop after maximum 3 internal steps.
 
 Do not implement a generic autonomous loop. Each canonical stage has an explicit service method and known allowed tools.
@@ -267,6 +299,18 @@ Every method must validate state and actor, use deterministic engines, create au
 
 Mount the `/api/telagent` APIs listed in `plan.md`.
 
+You own these worker routes:
+
+```text
+POST /workers/register
+POST /workers/:workerId/heartbeat
+GET  /workers/:workerId/jobs/next?waitMs=25000
+POST /jobs/:jobId/complete
+POST /jobs/:jobId/fail
+```
+
+Authenticate worker routes from an `Authorization: Bearer` token, compare only a stored hash using a timing-safe comparison where practical, and bind the token to one Agent. Long-poll waits must be bounded and released on abort/shutdown; do not hold the JSON store mutation queue while waiting.
+
 Rules:
 
 - Zod-parse params/body.
@@ -281,6 +325,7 @@ Rules:
 One `GET /projects/phoenix/snapshot` response must contain:
 
 - project and runtime-safe Agent bindings
+- safe worker/machine/provider labels and online/busy/stale/offline state
 - acting owners
 - safe shared conversation entries in sequence order
 - intents
@@ -325,10 +370,12 @@ The Audit Timeline is derived from events, not from parsing conversation text.
 
 Coordinate with Phuong and document honestly:
 
-- local browser/server uses loopback HTTP
-- server/provider uses local process/container boundaries
+- browser/server and server/workers use plaintext HTTP on a dedicated hotspot/private LAN for the prototype
+- Computer B initiates outbound requests and exposes no server
+- worker bearer tokens provide demo authentication but not production identity or encryption
+- each worker/provider uses local process/container boundaries
 - no custom end-to-end encryption in MVP
-- remote hosting requires HTTPS
+- public or hosted deployment would require HTTPS and real identity
 - JSON database is not encrypted at rest
 - security comes from data minimization, local scope, deterministic authorization, isolation, and no secret persistence
 
@@ -336,6 +383,14 @@ Do not claim production-grade identity or encryption.
 
 ## 14. Tests you must write
 
+- worker token can register/lease/complete only its bound Agent's jobs
+- raw token is hashed and never returned in snapshot/audit/error
+- heartbeat drives online/busy/stale/offline deterministically
+- long-poll abort/timeout releases cleanly and never holds the store lock
+- lease expiry and reconnect do not lose queued work
+- stale lease and duplicate completion cannot apply a result twice
+- malformed/oversized/wrong-schema completion fails before orchestration
+- server restart expires active leases without silently rerunning a local Agent
 - old database loads with empty Telagent shape
 - event sequence monotonic under concurrent mutations
 - duplicate idempotency key returns original Operation
@@ -356,6 +411,7 @@ Do not claim production-grade identity or encryption.
 ### Day 1
 
 - data backfill and store tests
+- worker registry/jobs/leases/routes with Phuong's fake client
 - service/routes/Operation skeleton
 - initialize + snapshot
 - conversation submission through conflict with fake runners
@@ -363,6 +419,7 @@ Do not claim production-grade identity or encryption.
 
 ### Day 2
 
+- real Bob worker leases and completes one structured job over the LAN
 - status/proposal/dual approval
 - loop pause/resume
 - context request waiting/resume
@@ -373,7 +430,7 @@ Do not claim production-grade identity or encryption.
 - dependency/replan/completion
 - restart/idempotency/expiry
 - full Fastify integration test
-- integrate real providers
+- integrate real workers/providers on both computers
 - full `npm run check`
 
 ### Day 4
@@ -384,7 +441,7 @@ Do not claim production-grade identity or encryption.
 ## 16. Integration responsibilities
 
 - Merge Duy's shared schemas before service code relies on them.
-- Do not accept a Phuong runner change that bypasses AgentService state.
+- Do not accept a Phuong worker/runtime change that bypasses job identity or local AgentService state.
 - Do not accept a Hien tool that evaluates its own human permission.
 - Do not accept frontend code that invents allowed actions.
 - Keep integration branch green at both daily windows.
@@ -396,10 +453,11 @@ Do not claim production-grade identity or encryption.
 - Do not store complete Agent sessions or memory.
 - Do not wait synchronously for recipient approval.
 - Do not call runners directly.
+- Do not run a provider CLI or resolve a remote workspace inside the central Fastify process.
 - Do not let one API call perform an unbounded loop.
 - Do not auto-retry a provider run after restart.
 - Do not mix raw domain records with frontend-calculated authorization.
-- Do not implement production auth or remote callbacks.
+- Do not add ModelArk, a broker, WebSockets, automatic discovery, public callbacks, or production auth.
 
 ## 18. Final report format
 
@@ -412,4 +470,3 @@ Require your coding agent to report:
 5. route/snapshot contract
 6. tests and `npm run check` result
 7. integration blockers by owner
-

@@ -2,9 +2,30 @@
 
 ## Product definition
 
-**Telagent is coordination and trust middleware for separately owned AI agents.** It lets agents share structured work intent, request approved context, prevent conflicting work, and adapt when teammates' plans change while humans retain control over disclosure and commitments.
+**Telagent is a messaging and trust platform for separately owned AI agents.** It lets an Agent on one computer coordinate with an Agent on another computer without sharing raw sessions, credentials, or full workspaces. Agents share structured work intent, request approved context, prevent conflicting work, and adapt when teammates' plans change while humans retain control over disclosure and commitments.
 
-The TikTok TechJam prototype targets two coding agents, two mock owners, and one shared software project. It is implemented as Track 1 middleware inside the provided Agent Launchpad Starter Kit rather than as a replacement platform.
+The TikTok TechJam prototype targets two coding Agents, two mock owners, two computers on one private LAN, and one shared logical software project. It extends the Track 1 Starter Kit's React/Fastify control plane while moving Agent execution to one owner-controlled worker per computer.
+
+## Final two-computer topology
+
+```text
+Computer A                                                Computer B
+┌──────────────────────────────────────┐                  ┌──────────────────────────────┐
+│ Browser / React UI                   │                  │ Bob private workspace        │
+│          ↓                           │                  │ Bob local Codex/Claude CLI   │
+│ Fastify + Telagent + JSON store      │                  │          ↑                   │
+│          ↑                           │                  │ Bob Agent Worker             │
+│ Alice Agent Worker                   │<──── LAN HTTP ───┴──────────────────────────────┘
+│ Alice workspace + local Agent CLI    │   outbound long-poll
+└──────────────────────────────────────┘
+```
+
+- Computer A hosts the only Fastify server, UI, and coordination store, plus Alice's worker.
+- Computer B hosts Bob's worker, workspace, and locally authenticated Agent CLI.
+- Workers register, heartbeat, long-poll for authorized jobs, and return structured results.
+- P0 uses a manually configured server URL and one long random token per worker. There is no discovery service, broker, WebSocket layer, or cloud dependency.
+- ModelArk is removed completely. Telagent does not select or host a model; each worker uses its computer's existing Codex or Claude authentication.
+- A dedicated phone hotspot or trusted private LAN is the primary demo network. Plain LAN HTTP is a disclosed prototype limitation and must never be exposed directly to the public internet.
 
 ## Non-negotiable core flow
 
@@ -20,7 +41,7 @@ The hackathon demonstration focuses on a small software team because conflicts, 
 
 Telagent is not:
 
-- A general messaging or chat platform
+- A generic human chat app
 - A replacement for the Starter Kit
 - An autonomous code-merging system
 - A generic resource-locking service or task queue
@@ -29,20 +50,9 @@ Telagent is not:
 
 ## Starter Kit integration
 
-The existing Starter Kit continues to own:
+Keep and extend the Starter Kit's React UI, Fastify control plane, Agent CRUD concepts, lifecycle conventions, runner interface, workspaces, and JSON persistence. Remove all ModelArk-specific configuration and assumptions. The server-side `AgentService` lifecycle becomes a reusable local worker service rather than the only place Agents can execute.
 
-- React Agent UI and Playground
-- Agent CRUD and lifecycle controls
-- Fastify control plane
-- `AgentService`
-- `AgentRunner`
-- Persistent Codex sessions
-- Per-Agent workspaces
-- Local disposable Runtime containers
-- BytePlus ModelArk integration
-- Existing JSON persistence
-
-Telagent is inserted as middleware between the API/control plane and Agent execution path:
+Telagent is inserted between Fastify and owner-controlled Agent Workers:
 
 ```text
 Existing React UI
@@ -59,14 +69,16 @@ Telagent Middleware
   |- Dependency impact and replanning
   `- Audit events
         |
-Existing AgentService
+Persisted worker-job queue
         |
-Existing AgentRunner
+Private LAN HTTP: register / heartbeat / long-poll / complete
         |
-Codex Runtime and per-Agent workspaces
+Owner's Agent Worker
+        |
+Local AgentService -> local AgentRunner -> local workspace
 ```
 
-Use the existing JSON store for the prototype. Do not introduce AWS, DynamoDB, S3, a separate FastAPI service, or ECS unless later evidence makes one essential.
+Use the existing JSON store for the prototype. Do not introduce AWS, DynamoDB, S3, a separate FastAPI service, ECS, or a hosted inference service.
 
 ## Controlled project setup
 
@@ -91,7 +103,7 @@ Agent: Bob Coding Agent
 Workspace or branch: phoenix-bob / feature/redis-sessions
 ```
 
-Both Agent workspaces contain copies or separate branches of the same seeded project. Add a lightweight `projectId` and mock owner identity to associate them. Production authentication is explicitly out of scope.
+Both Agent workspaces contain copies or separate branches of the same seeded project identity, but Alice's files stay on Computer A and Bob's files stay on Computer B. Add a lightweight `projectId`, mock owner identity, worker binding, and expected fixture revision to associate them. Production authentication is explicitly out of scope.
 
 ## Sharing policy
 
@@ -155,7 +167,7 @@ Telagent validates and persists the intention. Bob's Agent performs a real Codex
 }
 ```
 
-The Runtime invocation may finish while the larger task remains `in_progress`, leaving Bob's persistent Codex session available for bounded status and context requests.
+The Runtime invocation may finish while the larger task remains `in_progress`, leaving Bob's private local Agent session available on Computer B for bounded status and context requests.
 
 ### 2. Alice submits a potentially conflicting task
 
@@ -575,7 +587,32 @@ relay_reply
 relay_complete_task
 ```
 
-For the Starter Kit, prefer using `AgentService`, persistent Codex sessions, and `AgentRunner` rather than building external per-machine sidecars. This is an infrastructure substitution, not a product-flow change.
+These logical operations remain product-level messages. They are delivered through persisted worker jobs:
+
+```text
+Alice action
+  -> Fastify validates and creates an Operation
+  -> Telagent queues a typed job for Bob's bound worker
+  -> Bob's worker leases it over the LAN
+  -> Bob's local AgentService/runner invokes Bob's local CLI in Bob's workspace
+  -> Bob's worker returns one structured candidate
+  -> Fastify revalidates schema, policy, version, and correlation ID
+  -> Telagent stores only the safe result and exposes it to Alice
+```
+
+P0 worker endpoints under `/api/telagent`:
+
+```text
+POST /workers/register
+POST /workers/:workerId/heartbeat
+GET  /workers/:workerId/jobs/next?waitMs=25000
+POST /jobs/:jobId/complete
+POST /jobs/:jobId/fail
+```
+
+Every worker token binds to exactly one Agent ID. Jobs use leases, expiry, idempotency, bounded payloads, safe typed failures, and one terminal completion. A job specifies a purpose and execution policy, never an arbitrary command or sender-selected local path. The worker resolves its own configured workspace. Raw provider streams, credentials, provider homes, and private sessions never cross the LAN.
+
+Approved-source ContextPack isolation runs on the source owner's computer. Bob's worker copies only approved files into a temporary local workspace, creates a trusted manifest, runs an ephemeral read-only Agent turn, validates the candidate, and returns only the bounded artifact. Alice never receives Bob's full workspace.
 
 ## Hackathon scope limits
 
@@ -591,9 +628,11 @@ For the Starter Kit, prefer using `AgentService`, persistent Codex sessions, and
 - Allowlisted local project files only
 - No automatic code merging
 - No production authentication
-- No cross-machine or cross-vendor integration
+- Exactly two manually configured LAN workers; no discovery, NAT traversal, or public federation
+- No ModelArk, hosted inference service, self-hosted model weights, or GPU hosting
+- No message broker, second database, or network-shared workspace
 - No claim of full A2A compliance
-- Local execution is the default
+- Local Agent execution on each owner's computer is mandatory
 
 ## Essential automated verification
 
@@ -609,14 +648,16 @@ For the Starter Kit, prefer using `AgentService`, persistent Codex sessions, and
 - Dependency changes identify affected intentions.
 - Replanning preserves the approved ownership agreement.
 - Exchange and timeout limits trigger escalation.
+- Worker tokens cannot lease or complete another Agent's jobs.
+- Worker heartbeat, lease expiry, duplicate completion, reconnect, and offline behavior are deterministic.
+- Two fake workers can execute the full canonical flow through Fastify.
 - Existing Agent CRUD, Playground, persistence, and Runtime execution continue to work.
 - `npm run check` passes.
 
 ## Three-minute demo narrative
 
-Alice and Bob use separate coding Agents on the same project. Their Agents unknowingly depend on the same `Session` interface. Telagent detects the conflict before incompatible work is completed, obtains bounded status from Bob's Agent, proposes a human-approved division of responsibility, lets Alice continue a real coding Run, safely transfers source-backed project knowledge, blocks an attempt to access `.env`, and revises Alice's plan when Bob changes the shared contract.
+Alice and Bob use separate coding Agents on two computers connected through a private LAN. Their Agents unknowingly depend on the same `Session` interface. Telagent detects the conflict before incompatible work is completed, dispatches a bounded status request to Bob's local worker, proposes a human-approved division of responsibility, lets Alice continue a real local coding Run, safely transfers a source-backed ContextPack rather than Bob's workspace, blocks an attempt to access `.env`, and revises Alice's plan when Bob changes the shared contract.
 
 The closing message is:
 
 > Telagent does not replace human teamwork. It lets separately owned agents coordinate routine details while people retain ownership, privacy, and authority.
-

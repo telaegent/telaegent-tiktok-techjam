@@ -9,5 +9,5 @@ allowed_ssh_cidr = "203.0.113.10/32"
 
 # Push this generated repository to a public Git remote before using the
 # full Terraform + cloud-init path.
-repository_url = "https://github.com/your-org/volc-agent-launchpad.git"
+repository_url = "https://github.com/telaegent/telaegent-tiktok-techjam.git"
 repository_ref = "main"

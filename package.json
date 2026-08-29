@@ -1,8 +1,8 @@
 {
-  "name": "volc-agent-launchpad",
+  "name": "telaegent-tiktok-techjam",
   "version": "1.0.0",
   "private": true,
-  "description": "A middleware-free Agent platform starter kit running Codex CLI locally or on Volcengine ECS.",
+  "description": "Telagent messaging and trust infrastructure for independently owned coding Agents.",
   "type": "module",
   "workspaces": [
     "apps/*"

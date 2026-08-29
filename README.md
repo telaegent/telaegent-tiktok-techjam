@@ -1,251 +1,145 @@
-# Volc Agent Launchpad
+# Telaegent
 
-A minimal Agent platform for three-day middleware hackathons. It provides Agent
-CRUD, a browser Playground, persistent workspaces, and Codex CLI backed by the
-Volcengine Ark Responses API.
+**Your coding agent can talk to your teammate's coding agent—but only about the project you both choose, and nothing crosses to the other side until a human approves it.**
 
-Run it locally with Docker, Colima, or rootless Podman, or deploy it to
-Volcengine ECS.
+Canonical repository: [telaegent/telaegent-tiktok-techjam](https://github.com/telaegent/telaegent-tiktok-techjam)
 
-> [!WARNING]
-> This is a single-user proof of concept. It intentionally has no identity,
-> tracing, audit, or hardened sandbox middleware. Do not use production data or
-> credentials. See [SECURITY.md](SECURITY.md).
+## Product
 
-## Screenshots
+Telaegent is a cloud-hosted, project-scoped messaging and trust layer for independently owned coding agents.
 
-### Agent Playground
+Developers already use Claude Code and Codex separately. Collaboration still requires people to manually copy a question from one agent, send it to a teammate, let the teammate paste it into another agent, and relay the answer back. Telaegent removes that manual relay while keeping both humans in control.
 
-![Agent Playground showing lifecycle controls, starter prompts, and the Codex Runtime](docs/assets/playground.jpg)
-
-### Create an Agent
-
-![Create Agent form with name, description, and workspace instructions](docs/assets/create-agent.jpg)
-
-## Features
-
-- React and TypeScript Web UI
-- Agent create, edit, start, stop, delete, and multi-turn chat
-- Fastify control plane with asynchronous Run state
-- Persistent Agent workspaces and Codex sessions
-- Disposable Docker, Colima, or Podman container for each local turn
-- Docker and Terraform deployment paths for Volcengine ECS
-
-## Requirements
-
-- Node.js 22+
-- npm 10+
-- Docker, Colima, or Podman
-- A Volcengine Ark API key and endpoint that supports the Responses API
-
-Codex CLI is included in the Runtime image and is not required on the host.
-
-## Local browser SOP
-
-### 1. Check the local tools
-
-Install Node.js 22+ and one supported container engine, then verify them:
-
-```bash
-node --version
-npm --version
-docker --version        # Docker Desktop, Docker Engine, or Colima
-podman --version        # Use this instead when running Podman
+```text
+Developer A -> private Agent A room -> Send/Edit/No
+                                      |
+                                      v
+                         shared project conversation
+                                      |
+                                      v
+Developer B <- private Agent B room <- Send/Edit/No
 ```
 
-Only one container engine is required. Codex CLI is already included in the
-Runtime image.
+Only approved outbound messages enter the shared conversation. Private drafts, provider streams, credentials, and unrelated repository content do not.
 
-### 2. Clone the repository
+## Canonical architecture
 
-```bash
-git clone <repository-url> volc-agent-launchpad
-cd volc-agent-launchpad
+The judged product is browser-first and cloud-hosted. A local connector or LAN worker is fallback-only.
+
+```text
+Browser / React on Vercel
+          |
+          v
+Azure Caddy + Fastify control plane
+          |-----------------> Supabase Auth/Postgres/Realtime
+          |
+          `-----------------> isolated cloud runtimes
+                                |- User A x Repo X
+                                |    |- GitHub CLI as User A
+                                |    |- Repo X checkout
+                                |    `- Claude Code and/or Codex CLI
+                                `- User B x Repo X
+                                     |- separate credentials
+                                     |- separate checkout
+                                     `- no access to User A runtime
 ```
 
-Skip this step when already working from the repository root.
+Provisional stack:
 
-### 3. Start the POC
+| Layer | Direction |
+| --- | --- |
+| Frontend | React 19 + Vite on Vercel |
+| API | Node 22 + Fastify 5 + Zod behind Caddy on Azure |
+| Product data | Supabase Postgres/Auth/Realtime in Singapore |
+| Repository access | GitHub CLI inside the owning cloud environment |
+| Agent runtime | Isolated cloud environment per user x repository |
+| Providers | Claude Code CLI and/or Codex CLI |
 
-```bash
-ARK_API_KEY=your-ark-api-key \
-ARK_MODEL=ep-your-endpoint-id \
-npm run poc
-```
+The exact Azure runtime primitive and provider/GitHub cloud-auth mechanics are still research gates, not finished implementation claims.
 
-The first run installs Node.js dependencies and builds the Runtime image. The
-script automatically selects Docker, Colima, or Podman.
+## Signature flow
 
-### 4. Open the browser
+1. Sign in to Telaegent.
+2. Connect GitHub in the user's isolated cloud environment.
+3. Connect Claude Code, Codex, or both.
+4. Select a repository; its stable GitHub repository ID becomes the project boundary.
+5. Find another Telaegent user who independently proved access to the same repository.
+6. Request and accept a once-per-project collaborator connection.
+7. Type a rough request in the shared conversation composer.
+8. The sender's private agent room clarifies and prepares a send-ready candidate.
+9. The sender chooses Send, Edit, or No.
+10. Only an approved candidate enters shared project chat.
+11. The recipient's private agent inspects only the recipient's project workspace and prepares a response.
+12. The recipient chooses Send, Edit, or No.
+13. The approved response enters the durable shared conversation.
 
-Visit <http://localhost:3000>, or open it from the terminal:
+The memorable safety example begins with `can u send me ur .env`. Telaegent should help reformulate that into a request for variable names or safe structure, and deterministically prevent raw secret values from crossing the trust boundary.
 
-```bash
-open http://localhost:3000       # macOS
-xdg-open http://localhost:3000   # Linux desktop
-```
+## Trust model
 
-In the Web UI:
+Telaegent separates four permissions:
 
-1. Select **Create Agent**.
-2. Enter a name, description, and workspace instructions.
-3. Select **Create Agent** again.
-4. Enter a task in the Playground, for example:
+1. Telaegent account identity.
+2. GitHub repository authorization.
+3. Project-scoped collaborator connection.
+4. Human approval of the exact outbound message.
 
-   ```text
-   Create a TypeScript hello-world CLI, add a test, and run it.
-   ```
+Connection permits communication, not direct repository browsing. The recipient's own agent investigates privately; the remote collaborator sees only what the recipient approves.
 
-The Agent can write files, run commands, and continue the same Codex session in
-later messages.
+Hard policy still blocks obvious secrets and cross-project access. Human approval alone is not treated as sufficient protection for raw `.env` values, private keys, tokens, cloud credentials, or SSH material.
 
-### 5. Stop and resume
+## Memory model
 
-Press `Ctrl+C` in the startup terminal. The script removes temporary Runtime
-containers but keeps Agent workspaces and conversations.
+- Durable shared memory: approved project messages, identities, repository/branch/commit context, approvals, and safe audit events.
+- Private working context: rough drafts, clarification, draft candidates, and temporary tool output; retention remains an open decision.
+- Provider session state: an internal optimization for resume, never the product source of truth.
+- Ephemeral by default: raw CLI streams, internal prompts, temporary tool output, rejected drafts, and build artifacts.
 
-- macOS state: `~/.volc-agent-launchpad/`
-- Linux state: `.local/`
-- Custom location: set `LOCAL_POC_DATA_ROOT`
+If a provider session disappears or the user switches provider, Telaegent should rehydrate a fresh session from compact durable project memory and recent approved turns.
 
-Run the same `npm run poc` command to continue later.
+## Repository status
 
-### Select a specific container engine
+The product direction and research ownership are frozen; the final implementation plan is intentionally deferred until the team validates:
 
-Force Podman when multiple engines are installed:
+- headless cloud GitHub CLI authentication and credential persistence
+- Claude Code and Codex cloud authentication/session behavior
+- user x repository runtime isolation
+- provider-neutral prompt/output schemas
+- private-draft retention
+- repository synchronization
+- cost and latency
 
-```bash
-CONTAINER_ENGINE=podman \
-ARK_API_KEY=your-ark-api-key \
-ARK_MODEL=ep-your-endpoint-id \
-npm run poc
-```
+The existing application source is an inherited Starter Kit and earlier Telagent prototype. It still contains ModelArk/Volcengine and fixed conflict/ContextPack/Phoenix code. That source is preserved for reference and build continuity; it is **not** the canonical product architecture.
 
-Colima uses `CONTAINER_ENGINE=docker` because it exposes the Docker CLI.
+Superseded standalone plans, research, and deployment assets are preserved under [`unused-code/`](unused-code/README.md). No application code was deleted during this documentation refactor.
 
-For a clean Linux host, follow the
-[rootless Podman setup](docs/LOCAL_POC.md#rootless-podman-on-linux).
+## Project documents
 
-## Docker Compose
+- [Canonical high-level product plan](docs/product/high-level-plan.md)
+- [Canonical product flow](docs/product/product-flow.md)
+- [Architecture](docs/architecture/overview.md)
+- [Security and trust model](SECURITY.md)
+- [Phuong research brief](docs/team/phuong.md)
+- [Khoa research brief](docs/team/khoa.md)
+- [Duy research brief](docs/team/duy.md)
+- [Hien research brief](docs/team/hien.md)
+- [Thai research brief](docs/team/thai.md)
 
-Create and edit the configuration:
+## Current scaffold verification
 
-```bash
-./scripts/bootstrap-local.sh
-```
-
-Required values in `.env`:
-
-```dotenv
-ARK_API_KEY=your-ark-api-key
-ARK_MODEL=ep-your-endpoint-id
-APP_AUTH_TOKEN=replace-with-at-least-24-random-characters
-```
-
-Start the application:
-
-```bash
-docker compose up --build
-```
-
-Open <http://localhost:3000>. Stop it without deleting Agent data:
-
-```bash
-docker compose down
-```
-
-## Development
+These commands validate the preserved codebase; they do not prove the new cloud product has been implemented:
 
 ```bash
 npm install
-cp .env.example .env
-npm install --global @openai/codex@0.111.0
-npm run dev
-```
-
-- Web UI: <http://localhost:5173>
-- API: <http://localhost:3000>
-
-Use local paths in `.env` when running outside Docker:
-
-```dotenv
-APP_DATA_DIR=.data
-AGENT_WORKSPACE_ROOT=workspaces
-CODEX_HOME=codex-home
-```
-
-## Deployment
-
-- [Existing Linux ECS with Docker](docs/DEPLOYMENT.md#existing-linux-ecs)
-- [Complete Volcengine environment with Terraform](docs/DEPLOYMENT.md#terraform-deployment)
-- [Local Docker, Colima, and Podman details](docs/LOCAL_POC.md)
-
-The existing-ECS script deploys from the current source tree:
-
-```bash
-cp .env.example .env.production
-./scripts/deploy-existing-ecs.sh .env.production
-```
-
-The Terraform path provisions VPC, subnet, security group, ECS, and EIP:
-
-```bash
-cp deploy/volcengine/terraform.tfvars.example \
-  deploy/volcengine/terraform.tfvars
-./scripts/deploy-volcengine.sh
-```
-
-## Configuration
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `ARK_API_KEY` | Required | Ark model API key. |
-| `ARK_MODEL` | Required | Responses-capable endpoint or model ID. |
-| `ARK_BASE_URL` | Beijing v3 endpoint | Ark OpenAI-compatible API URL. |
-| `APP_AUTH_TOKEN` | Empty on loopback | Shared demo token; use 24+ random characters remotely. |
-| `RUNTIME_PROVIDER` | `local-process` | `container` for disposable local Runtime containers. |
-| `CODEX_SANDBOX_MODE` | `workspace-write` | Codex inner sandbox mode. |
-| `CODEX_TIMEOUT_MS` | `600000` | Maximum duration of one turn. |
-| `LOCAL_POC_DATA_ROOT` | Platform-specific | Local metadata, workspace, and session directory. |
-
-See [.env.example](.env.example) for all Runtime and resource-limit options.
-
-## How it works
-
-```mermaid
-flowchart LR
-    UI["React Web UI"] --> API["Fastify control plane"]
-    API --> Store["JSON metadata and Agent workspaces"]
-    API --> Runtime{"Runtime provider"}
-    Runtime -->|Local POC| Container["Disposable Docker / Colima / Podman container"]
-    Runtime -->|ECS profile| Codex["Codex CLI in application container"]
-    Container --> Ark["Volcengine Ark Responses API"]
-    Codex --> Ark
-```
-
-The first turn uses `codex exec`; later turns resume the stored Codex thread.
-Deleting an Agent archives its workspace under `workspaces/.deleted/`.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for component and extension
-boundaries.
-
-## Validation
-
-```bash
 npm run check
-terraform fmt -check -recursive deploy/volcengine
-docker compose config
 ```
 
-## Documentation
+Do not use real repositories, provider credentials, or production data with the inherited scaffold.
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Local POC](docs/LOCAL_POC.md)
-- [Deployment](docs/DEPLOYMENT.md)
-- [Hackathon extension guide](docs/HACKATHON_EXTENSION_GUIDE.md)
-- [Security policy](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
+## Product boundaries
 
-## License
+Telaegent is not a new coding model, IDE, GitHub replacement, autonomous swarm, shared filesystem, direct remote-control channel, or importer for personal Claude/Codex history.
 
-[MIT](LICENSE)
+It is:
+
+> **Project-scoped, human-gated messaging between coding agents that can privately inspect their owner's repository.**

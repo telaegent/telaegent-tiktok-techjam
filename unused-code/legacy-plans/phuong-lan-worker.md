@@ -1,30 +1,33 @@
-# Phuong — Runtime Providers and Execution Lifecycle
+# Phuong — LAN Agent Worker and Local Runtime Lifecycle
 
 This file is your self-contained implementation brief. Read `plan.md` and `TELAGENT_PRODUCT_FLOW.md` before editing code. If this file and the master plan appear inconsistent, stop and resolve the contract with Khoa before implementation.
 
 ## 1. Mission
 
-You own the connection between Telagent and real coding Agents.
+You own the process that connects each computer's local coding Agent to Telagent.
 
 Your work covers coworker workstream **#1** and the runtime half of **#5**:
 
-- connect Codex and Claude Code through one normalized runner contract
-- keep the two Agents in separate workspaces/branches of the same logical repo
+- build the Agent Worker process/client that runs on Computer A and Computer B
+- register, heartbeat, long-poll, lease, execute, complete/fail, reconnect, and cancel safely
+- connect locally authenticated Codex and Claude Code through one normalized runner contract
+- keep each Agent's credentials, provider session, workspace, and raw output on its owner's computer
 - support structured output and resumable private sessions
 - enforce read-only vs workspace-write execution modes
-- integrate with the existing `AgentService` busy/run/cancel/restart lifecycle
+- reuse/refactor the existing `AgentService` busy/run/cancel/restart lifecycle inside each worker
 - expose safe provider availability
 - normalize provider failures without leaking secrets
 
-You do **not** implement coordination state, permission policy, frontend, ContextPack path authorization, or database memory.
+You do **not** decide which Agent should run, persist the central worker/job registry, implement coordination state, permission policy, frontend, ContextPack path authorization, or shared database memory. Those remain Khoa/Duy/Hien/Thai responsibilities.
 
 ## 2. Definition of success
 
 Your work is done when:
 
-- existing normal Playground runs behave exactly as before
-- `AgentService` can run a private structured middleware turn through Codex
-- the same method can target Claude Code when installed/authenticated
+- both computers can start the same worker command with different local configuration
+- Computer B reaches Computer A using outbound HTTP only and exposes no server
+- a token-bound worker can lease only its own Agent's job
+- the worker can run a private structured turn through an available local Codex or Claude CLI
 - both runners return one normalized result shape
 - planning/status/context/replan runs cannot edit the Agent workspace
 - implementation runs can edit only the assigned workspace
@@ -33,6 +36,8 @@ Your work is done when:
 - one Agent cannot start a second concurrent normal or middleware run
 - provider cancellation/restart updates the associated Operation through Khoa's callback/service seam
 - capability detection never reveals paths, credentials, or raw stderr
+- reconnect, heartbeat timeout, lease loss, duplicate completion, cancellation, and server unavailability are safe
+- no arbitrary executable, shell command, sender-selected workspace path, or provider credential crosses the LAN
 - focused tests and `npm run check` pass
 
 ## 3. Files you own
@@ -47,6 +52,10 @@ apps/server/src/runner-factory.ts
 apps/server/src/claude-code-runner.ts
 apps/server/src/config.ts
 apps/server/src/claude-code-runner.test.ts
+apps/server/src/worker/index.ts
+apps/server/src/worker/client.ts
+apps/server/src/worker/local-runtime.ts
+apps/server/src/worker/client.test.ts
 ```
 
 You may add runner-focused test fixtures under the existing server test-fixture convention.
@@ -54,15 +63,16 @@ You may add runner-focused test fixtures under the existing server test-fixture 
 Do not edit without owner handoff:
 
 - `apps/server/src/types.ts` — Duy owns the shared types
-- `apps/server/src/store.ts` — Khoa owns persistence
-- `apps/server/src/telagent/**` — Khoa, Duy, or Hien owns these by responsibility
+- `apps/server/src/store.ts` — Khoa owns central persistence
+- `apps/server/src/telagent/worker-service.ts` and `worker-routes.ts` — Khoa owns the server side of the protocol
+- other `apps/server/src/telagent/**` — Khoa, Duy, or Hien owns these by responsibility
 - `apps/web/**` — Thai owns frontend
 
 When a shared type is missing, send Duy the exact type change rather than editing concurrently.
 
 ## 4. Contracts to freeze with Khoa on Day 0
 
-Agree on these shapes before implementation:
+Agree on these transport shapes before implementation. Duy owns their public Zod schemas; Khoa owns server persistence/state; you own client behavior:
 
 ```ts
 type AgentProvider = "codex" | "claude";
@@ -78,20 +88,20 @@ type RunPurpose =
 type SessionMode = "continue" | "fresh" | "ephemeral";
 type SandboxMode = "read-only" | "workspace-write";
 
-interface MiddlewareRunRequest {
+interface WorkerJob {
+  jobId: string;
   agentId: string;
-  provider: AgentProvider;
   purpose: RunPurpose;
-  workspacePath: string;
   runtimePrompt: string;
   persistedSummary: string;
-  sessionId?: string;
   sessionMode: SessionMode;
   sandboxMode: SandboxMode;
   networkMode: "none" | "default";
   outputSchemaName: string;
   correlationId: string;
   maxTurns: number;
+  expiresAt: string;
+  leaseVersion: number;
 }
 
 interface NormalizedRunResult<T = unknown> {
@@ -104,25 +114,49 @@ interface NormalizedRunResult<T = unknown> {
 }
 ```
 
-The provider runner must not know about agreements, ContextPacks, or human permissions. It receives a validated request and returns a normalized candidate.
+The central job must not contain a provider executable, credential, absolute workspace path, or arbitrary command. The worker maps its bound Agent ID to a locally configured provider/workspace and then constructs a private `LocalMiddlewareRunRequest`. The provider runner must not know about agreements, transport, ContextPacks, or human permissions.
 
 ## 5. Day 0 tasks — environment gate
 
-1. Clone/run the untouched Starter Kit on the final demo environment.
-2. Record Node, npm, Git, Docker, Codex, and Claude versions.
-3. Run the baseline Playground flow.
-4. Run a Codex structured probe using non-interactive JSON output and a tiny output schema.
-5. Check Claude Code installation and authentication.
-6. Run a Claude structured probe using print mode, stream JSON, and a JSON schema.
-7. Report one of these statuses by the Day 0 deadline:
-   - `codex_live_claude_live`
-   - `codex_live_claude_adapter_only`
-   - blocked with exact safe reason
-8. Freeze the normalized request/result and lifecycle callback with Khoa.
+1. Install/check the project on both final demo computers.
+2. Record Node, npm, Git, container engine if used, Codex, and Claude versions.
+3. Verify each computer has at least one already-authenticated local Agent CLI. ModelArk and Ark credentials are not used.
+4. Put both computers on one dedicated hotspot/private LAN and verify Computer B can reach Computer A's health endpoint.
+5. Run one structured local CLI probe on each computer.
+6. With Khoa's fake server route, register both workers, heartbeat, lease one fake job on Computer B, and complete it.
+7. Freeze `WorkerJob`, completion/failure, heartbeat, retry/backoff, cancellation, and local request/result mapping with Khoa/Duy.
+8. Report provider availability and LAN/worker status without exposing secrets or paths.
 
 Never paste authentication tokens or provider home contents into chat, commits, screenshots, logs, or test fixtures.
 
 ## 6. Implementation steps
+
+### 6.0 Agent Worker transport client
+
+Implement a Node/TypeScript worker command configured locally with:
+
+```text
+TELAGENT_SERVER_URL
+TELAGENT_WORKER_TOKEN
+TELAGENT_AGENT_ID
+TELAGENT_PROVIDER
+TELAGENT_WORKSPACE
+```
+
+The values stay on that computer and are never returned by capability APIs. The worker must:
+
+1. register and report only safe provider/capability metadata
+2. heartbeat on a bounded interval
+3. long-poll `/jobs/next` without overlapping polls
+4. validate the job and Agent/token binding
+5. reject expired jobs and unsupported schema/purpose/version
+6. resolve provider and workspace from local configuration, not the job payload
+7. run exactly one local turn using the existing busy/cancel lifecycle
+8. validate/bound the result before completing or failing the job
+9. retry network delivery with idempotency, but never rerun a completed local call automatically
+10. reconnect with bounded exponential backoff and clean shutdown
+
+Computer B exposes no HTTP server. Do not add WebSockets, peer discovery, a broker, or direct Agent-to-Agent sockets.
 
 ### 6.1 Extend the runner boundary
 
@@ -192,7 +226,7 @@ Fixture tests must cover partial lines, irrelevant events, a valid final result,
 - Return a typed unavailable result when Claude is missing.
 - Do not silently fall back from a Claude Agent to Codex. Provider labels must be truthful.
 
-### 6.5 `AgentService.runMiddlewareTurn()`
+### 6.5 Local `AgentService.runMiddlewareTurn()`
 
 Implement this through existing Agent/run lifecycle primitives:
 
@@ -201,7 +235,7 @@ Implement this through existing Agent/run lifecycle primitives:
 3. Mark Agent busy.
 4. Invoke the selected runner.
 5. Keep raw prompt and output in local variables only.
-6. Return the normalized candidate to Khoa's orchestration layer.
+6. Return the normalized candidate to the worker client; only the worker client speaks to Khoa's central API.
 7. Persist only safe run status/error.
 8. Update persistent provider session ID only for `continue` mode.
 9. Mark Agent ready in success and failure paths.
@@ -229,9 +263,9 @@ This path is for Alice's real constrained implementation:
 - Preserve existing CPU, memory, PID, dropped-capability, and no-new-privilege limits.
 - Never mount both Alice and Bob workspaces into one runtime.
 
-### 6.8 Capability detection
+### 6.8 Local capability detection
 
-Implement a safe service/helper consumed by Khoa's route:
+Implement a safe helper reported by the worker during register/heartbeat and aggregated by Khoa's route:
 
 ```json
 {
@@ -245,24 +279,36 @@ Implement a safe service/helper consumed by Khoa's route:
 - redact raw stderr
 - never return binary/config/home paths
 
-## 7. Lifecycle and unanswered-request collaboration with Khoa
+## 7. Worker lifecycle collaboration with Khoa
 
-Khoa owns the Operation state machine. You provide these signals:
+Khoa owns the server-side Operation/job/lease state machines. Your worker provides idempotent lifecycle requests:
 
-- `onRunStarted(runId)`
-- `onRunCompleted(runId, normalizedResult)`
-- `onRunFailed(runId, safeError)`
-- `onRunCancelled(runId)`
+- register + heartbeat
+- lease acknowledgement through `/jobs/next`
+- completion with `jobId`, `leaseVersion`, `correlationId`, and normalized result
+- failure/cancellation with the same identity fields and a safe typed error
 
 Required mapping:
 
-- process running → Telagent Operation `running`
+- valid active lease + local process running → Telagent Operation `running`
 - provider returns structured result → orchestrator validates before `completed`
 - process cancelled/restart → Operation `cancelled` or `failed`
 - provider waiting for interactive permission is a configuration defect; fail safely instead of hanging
-- Agent busy → do not start provider; Khoa returns `409 AGENT_BUSY` or queues according to state
+- Agent busy → do not start a second provider process; return/heartbeat safe busy state and let Khoa keep the job queued
+- lost/expired lease → do not apply a late result; post once, accept the server's terminal decision, and never mutate central state locally
 
 ## 8. Tests you must write
+
+### Worker client tests
+
+- register/heartbeat sends no token echo, path, provider home, or raw stderr
+- long-poll does not overlap and reconnect uses bounded backoff
+- a worker rejects another Agent ID, expired job, unknown schema, and malformed payload
+- provider/workspace come only from local configuration
+- one leased job produces at most one local Agent run
+- completion retry is idempotent and never reruns the Agent
+- cancellation and shutdown terminate the local process safely
+- server offline/online transition preserves safe worker state
 
 ### Runner argument tests
 
@@ -298,21 +344,24 @@ Required mapping:
 
 ### Day 1
 
-- normalized contract merged
+- worker CLI/client and normalized transport contract merged
+- fake register/heartbeat/lease/complete round trip green
 - Claude runner parser and fake fixture tests green
 - runner factory provider selection green
 - `runMiddlewareTurn()` skeleton works with fake runner
 
 ### Day 2
 
-- Codex structured status/proposal runs green
+- real Computer B worker reaches Computer A over the LAN
+- Codex/Claude structured status/proposal runs green on available local CLIs
 - private session continuation proven
 - sandbox/session tests green
 - one real provider planning run integrates with Khoa's loop
 
 ### Day 3
 
-- live Codex implementation run in Phoenix
+- live implementation run in Phoenix on each computer
+- real A-to-B status job and result proven
 - live Claude run if gate passed
 - cancellation/restart/error normalization complete
 - capability endpoint data available
@@ -327,7 +376,7 @@ Required mapping:
 
 To Khoa:
 
-- final TypeScript contract
+- final worker HTTP/client contract
 - lifecycle/cancellation behavior
 - safe error taxonomy
 - provider capability result
@@ -353,11 +402,13 @@ To Thai:
 - Do not let Claude call Codex or Codex call Claude directly.
 - Do not allow two Agents to edit one working directory.
 - Do not add provider API SDKs when the Starter Kit already uses CLI runners.
+- Do not add ModelArk, an Ark fallback, or any hosted model API.
 - Do not use permission/sandbox bypass flags.
 - Do not store complete JSONL streams.
 - Do not silently switch providers.
 - Do not expose provider credentials or filesystem locations.
-- Do not add remote sidecars or cloud runtime work.
+- Do not implement Khoa's central worker registry/job store/routes.
+- Do not make Computer B expose a server, and do not add peer discovery, public tunnelling, or cloud runtime work.
 
 ## 12. Final report format
 
@@ -370,4 +421,3 @@ When your coding agent finishes, require it to report:
 5. sandbox/session behavior
 6. tests run and results
 7. assumptions or unresolved integration needs
-

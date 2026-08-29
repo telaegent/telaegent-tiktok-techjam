@@ -9,7 +9,7 @@ You own coworker workstream **#3**: the complete visible product experience.
 Build a polished but restrained frontend that makes Telagent's trust model obvious:
 
 - premium dark landing view inspired by the compositional restraint of `x.ai/bot`
-- Agent/owner/provider/workspace visibility
+- Agent/owner/provider/machine/worker visibility
 - the Agent loop inside one shared coordination conversation
 - inline tool calls and results
 - separate human approvals
@@ -34,6 +34,7 @@ Your work is done when:
 - source citations are visible on ContextPack
 - original and revised plans are easy to compare
 - queued/running/waiting/input-required/error states survive refresh
+- each Agent clearly shows Computer A/B plus worker online, busy, stale, or offline state
 - buttons come only from server `allowedActions`
 - the existing Playground remains accessible and functional
 - desktop demo is excellent and narrow layout remains usable
@@ -121,7 +122,7 @@ Time limit: half a day maximum.
 
 Desktop:
 
-- left: Alice/Bob Agent rail with owner, provider, branch, status, progress
+- left: Alice/Bob Agent rail with owner, computer, provider, worker status, branch, and progress
 - center: shared coordination conversation and composer
 - right: selected card details or audit timeline
 - top: Telagent/Playground switch, Phoenix project, reset/init controls
@@ -144,6 +145,7 @@ Minimum:
 initializeDemo
 resetDemo
 getRuntimeCapabilities
+getWorkerStatus
 getPhoenixSnapshot
 getOperation
 sendConversationMessage
@@ -333,6 +335,7 @@ Implement explicit states for:
 - not initialized
 - initializing
 - provider unavailable
+- worker connecting, stale, offline, or token rejected
 - empty conversation
 - queued Agent run
 - waiting for recipient
@@ -420,7 +423,7 @@ From Khoa:
 
 From Phuong:
 
-- safe provider capability result only
+- safe provider capability and worker-lifecycle labels only
 
 From Hien:
 
@@ -440,6 +443,7 @@ To the team:
 - Do not use fake success states in the judged path.
 - Do not spend a full day on landing-page animation.
 - Do not hide provider unavailability.
+- Do not infer worker identity or online state in React; render Khoa's snapshot.
 - Do not remove the Starter Kit Playground.
 
 ## 20. Final report format
@@ -453,4 +457,3 @@ Require your coding agent to report:
 5. accessibility/responsive checks
 6. build/test results
 7. remaining API mismatches by owner
-

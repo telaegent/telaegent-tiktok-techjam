@@ -14,12 +14,12 @@ Before changing code:
 
    > Publish intent → detect conflict → exchange structured status → propose a resolution → collect separate human approvals → transfer a permissioned, source-backed ContextPack → detect a dependency change → adapt the affected plan → complete with an auditable history.
 
-4. Extend the Starter Kit; do not replace its React UI, Fastify server, `AgentService`, `AgentRunner`, per-Agent workspaces, Codex sessions, Runtime containers, or JSON persistence.
+4. Extend the Starter Kit; keep its React UI, Fastify server, JSON persistence, runner concepts, and lifecycle conventions. Refactor Agent execution behind a LAN worker boundary so each owner's workspace and CLI stay on that owner's computer.
 5. Work only in the files assigned in the five personal plans unless the current owner explicitly hands a file over.
 6. Treat model output, repository content, paths, and tool arguments as untrusted input. Zod validation and deterministic policy checks are required before state changes or data disclosure.
 7. Do not store hidden reasoning, complete private transcripts, raw internal prompts, environment files, credentials, or rejected secret-bearing model output.
-8. Do not add a new database, message broker, vector database, router, cloud service, or authentication system during the hackathon.
-9. Do not build automatic Git merging, remote multi-machine federation, full MCP, or full A2A compliance.
+8. Do not add a new database, message broker, vector database, router, cloud service, hosted inference service, or production authentication system during the hackathon.
+9. Implement only the fixed two-computer private-LAN topology. Do not build discovery, NAT traversal, public federation, automatic Git merging, full MCP, or full A2A compliance.
 10. Run focused tests for every changed subsystem and run `npm run check` before merging.
 
 The implementation target is a convincing, real vertical slice, not a general multi-agent platform.
@@ -30,14 +30,15 @@ The implementation target is a convincing, real vertical slice, not a general mu
 
 ### 1.1 Product definition
 
-**Telagent is coordination and trust middleware for separately owned coding agents.** It allows agents working on the same logical repository to expose bounded work intent, detect conflicts, negotiate a proposed work split, obtain human authorization, share only approved source-backed context, and adapt when a dependency changes.
+**Telagent is a messaging and trust platform for separately owned coding Agents.** It allows Agents on different computers to expose bounded work intent, detect conflicts, negotiate a proposed work split, obtain human authorization, share only approved source-backed context, and adapt when a dependency changes.
 
 The demonstration uses:
 
 - One logical project: **Phoenix**
 - Two mock owners: **Alice** and **Bob**
 - Two separately owned coding Agents
-- Two separate workspaces or Git worktrees from the same repository identity
+- Two computers on one private LAN, with one owner-controlled Agent Worker per computer
+- Two separate local workspaces or Git worktrees from the same repository identity
 - Alice's task: Google OAuth
 - Bob's task: Redis-backed sessions
 - One deterministic conflict over the `Session` contract
@@ -53,24 +54,27 @@ The coworker's proposal changes the implementation shape without changing the ca
 
 | Feedback | Final adaptation |
 | --- | --- |
-| Connect Codex and Claude Code in the same repo | Add provider adapters behind the Starter Kit's runner interface. Agents share a logical `projectId`, but write in separate branches/workspaces. They communicate through Telagent, not by directly calling each other. |
+| Connect Agents on separate computers | Add a small outbound-polling Agent Worker around the runner interface. Agents share a logical `projectId`, but credentials, sessions, and workspaces remain local. They communicate through Telagent, never directly. |
 | Specify the request format and permissions | Define a versioned `TelagentEnvelope`, Zod schemas, idempotency, expiry, evidence, permission classes, error codes, and state machines. |
 | Build a frontend/UI demo | Make the shared coordination conversation the main product surface. Tool actions, approvals, artifacts, and plan changes appear as inline cards. Add a small premium dark landing view inspired by the visual restraint of `x.ai/bot`, without copying its branding. |
 | Decide whether to store Agent memory | Persist only bounded coordination memory and audit evidence in the existing JSON database. Keep private provider sessions separate. Do not add a vector database or copy full Agent memory. |
-| Handle unanswered requests and security | Use durable asynchronous Operations and recipient inbox state. Return `202`, persist waiting state, poll snapshots, apply TTLs, and resume later. Use HTTPS only when remotely hosted; local MVP traffic stays on loopback or in-process. |
+| Handle unanswered requests and security | Use durable Operations, worker jobs, leases, heartbeats, recipient inbox state, TTLs, and idempotency. The demo uses a dedicated hotspot/private LAN and per-worker tokens; plaintext LAN HTTP is explicitly prototype-only. |
 | Define tool calls and when to ask users | Implement a bounded Agent loop with typed logical tool calls. The policy engine executes safe calls, denies forbidden calls, and pauses on explicit human-decision cards. |
 | Put the Agent loop inside the conversation | The UI shows action and observation, never hidden reasoning: user message → Agent step → tool request → policy result or approval → observation → resumed Agent step. |
 
-### 1.3 Important scope change
+### 1.3 Final architecture decision: BYO local Agent runtime over LAN
 
-The previous narrow scope excluded cross-vendor integration. This plan adds the smallest feasible cross-vendor layer: a local `CodexRunner` and a local `ClaudeCodeRunner` that normalize into the existing `AgentRunner` contract. It does **not** add a cross-vendor network protocol, remote sidecars, or full A2A compatibility.
+ModelArk is removed completely. Telagent does not select or host a model and has no Ark key, endpoint, billing, or fallback path. Each computer runs an already-authenticated local Codex or Claude CLI behind a Telagent Agent Worker.
 
-The Day 0 go/no-go gate is credentials:
+Computer A hosts the React UI, Fastify/Telagent control plane, JSON store, and Alice's worker. Computer B hosts Bob's worker. Workers initiate authenticated HTTP connections to A, heartbeat, long-poll for typed jobs, execute locally, and return structured candidates. This is a deliberately small deployment protocol, not full A2A or public federation.
 
-- Codex must run successfully because it is already the Starter Kit path.
-- Claude Code must run successfully only if the team has a valid team-owned installation and authentication by the end of Day 0.
-- The Claude adapter and parser are still P0 code and must be covered by fixture tests.
-- If Claude credentials are unavailable, the judged live flow uses two real Codex Agents and the UI labels the provider honestly. Never fake a Claude live run.
+Day 0 gates are now:
+
+- both computers can reach Computer A's Fastify health endpoint on the chosen private LAN
+- one worker token binds to Alice and one to Bob
+- each worker can run at least one locally authenticated Agent CLI probe
+- a fake job can be leased and completed end to end before middleware feature work begins
+- if one CLI provider is unavailable, use the available local provider and label it honestly; never fake a live run
 
 ---
 
@@ -127,7 +131,7 @@ Safe call executes OR forbidden call is denied OR human approval is requested
     ↓
 The result becomes a structured observation in the conversation
     ↓
-The same Agent session resumes with that observation
+The same Agent's private local session resumes with that observation on its worker
 ```
 
 The loop is bounded to prevent endless Agent negotiation.
@@ -153,6 +157,9 @@ OWASP guidance for Agent and prompt-injection security emphasizes deterministic 
 - Untouched Starter Kit Agent CRUD, lifecycle, Playground, persistence, and runtime still work.
 - Runtime capability detection for Codex and Claude Code.
 - Normalized Codex and Claude runner adapters.
+- Agent Worker process runnable on both computers.
+- Worker registration, heartbeat, outbound long-poll, job lease, completion/failure, reconnect, and safe cancellation.
+- Per-worker token binding to exactly one Agent.
 - Phoenix fixture and two separate Agent workspaces/branches.
 - Conversation-centered Telagent UI.
 - Publish and persist structured intents.
@@ -175,7 +182,8 @@ OWASP guidance for Agent and prompt-injection security emphasizes deterministic 
 
 ### 3.2 P1: implement after the P0 path is green
 
-- Live Codex ↔ Claude demo when both credentials are available.
+- Live cross-provider demo when both local CLIs are available.
+- Optional Tailscale/WireGuard overlay only after the private-LAN path is green.
 - Rejected agreement flow.
 - Invalid ContextPack flow.
 - Stale/offline status label.
@@ -188,13 +196,13 @@ OWASP guidance for Agent and prompt-injection security emphasizes deterministic 
 ### 3.3 Explicitly excluded
 
 - Production login, OAuth, RBAC, or owner impersonation prevention
-- Cross-machine discovery or networking
+- Automatic cross-machine discovery, NAT traversal, or public-internet federation
 - Full A2A, MCP, or Agent Card implementation
 - Agent-to-Agent direct private chat
 - Shared raw memory or transcript sync
 - Embeddings, vector storage, memory providers, knowledge graphs
 - PostgreSQL, Redis, Kafka, RabbitMQ, DynamoDB, or S3
-- ECS or cloud deployment before the local build is complete
+- ECS, cloud runtime hosting, or hosted inference
 - Automatic branch merging, conflict resolution, pull requests, or pushes
 - More than one project, two owners, or two demo Agents
 - Real Redis or Google OAuth credentials in the Phoenix fixture
@@ -257,7 +265,7 @@ Use the actual Starter Kit seams already researched for this project:
   - `apps/server/src/config.ts`
 - Existing `JsonStore` serializes mutations and performs atomic temporary-write plus rename. Extend it; do not replace it.
 - Existing database version 1 contains Agents, messages, and runs. Add a `telagent` property with safe defaults.
-- Existing `AgentService` owns the one-active-run-per-Agent invariant and persistent Codex thread ID.
+- Reuse `AgentService` inside each local worker to own the one-active-run-per-Agent invariant and private provider session state; do not centralize that session ID.
 - Existing restart behavior cancels queued/running runs and resets busy Agents.
 - Existing runner request has Agent ID, workspace, prompt, and thread ID.
 - Existing Runtime supports local Codex and disposable containers.
@@ -265,8 +273,8 @@ Use the actual Starter Kit seams already researched for this project:
 - Existing workspaces need a real seeded Git fixture added.
 - Existing server tests use Vitest.
 - `npm run check` performs type checking, tests, and builds.
-- Official `npm run poc` targets macOS/Linux. Native Windows work should use WSL2 or the team's Linux/macOS demo machine.
-- Local POC is the primary judging path. ECS is optional and out of scope until everything else is frozen.
+- Official Starter Kit `npm run poc` targets macOS/Linux. For the LAN demo, run the supported project processes in WSL2/Linux/macOS on each computer rather than rewriting runtime scripts during the event.
+- The two-computer private-LAN build is the only judging path. Cloud/ECS work is out of scope.
 
 First commit after importing the Starter Kit must be an untouched baseline that passes its documented setup and acceptance flow.
 
@@ -281,18 +289,34 @@ First commit after importing the Starter Kit must be an untouched baseline that 
 | Server | Fastify 5 | Existing control plane and route/test infrastructure. |
 | Validation | Zod | Existing dependency; validates HTTP input, stored data, and model output. |
 | Persistence | Existing atomic JSON store | Sufficient for one local project and avoids a database migration. |
-| Runtime integration | Existing `AgentRunner` plus provider-specific adapters | Keeps lifecycle, busy lock, persistence, and containers centralized. |
-| Coding providers | Codex CLI; Claude Code CLI when authenticated | Both support non-interactive structured execution and resumable sessions. |
-| Async delivery | Persisted Operations + snapshot polling every ~900 ms | Works across long model calls and page refresh without adding WebSockets or a queue. |
+| Worker runtime | TypeScript Agent Worker + existing `AgentService`/`AgentRunner` concepts | Keeps each CLI, credential, session, busy lock, and workspace on its owner's computer. |
+| Coding providers | Locally authenticated Codex CLI or Claude Code CLI | Bring-your-own local Agent runtime; no hosted inference dependency. |
+| LAN transport | Fastify HTTP + outbound long-poll + worker tokens + leases | Computer B exposes no server; no WebSockets or broker required. |
+| Async delivery | Persisted Operations/worker jobs + UI snapshot polling | Survives model latency, disconnects, and refreshes without a queue service. |
 | Repository evidence | Git via `execFile` argument arrays | Safe branch/commit/diff checks without shell interpolation. |
 | Testing | Vitest + Fastify inject + fake runners | Existing stack and deterministic workflow coverage. |
-| Deployment | Local macOS/Linux/WSL2; existing container runtime | Best chance of a reproducible 3-minute demo. |
+| Deployment | Two laptops on a dedicated hotspot/private LAN; Node 22+ on both | Proves real cross-computer Agent messaging with near-zero hosting cost. |
 
 Do not add LangChain, a multi-agent framework, Prisma, React Router, Redux, Tailwind, or a component library during the event.
 
 ---
 
 ## 7. System architecture
+
+Authoritative deployed topology:
+
+```text
+Computer A                                      Computer B
+React UI                                        Bob workspace
+   ↓                                            Bob local Agent CLI
+Fastify / Telagent / JSON store                        ↑
+   ↑                                                   │
+Alice worker ── Alice AgentService/runner       Bob worker
+   └──────── register/heartbeat/long-poll/jobs ────────┘
+                 private LAN HTTP
+```
+
+Fastify is the deterministic coordinator and source of shared state. It never executes Bob's Agent directly. It persists a typed job for Bob; Bob's worker leases that job, runs the local CLI, and returns a structured candidate. The following Starter Kit diagram describes the internal runner layers reused *inside each worker*, not a single-machine deployment:
 
 ```text
 ┌──────────────────────────────── React/Vite ────────────────────────────────┐
@@ -319,7 +343,7 @@ Do not add LangChain, a multi-agent framework, Prisma, React Router, Redux, Tail
 │            ├─ Safe shared memory                                           │
 │            └─ Audit events                                                  │
 └───────────────────────────────┬─────────────────────────────────────────────┘
-                                │ only through AgentService
+                                │ legacy local lifecycle reused inside each worker
 ┌───────────────────────────────▼─────────────────────────────────────────────┐
 │ Existing AgentService                                                      │
 │  ├─ one active run per Agent                                               │
@@ -339,9 +363,10 @@ Do not add LangChain, a multi-agent framework, Prisma, React Router, Redux, Tail
 
 ### 7.1 Non-negotiable boundaries
 
-- `TelagentService` may invoke an Agent only through `AgentService`.
-- No Telagent route may call a runner directly.
-- `AgentService` remains the single owner of busy locks, run lifecycle, cancellation, and provider session updates.
+- `TelagentService` may invoke an Agent only by queuing a job for that Agent's authenticated worker.
+- No Telagent route or central service may call a provider runner directly.
+- Each local worker's `AgentService` owns that Agent's busy lock, run lifecycle, cancellation, workspace resolution, and provider session updates.
+- Fastify owns worker identity, job state, leases, idempotency, expiry, and safe shared results.
 - Normal Playground messages keep their existing behavior.
 - Internal middleware prompts and raw outputs do not enter the public message history.
 - Only `TelagentService` may turn validated internal output into a shared conversation entry.
@@ -399,7 +424,7 @@ After a successful implementation stage:
 
 ---
 
-## 9. Provider runtime layer
+## 9. Worker and provider runtime layer
 
 ### 9.1 Normalized types
 
@@ -419,20 +444,20 @@ type RunPurpose =
 type SessionMode = "continue" | "fresh" | "ephemeral";
 type SandboxMode = "read-only" | "workspace-write";
 
-interface MiddlewareRunRequest {
+interface WorkerJob {
+  jobId: string;
   agentId: string;
-  provider: AgentProvider;
   purpose: RunPurpose;
-  workspacePath: string;
   runtimePrompt: string;
   persistedSummary: string;
-  sessionId?: string;
   sessionMode: SessionMode;
   sandboxMode: SandboxMode;
   networkMode: "none" | "default";
   outputSchemaName: string;
   correlationId: string;
   maxTurns: number;
+  expiresAt: string;
+  leaseVersion: number;
 }
 
 interface NormalizedRunResult<T> {
@@ -456,7 +481,7 @@ Reuse and extend the existing Codex runner:
 - Use `--sandbox read-only` for planning, status, proposal, ContextPack, and replan.
 - Use `--sandbox workspace-write` for implementation.
 - Never use a sandbox-bypass flag.
-- Preserve current ModelArk configuration from the Starter Kit.
+- Use the local Codex CLI's existing authentication/profile. Remove Ark environment rewriting, endpoint selection, and hosted-model assumptions.
 
 ### 9.3 Claude Code adapter
 
@@ -476,7 +501,7 @@ Add `apps/server/src/claude-code-runner.ts` implementing the same runner contrac
 
 ### 9.4 Capability endpoint
 
-`GET /api/telagent/runtime-capabilities` returns:
+Each worker reports safe local capabilities during register/heartbeat; `GET /api/telagent/runtime-capabilities` aggregates them:
 
 ```json
 {
@@ -487,12 +512,16 @@ Add `apps/server/src/claude-code-runner.ts` implementing the same runner contrac
 
 Never return executable paths, tokens, home directories, or credential details.
 
-### 9.5 AgentService additions
+### 9.5 Agent Worker and local AgentService
 
-Keep existing `sendMessage()` unchanged and add two explicit paths:
+Add a worker entry point such as `apps/server/src/worker/index.ts`. It accepts only local configuration: server URL, worker token, Agent ID, provider, and local workspace. It registers, heartbeats, long-polls, validates every job, runs one local turn, and posts completion/failure.
+
+The central server never sends a workspace path, executable, credential, or shell command. The worker resolves the workspace and provider from its local configuration and rejects a job whose Agent ID does not match its token binding.
+
+On each computer, keep the existing `sendMessage()` behavior where useful and expose two explicit local paths:
 
 ```ts
-runMiddlewareTurn(request: MiddlewareRunRequest): Promise<NormalizedRunResult<unknown>>
+runMiddlewareTurn(request: LocalMiddlewareRunRequest): Promise<NormalizedRunResult<unknown>>
 
 sendVisibleCoordinatedMessage(input: {
   agentId: string;
@@ -520,6 +549,30 @@ sendVisibleCoordinatedMessage(input: {
 - send internal ownership and ContextPack constraints only to the runtime
 - redact the final assistant content before storing it
 - verify changed files before checkpointing
+
+### 9.6 Worker protocol and lifecycle
+
+P0 endpoints under `/api/telagent`:
+
+```text
+POST /workers/register
+POST /workers/:workerId/heartbeat
+GET  /workers/:workerId/jobs/next?waitMs=25000
+POST /jobs/:jobId/complete
+POST /jobs/:jobId/fail
+```
+
+Rules:
+
+- one long random token maps to one Agent/worker binding
+- Computer B makes outbound requests only; it exposes no inbound service
+- one worker leases at most one job at a time
+- lease owner/version, expiry, idempotency key, and correlation ID are checked on completion
+- duplicate completion returns the original result and never repeats a state transition
+- heartbeat drives `online`, `busy`, `stale`, and `offline`
+- reconnect preserves queued work; expired or lost leases reconcile safely
+- no provider stream, token, provider home, absolute path, or private transcript is accepted by Fastify
+- all worker and result DTOs are Zod-validated on both sides
 
 ---
 
@@ -577,7 +630,8 @@ Pseudo-code:
 
 ```ts
 for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
-  const candidate = await agentService.runMiddlewareTurn(...);
+  const job = await workerService.enqueueForAgent(...);
+  const candidate = await workerService.awaitValidatedCompletion(job.id);
   const parsed = schemaForPurpose.parse(candidate.final);
   appendSafeAgentSummary(parsed.publicSummary);
 
@@ -983,6 +1037,8 @@ interface TelagentDatabase {
   dependencyChanges: DependencyChange[];
   planRevisions: PlanRevision[];
   operations: Operation[];
+  workers: WorkerRecord[];
+  workerJobs: WorkerJobRecord[];
   events: AuditEvent[];
   idempotencyRecords: IdempotencyRecord[];
 }
@@ -996,9 +1052,11 @@ On reading an old database, initialize `telagent` with empty arrays without chan
 
 - `agentId`, `ownerId`, `projectId`
 - `provider`
-- `workspacePath`, `branch`, `baseCommit`
-- `providerSessionId?`
+- safe `machineLabel`, `branch`, `baseCommit`
+- `workerId?` and safe provider capability state
 - `activeIntentId?`
+
+Absolute workspace paths and provider session IDs remain only in each worker's local configuration/state and are never stored in central shared memory.
 
 `Intent`:
 
@@ -1100,12 +1158,17 @@ Operation states:
 
 ```text
 apps/server/src/claude-code-runner.ts
+apps/server/src/worker/index.ts
+apps/server/src/worker/client.ts
+apps/server/src/worker/local-runtime.ts
 apps/server/src/telagent/types.ts
 apps/server/src/telagent/schemas.ts
 apps/server/src/telagent/constants.ts
 apps/server/src/telagent/service.ts
 apps/server/src/telagent/routes.ts
 apps/server/src/telagent/conversation-orchestrator.ts
+apps/server/src/telagent/worker-service.ts
+apps/server/src/telagent/worker-routes.ts
 apps/server/src/telagent/tool-dispatcher.ts
 apps/server/src/telagent/conflict-engine.ts
 apps/server/src/telagent/agreement-engine.ts
@@ -1194,6 +1257,16 @@ All routes use the `/api/telagent` prefix.
 | `GET` | `/runtime-capabilities` | Safe Codex/Claude availability. |
 | `GET` | `/projects/phoenix/snapshot` | One complete UI snapshot. |
 | `GET` | `/operations/:operationId` | Operation state and safe result/error. |
+
+Worker APIs:
+
+| Method | Route | Result |
+| --- | --- | --- |
+| `POST` | `/workers/register` | Authenticate/bind one worker and report safe capabilities. |
+| `POST` | `/workers/:workerId/heartbeat` | Refresh liveness and the active lease. |
+| `GET` | `/workers/:workerId/jobs/next` | Long-poll and lease the next authorized job. |
+| `POST` | `/jobs/:jobId/complete` | Validate and apply one structured candidate. |
+| `POST` | `/jobs/:jobId/fail` | Record one safe terminal runtime failure. |
 
 ### 17.2 Conversation and workflow APIs
 
@@ -1429,6 +1502,9 @@ Protect against:
 - Agent output that violates an active ownership agreement
 - page refresh or process restart while a request waits
 - secret-bearing errors or model output entering logs/UI
+- one worker leasing or completing another Agent's job
+- replayed/duplicate completion and stale leases
+- an arbitrary command or workspace path arriving over the LAN
 
 Do not claim protection against:
 
@@ -1437,14 +1513,17 @@ Do not claim protection against:
 - production multi-tenant attacks
 - cryptographic owner identity
 - secure deletion of provider-owned session files
+- attackers already present on the trusted demo LAN
+- confidentiality of plaintext LAN HTTP
 
 ### 20.2 Encryption answer
 
 Be precise in the README and demo:
 
-- **Browser ↔ server in the local demo:** loopback HTTP; not application-level encrypted. It does not leave the demo machine.
-- **Server ↔ local CLI/container:** child-process stdio and local filesystem/container mounts, not a public message channel.
-- **Remote deployment, if attempted:** terminate HTTPS/TLS at the deployment ingress. Never expose the API over plaintext public HTTP.
+- **Browser ↔ server:** local/private-LAN HTTP for the demo.
+- **Server ↔ workers:** authenticated but plaintext HTTP on a dedicated hotspot/private LAN. Payloads therefore use demo data only. Never expose the Fastify port to the public internet.
+- **Worker ↔ local CLI/container:** child-process stdio and local filesystem/container mounts on that owner's computer.
+- **Optional hardening:** after P0, run the same HTTP protocol over Tailscale/WireGuard or terminate TLS. Do not invent custom cryptography during the hackathon.
 - **At rest:** the hackathon JSON store is not encrypted. Risk is reduced by persisting only safe structured coordination data and no credentials/raw transcripts.
 - **Future production:** real identity, scoped tokens, HTTPS/mTLS as appropriate, encrypted database/storage, key rotation, and audit access control are required.
 
@@ -1564,7 +1643,7 @@ Required cases:
 
 ### 22.4 Full Fastify integration test
 
-Use deterministic `FakeCodexRunner` and `FakeClaudeRunner` to execute the entire flow through HTTP injection:
+Use deterministic fake Alice/Bob workers, backed by fake Codex/Claude runners, to execute the entire flow through Fastify HTTP injection:
 
 1. initialize
 2. Bob task and progress
@@ -1584,15 +1663,15 @@ Use deterministic `FakeCodexRunner` and `FakeClaudeRunner` to execute the entire
 16. final implementation
 17. completion and audit assertions
 
-Assert runner call count, provider, sandbox, session mode, prompts absent from persistence, and exact state transitions.
+Assert worker binding, lease/version, reconnect/idempotency, runner call count, provider, sandbox, session mode, prompts absent from persistence, and exact state transitions.
 
 ### 22.5 Manual acceptance
 
-- Fresh install on the demo machine
+- Fresh install on both demo computers
 - Untouched Playground run
 - One full Telagent flow
-- One real Codex run
-- One real Claude run if credentials gate passed
+- One real local Agent run on each computer
+- One real A-to-B status request crossing the LAN
 - `.env` denial live
 - Refresh browser while Bob approval is waiting
 - Kill/restart server once in a rehearsal, not necessarily in the 3-minute demo
@@ -1605,16 +1684,17 @@ Assert runner call count, provider, sandbox, session mode, prompts absent from p
 
 ### 23.1 Day 0 environment gate
 
-On the final demo machine:
+On both final demo computers:
 
 1. Confirm Node 22+, npm 10+, Git, and Docker where required.
-2. Clone and run the untouched Starter Kit.
-3. Configure ModelArk exactly as documented.
-4. Run one normal Codex Agent turn.
-5. Run one non-interactive Codex structured-output probe.
-6. Check `claude` installation/authentication and run one structured-output probe.
-7. Confirm the Phoenix fixture tests run without network.
-8. Record exact versions in README.
+2. Clone/install the project and verify the untouched Starter Kit checks before applying Telagent changes.
+3. Verify each computer has at least one locally authenticated Codex or Claude CLI.
+4. Start Fastify on Computer A with `HOST=0.0.0.0` and a private-LAN port.
+5. From Computer B, reach Computer A's health endpoint.
+6. Start Alice and Bob workers with separate long random tokens and verify both heartbeats.
+7. Lease and complete one fake structured job across the LAN.
+8. Confirm the Phoenix fixture tests run without external services.
+9. Record exact versions, LAN setup, and limitations in README.
 
 If native Windows causes the official POC to fail, switch immediately to WSL2 or the designated Linux/macOS machine. Do not spend the event rewriting Bash/runtime scripts for Windows.
 
@@ -1624,10 +1704,11 @@ Document the exact Starter Kit commands after cloning. The target experience is:
 
 ```text
 npm install
-configure required environment values
 npm run check
-npm run dev
-open the displayed local URL
+start Fastify/UI on Computer A
+start Alice worker on Computer A
+start Bob worker on Computer B with Computer A's LAN URL
+open Computer A's displayed local URL
 click “Initialize Phoenix demo”
 ```
 
@@ -1644,14 +1725,9 @@ During the live demo:
 - clearly label prepared state
 - never claim a fixture/fake result was generated live
 
-### 23.4 Cloud
+### 23.4 No-cloud demo decision
 
-Cloud hosting is a post-freeze bonus only. If attempted:
-
-- use existing Starter Kit deployment guidance
-- require HTTPS
-- do not expose CLI credentials in the browser
-- do not add ECS work until local acceptance, README, video, and tests are complete
+Do not deploy Agent runtimes or models to the cloud for the judged path. The two computers provide compute and local Agent authentication; Fastify and the JSON store run on Computer A. This avoids inference-hosting cost while proving the product's cross-computer claim. A future hosted relay would require HTTPS, real identity, encrypted storage, and operational hardening.
 
 ---
 
@@ -1664,8 +1740,9 @@ This schedule assumes five people working in parallel with hard integration gate
 Team outcomes:
 
 - untouched Starter Kit green
-- Codex live probe green
-- Claude live probe green or honestly marked unavailable
+- one local Agent CLI probe green on each computer
+- Alice and Bob worker registration/heartbeat green over the LAN
+- one fake job leased and completed from Computer B
 - Phoenix fixture contract frozen
 - `TelagentEnvelope`, core records, permission matrix, tool schemas, error codes, and snapshot response frozen
 - frontend wireframe frozen
@@ -1673,8 +1750,8 @@ Team outcomes:
 
 Individual work:
 
-- Phuong: runtime probes and normalized runner contract
-- Khoa: inspect actual store/service/app seams; freeze data/service transaction pattern
+- Phuong: local runtime probes, worker client/lifecycle contract, normalized runner contract
+- Khoa: freeze central worker registry/job/lease/store transaction pattern and inspect service/app seams
 - Duy: freeze request/response schemas, states, permissions, errors
 - Thai: create Figma/paper wireframe or direct component skeleton based on frozen snapshot
 - Hien: freeze tool schemas, source policy, Phoenix fixture tree, test sequence
@@ -1685,8 +1762,8 @@ Exit gate: every person can paste their personal `.md` into their coding agent w
 
 Morning:
 
-- Phuong: provider selection, Claude adapter parser, AgentService middleware seam
-- Khoa: Telagent data backfill, service skeleton, Operations, snapshot, routes
+- Phuong: worker CLI/client, local runtime seam, provider selection, fake-worker harness
+- Khoa: worker registry/jobs/routes, Telagent data backfill, Operations, snapshot
 - Duy: Zod schemas, conflict/permission/agreement engines
 - Thai: landing shell, product shell, conversation renderer, polling API
 - Hien: Phoenix fixture, Git helper, tool dispatcher skeleton, fake runners
@@ -1707,8 +1784,8 @@ Evening gate:
 
 Morning:
 
-- Phuong: structured status/proposal runs, session continuation, sandbox/session tests
-- Khoa: Agent loop pause/resume, agreement transaction, waiting recipient flow
+- Phuong: real worker status/proposal execution, heartbeat/reconnect, sandbox/session tests
+- Khoa: remote dispatch/lease completion, Agent loop pause/resume, agreement and waiting-recipient flow
 - Duy: version-pinned dual approvals, request edge cases, error mapping
 - Thai: status/proposal/dual approval/permission cards and owner switch
 - Hien: context policy, isolated source workspace, pack validator, `.env` denial
@@ -1730,8 +1807,8 @@ Evening gate:
 
 Morning:
 
-- Phuong: live Codex/Claude integration, cancellation, provider error normalization
-- Khoa: dependency/replan/completion orchestration and restart reconciliation
+- Phuong: live two-computer runtime integration, cancellation, local provider error normalization
+- Khoa: dependency/replan/completion orchestration, lost-lease and restart reconciliation
 - Duy: stale/expiry/idempotency/exchange-limit tests
 - Thai: dependency card, plan diff, completion, audit drawer, error/recovery UI
 - Hien: dependency impact, ownership diff validation, full integration fixture
@@ -1755,7 +1832,7 @@ Evening gate:
 
 Morning:
 
-- fresh clone/setup on demo machine
+- fresh clone/setup on both demo computers
 - final responsive/accessibility pass
 - failure-state evidence
 - exact versions and limitations in README
@@ -1778,7 +1855,7 @@ Move required submission work into Day 3 evening and cut in this order:
 1. landing animations and secondary sections
 2. SSE/WebSocket experiments
 3. browser E2E automation
-4. live Claude demo if credentials/runtime remain unstable; retain adapter fixture tests
+4. second provider adapter if unavailable; both computers may honestly use the same available local CLI
 5. rejected-agreement UI polish
 6. restart UI polish
 
@@ -1792,8 +1869,8 @@ Detailed self-contained assignments are in `phuong.md`, `khoa.md`, `duy.md`, `th
 
 | Person | Primary ownership | Coworker workstream |
 | --- | --- | --- |
-| **Phuong** | Codex/Claude runtime adapters, AgentService execution seam, async provider lifecycle and transport/runtime security | #1 plus runtime half of #5 |
-| **Khoa** | Backend lead, store/data model, Telagent service, Operations, conversation loop, waiting/resume/restart, shared memory, integration | #4 plus orchestration half of #5 |
+| **Phuong** | Agent Worker process/client, local Codex/Claude runners, local AgentService lifecycle, reconnect/cancel, runtime security | #1 plus runtime half of #5 |
+| **Khoa** | Central worker registry/job queue/leases/routes, store/data model, Telagent orchestration, Operations, shared memory, integration | #4 plus orchestration half of #5 |
 | **Duy** | Versioned request format, Zod schemas, permissions, state machines, agreement/conflict rules, API errors and protocol tests | #2, paired tightly with #6 |
 | **Thai** | Landing, product shell, conversation UI, approval/permission/artifact/plan cards, polling and demo UX | #3, independently consuming frozen APIs |
 | **Hien** | Tool-call schemas/dispatcher, context source policy/isolation/validation, Git/Phoenix fixture, dependency impact, security and E2E tests | #6, paired tightly with #2 |
@@ -1802,9 +1879,9 @@ Detailed self-contained assignments are in `phuong.md`, `khoa.md`, `duy.md`, `th
 
 **Runtime/system pair: Phuong + Khoa**
 
-- Freeze `MiddlewareRunRequest`, `NormalizedRunResult`, session behavior, and Operation lifecycle on Day 0.
-- Phuong owns runner/provider mechanics.
-- Khoa owns when/why a run starts, pauses, resumes, fails, or persists.
+- Freeze `WorkerJob`, `WorkerCompletion`, `NormalizedRunResult`, lease/heartbeat, session behavior, and Operation lifecycle on Day 0.
+- Phuong owns the worker client and local runner/provider mechanics.
+- Khoa owns the server worker registry, job persistence, and when/why a run queues, starts, pauses, resumes, fails, or persists.
 - Neither changes the shared seam alone after Day 1 noon.
 
 **Protocol/tool pair: Duy + Hien**
@@ -1829,7 +1906,7 @@ Merge order:
 1. Duy: core types/schemas/constants
 2. Khoa: store/service/routes skeleton
 3. Hien: tools/policy/fixture
-4. Phuong: runtime/AgentService seam
+4. Phuong: worker client/local runtime seam
 5. Thai: frontend against frozen snapshot
 6. Whole-team integration fixes
 
@@ -1928,8 +2005,9 @@ Show changed files, tests, checkpoint commit, expired task-only ContextPack, and
 
 | Risk | Earliest signal | Mitigation | Owner |
 | --- | --- | --- | --- |
-| ModelArk/Codex setup fails | Day 0 probe | Stop feature work until baseline is green; use documented supported environment. | Phuong |
-| Claude Code is unavailable | Day 0 probe | Keep adapter fixture-tested; demo two Codex Agents and label honestly. | Phuong |
+| A local Agent CLI is unavailable on one computer | Day 0 probe | Install/authenticate an available local CLI; both computers may use the same provider and must label it honestly. | Phuong |
+| Computer B cannot reach A | Day 0 health probe | Use one dedicated hotspot, bind Fastify to the LAN interface, allow only the chosen private firewall port, and rehearse the exact IP. | Phuong + Khoa |
+| Worker disconnects or duplicates completion | Heartbeat/lease tests | Persist jobs, use leases/version/idempotency, show offline state, and never apply two completions. | Khoa |
 | Native Windows incompatibility | `npm run poc` fails | Move to WSL2/Linux/macOS immediately. | Phuong |
 | Model output is malformed | Schema test/live probe | Provider output schema + Zod + one repair only. | Duy |
 | Agent loop becomes slow | Day 1 timings | `202` Operations, polling, prepared checkpoint, max steps. | Khoa |
@@ -1957,18 +2035,19 @@ Show changed files, tests, checkpoint commit, expired task-only ContextPack, and
 ### Engineering
 
 - [ ] Baseline Playground still works.
-- [ ] Codex adapter works live.
-- [ ] Claude adapter is live or honestly fixture-tested/unavailable.
-- [ ] No runner bypasses `AgentService`.
+- [ ] One real local Agent run succeeds on each computer.
+- [ ] A real request and structured result cross the LAN.
+- [ ] Worker tokens cannot cross Agent boundaries.
+- [ ] No central service or route calls a provider runner directly.
 - [ ] JSON store migrates old data safely.
 - [ ] No raw prompt/transcript/secret in database or UI.
 - [ ] Unit and full integration tests pass.
 - [ ] `npm run check` passes.
-- [ ] `npm run poc` passes on the demo environment.
+- [ ] `npm run check` passes on both environments used by the demo.
 
 ### Reproducibility
 
-- [ ] README includes exact prerequisites, setup, providers, limitations, and demo steps.
+- [ ] README includes exact prerequisites, two-computer LAN setup, worker tokens, local providers, limitations, and demo steps.
 - [ ] `.env.example` contains names only, no values.
 - [ ] Fresh clone is rehearsed.
 - [ ] One-page architecture diagram is included.
@@ -1988,7 +2067,8 @@ Show changed files, tests, checkpoint commit, expired task-only ContextPack, and
 ## 30. References used for these decisions
 
 - Canonical local product specification: `TELAGENT_PRODUCT_FLOW.md`
-- Starter Kit repository: [RrankPyramid/CodeJam](https://github.com/RrankPyramid/CodeJam)
+- Canonical submission repository: [telaegent/telaegent-tiktok-techjam](https://github.com/telaegent/telaegent-tiktok-techjam)
+- Upstream Starter Kit reference: [RrankPyramid/CodeJam](https://github.com/RrankPyramid/CodeJam)
 - Landing-page visual reference: [Grok Bot](https://x.ai/bot)
 - Agent memory reference supplied by the team: [Hermes Agent persistent memory](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory)
 - Codex non-interactive/runtime reference: [Official Codex developer commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli)

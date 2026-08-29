@@ -11,6 +11,7 @@ You will implement:
 - the logical tool dispatcher
 - source access grant/deny enforcement
 - isolated approved-source workspaces
+- source-owner-side ContextPack isolation: Bob's approved files never leave Computer B except as a validated bounded artifact
 - ContextPack validation and redaction
 - Phoenix repository fixture and safe Git evidence
 - dependency-impact detection
@@ -27,13 +28,13 @@ Your work is done when:
 - no model can approve itself or weaken a source policy
 - `.env` and other forbidden paths are denied before open/copy
 - traversal, absolute paths, secret names, unsupported glob syntax, and symlink escapes fail
-- ContextPack generation sees only approved source files in a temporary workspace
+- ContextPack generation on the source worker sees only approved files in a temporary workspace
 - ContextPack sources are bound to trusted commit/hash metadata
 - invalid, stale, oversized, uncited, unapproved, or secret-bearing packs are rejected
 - Phoenix reliably creates separate Alice/Bob branches/workspaces and local tests
 - Git diffs outside active ownership are rejected before checkpoint/completion
 - Bob's contract change deterministically affects Alice
-- one fake-runner Fastify test exercises the complete canonical flow
+- one two-fake-worker Fastify test exercises the complete canonical flow
 - safe cleanup and `npm run check` pass
 
 ## 3. Files you own
@@ -155,7 +156,7 @@ Limits from master plan:
 
 ## 7. Context workspace
 
-Implement a helper with a lifecycle such as:
+Implement a helper with a lifecycle such as the following. It runs inside the source owner's worker process, never on Computer A against a network share:
 
 ```ts
 const isolated = await createApprovedContextWorkspace({
@@ -166,7 +167,7 @@ const isolated = await createApprovedContextWorkspace({
 });
 
 try {
-  // Khoa asks Phuong to run an ephemeral read-only/no-network provider here.
+  // Phuong's local worker runs an ephemeral read-only/no-network provider here.
 } finally {
   await isolated.cleanup();
 }
@@ -256,7 +257,7 @@ Fixture rules:
 
 Initialization:
 
-- copy base fixture to Alice/Bob workspace or create safe worktrees according to Starter Kit constraints
+- initialize the same fixture revision separately in Alice's local workspace on Computer A and Bob's local workspace on Computer B
 - preserve workspace `AGENTS.md`
 - use Git `execFile` argument arrays
 - local demo Git identity only
@@ -311,9 +312,9 @@ Return safe evidence for Khoa to create a PlanRevision Operation.
 
 ## 13. Fake runners and full integration test
 
-Create deterministic fake provider results keyed by purpose/stage, not by fragile prompt substring where avoidable.
+Create deterministic fake worker/provider results keyed by Agent and purpose/stage, not by fragile prompt substring where avoidable.
 
-The Fastify integration test must cover:
+The Fastify integration test must drive Alice and Bob through the worker register/heartbeat/lease/complete protocol and cover:
 
 1. demo initialize
 2. Bob intent/progress
@@ -338,6 +339,8 @@ Assertions:
 - exact state transitions
 - exact provider/sandbox/session mode calls
 - raw prompt/output absent from store
+- token-bound workers cannot receive or complete the other Agent's job
+- no raw workspace file body crosses the worker boundary except approved ContextPack source material inside the final validated artifact
 - approval versions correct
 - denied contents absent
 - source manifest correct
@@ -384,6 +387,7 @@ Assertions:
 ### Integration
 
 - full flow and failure assertions
+- two fake workers, offline/reconnect, stale lease, and duplicate completion assertions
 - `npm run check`
 
 ## 15. Daily deliverables
@@ -448,7 +452,7 @@ To Thai:
 - Do not trust model-provided source commit/hash.
 - Do not follow symlinks into unapproved locations.
 - Do not let a tool approve itself.
-- Do not run ContextPack generation in Bob's full workspace.
+- Do not run ContextPack generation in Bob's full workspace or copy Bob's workspace to Computer A.
 - Do not copy `.git` or `.env` into temporary context.
 - Do not use a general glob library/grammar.
 - Do not store rejected candidate/source bodies.

@@ -15,3 +15,11 @@ deploy/volcengine/.terraform/
 deploy/volcengine/*.tfstate*
 deploy/volcengine/terraform.tfvars
 my-harness/
+
+# Local AI coding-assistant instructions and state. These stay on each
+# developer's machine and must not be committed to the shared repository.
+AGENTS.md
+CLAUDE.md
+.agents/
+.codex/
+.claude/

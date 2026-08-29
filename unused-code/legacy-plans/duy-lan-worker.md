@@ -9,6 +9,7 @@ You own the formal contract that makes Telagent predictable.
 Your work is coworker workstream **#2**, paired tightly with Hien's workstream **#6**:
 
 - exact request/response and tool-call schemas
+- worker register/heartbeat/job/lease/completion/failure schemas shared by Phuong and Khoa
 - public TypeScript/Zod types
 - state machines and legal transitions
 - deterministic conflict scoring
@@ -68,6 +69,7 @@ Produce and circulate one concise contract document or committed types containin
 8. error codes/status mapping
 9. `ProjectSnapshot` and conversation entry DTOs
 10. `AllowedAction` union
+11. `WorkerRegistration`, `WorkerHeartbeat`, `WorkerJob`, `WorkerCompletion`, `WorkerFailure`, and worker/job state unions
 
 Do this before implementing engines. Khoa, Phuong, Hien, and Thai depend on it.
 
@@ -138,7 +140,7 @@ Create purpose-specific schemas:
 - `dependency-change.schema.json`
 - `plan-revision.schema.json`
 
-Keep schemas provider-neutral. Codex consumes a file; Claude consumes serialized schema JSON.
+Keep schemas provider-neutral. A worker may adapt the same schema to its locally installed Codex or Claude CLI. No schema may contain ModelArk/hosted-model fields, provider credentials, arbitrary executables, or sender-selected workspace paths.
 
 Bounds:
 
@@ -267,6 +269,22 @@ input_required → queued | expired | cancelled
 terminal states → no transitions
 ```
 
+### Worker job
+
+```text
+queued -> leased | cancelled | expired
+leased -> running | queued | failed | cancelled | expired
+running -> completed | failed | cancelled | expired
+terminal states -> no transitions
+```
+
+Worker DTO rules:
+
+- one token-bound Agent identity; a caller cannot choose another Agent in the body
+- bounded schema/purpose/version/correlation/idempotency/expiry fields
+- completion includes the lease version and one normalized candidate
+- no provider token, provider home, absolute path, executable, shell command, or raw provider stream
+
 ### Coordination
 
 ```text
@@ -312,6 +330,8 @@ Freeze exact safe envelope and mapping:
 - 422 `OWNERSHIP_VIOLATION`
 - 429 `EXCHANGE_LIMIT`
 - 503 `RUNTIME_UNAVAILABLE`
+- 503 `WORKER_OFFLINE`
+- 409 `LEASE_MISMATCH`
 
 Every error includes correlation ID and audit event ID when created. No raw stack/provider stderr.
 
@@ -324,6 +344,9 @@ Every error includes correlation ID and audit event ID when created. No raw stac
 - exchange number 0 or 4
 - oversized arrays/strings
 - duplicate idempotency semantics contract
+- worker/Agent binding mismatch
+- stale/expired lease and duplicate terminal completion
+- forbidden path/executable/credential fields in worker payloads
 - invalid state transition
 - stale version approval
 - one approval insufficient
@@ -413,6 +436,7 @@ To Hien:
 - Do not call a provider or access filesystem.
 - Do not let the model choose its permission class.
 - Do not implement full MCP/A2A.
+- Do not turn the worker transport into a generic remote command protocol.
 - Do not add generic JSON blobs where a discriminated schema is possible.
 - Do not use unbounded strings/arrays.
 - Do not change shared contracts after freeze without all consumers present.
