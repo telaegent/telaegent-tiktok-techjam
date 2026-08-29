@@ -158,7 +158,6 @@ export function parseCodexEventLine(
     emitProgress(onProgress, {
       type: "session_started",
       provider: "codex",
-      sessionId: event.thread_id,
     });
   }
   if (event.type === "turn.started") {

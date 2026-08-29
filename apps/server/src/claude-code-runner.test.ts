@@ -156,7 +156,7 @@ describe("Claude Code runner protocol", () => {
     );
 
     expect(progress).toEqual([
-      { type: "session_started", provider: "claude", sessionId: "session-1" },
+      { type: "session_started", provider: "claude" },
       { type: "turn_started", provider: "claude" },
       { type: "text_delta", provider: "claude", text: "Working" },
       {

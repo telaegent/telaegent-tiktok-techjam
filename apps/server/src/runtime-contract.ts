@@ -60,7 +60,6 @@ export type RuntimeProgressEvent =
   | {
       type: "session_started";
       provider: AgentProvider;
-      sessionId: string;
     }
   | { type: "turn_started"; provider: AgentProvider }
   | { type: "text_delta"; provider: AgentProvider; text: string }

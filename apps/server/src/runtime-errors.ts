@@ -4,6 +4,7 @@ import type { AgentProvider } from "./runtime-contract.js";
 export type RuntimeErrorCode =
   | "RUNTIME_UNAVAILABLE"
   | "RUNTIME_AUTHENTICATION_FAILED"
+  | "RUNTIME_SESSION_NOT_FOUND"
   | "RUNTIME_TIMEOUT"
   | "RUNTIME_OUTPUT_LIMIT"
   | "INVALID_AGENT_OUTPUT"
@@ -23,6 +24,9 @@ export class RuntimeProviderError extends Error {
 const authenticationPattern =
   /(?:401|unauthori[sz]ed|authentication|invalid\s+(?:api\s*)?key|api[_ -]?key|login required|not logged in)/i;
 
+const missingSessionPattern =
+  /(?:(?:session|thread)\s+(?:id\s+)?(?:was\s+)?not\s+found|no\s+(?:session|thread)\s+found|unknown\s+(?:session|thread)|failed\s+to\s+(?:load|resume)\s+(?:session|thread)|(?:session|thread)\s+(?:is\s+)?(?:missing|unavailable|does\s+not\s+exist))/i;
+
 export function classifyProviderFailure(
   provider: AgentProvider,
   detail: unknown,
@@ -33,6 +37,12 @@ export function classifyProviderFailure(
     return new RuntimeProviderError(
       "RUNTIME_AUTHENTICATION_FAILED",
       label + " authentication failed",
+    );
+  }
+  if (missingSessionPattern.test(raw)) {
+    return new RuntimeProviderError(
+      "RUNTIME_SESSION_NOT_FOUND",
+      label + " session is no longer available",
     );
   }
   return new RuntimeProviderError("RUNTIME_FAILED", label + " runtime failed");

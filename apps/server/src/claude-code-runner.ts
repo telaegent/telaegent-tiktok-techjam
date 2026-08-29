@@ -112,7 +112,6 @@ export function parseClaudeStreamLine(
     emitProgress(onProgress, {
       type: "session_started",
       provider: "claude",
-      sessionId: event.session_id,
     });
   }
 

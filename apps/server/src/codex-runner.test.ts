@@ -98,7 +98,7 @@ describe("Codex runner protocol", () => {
     }
 
     expect(progress).toEqual([
-      { type: "session_started", provider: "codex", sessionId: "thread-123" },
+      { type: "session_started", provider: "codex" },
       { type: "turn_started", provider: "codex" },
       { type: "activity_started", provider: "codex", activity: "command" },
       { type: "activity_completed", provider: "codex", activity: "command" },
