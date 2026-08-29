@@ -1,0 +1,20 @@
+# Normalise line endings so a Windows checkout does not show every tracked
+# file as modified. The repository stores LF; Git converts on checkout only
+# where a platform genuinely needs it.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+
+# Shell scripts must keep LF or they will not execute on Linux runtimes.
+*.sh text eol=lf
+
+# Generated lockfiles: keep diffs collapsed in review.
+package-lock.json -diff linguist-generated=true
