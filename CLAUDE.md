@@ -1,72 +1,95 @@
 # CLAUDE.md
 
-## Project
+## Product
 
-Telaegent is coordination and trust middleware for separately owned coding agents. The TikTok TechJam prototype extends the Agent Launchpad Starter Kit with one Phoenix demo project, two mock owners, and two isolated coding-agent workspaces. Its canonical flow is: publish intent → detect conflict → exchange structured status → propose a resolution → obtain separate human approvals → transfer a permissioned, source-backed ContextPack → detect a dependency change → adapt the affected plan → complete with an auditable history.
+**Telaegent is a project-scoped messaging and trust layer that lets one developer's coding agent communicate with another developer's coding agent**, using each person's own connected GitHub repository and Claude Code/Codex runtime, while humans control what crosses between them.
 
-## Stack (locked)
+> Your agent can talk to my agent — but only about the project we both chose, and nothing crosses until a human approves it.
 
-- TypeScript on Node.js 22+ and npm 10+
-- React 19 and Vite; no router or frontend state library
-- Fastify 5 and Zod
-- Existing atomic JSON store; no new database, queue, or vector store
-- Existing `AgentService`/`AgentRunner` boundary with Codex CLI and an optional, honestly reported Claude Code CLI adapter
-- Vitest, Fastify injection, fake runners, and `npm run check`
-- Local macOS/Linux/WSL2 demo path; cloud work is post-freeze only
+The canonical flow is:
 
-Do not add LangChain, a multi-agent framework, Prisma, React Router, Redux, Tailwind, a component library, a message broker, or a new cloud service during the hackathon.
+```text
+sign in → connect GitHub → connect Claude Code/Codex → choose repository
+→ find collaborator → request connection → recipient accepts once
+→ private agent prepares outbound message → human presses Send/Edit/No
+→ shared project conversation → recipient's private agent investigates
+→ recipient presses Send/Edit/No → response enters the shared conversation
+```
 
-## Workstream ownership
+`docs/plan/TELAEGENT_HIGH_LEVEL_PRODUCT_PLAN.md` is the authoritative direction. Read it before proposing product changes.
 
-| Owner | Area |
-| --- | --- |
-| Phuong | Runtime providers, `AgentService` execution seam, provider lifecycle/security |
-| Khoa | Backend orchestration, persistence, Operations, routes, shared memory, integration |
-| Duy | Protocol/types/Zod schemas, permissions, states, conflict/agreement rules |
-| Thai | Landing, product shell, conversation cards, polling, demo UX |
-| Hien | Tool execution, ContextPack security, Phoenix/Git fixture, dependency and E2E tests |
+## Current phase: research, not implementation
 
-Stay within the current owner's files unless that owner explicitly hands work over. Do not let multiple agents edit `types.ts`, `store.ts`, `App.tsx`, or `agent-service.ts` concurrently.
+The plan freezes the **product direction, not the implementation**. The five briefs in `docs/plan/` are research/design assignments whose findings may change the architecture. Do not build the full backend before the trust model and protocol are settled.
+
+The dependency that matters most: **Hien's protocol findings gate Phuong's runtime contract.** Do not freeze prompt/context schemas, `AgentTurnRequest`/`AgentTurnResult` fields, or the memory strategy before those experiments report.
+
+## Ownership
+
+| Owner | Area | Brief |
+| --- | --- | --- |
+| Khoa | Backend, GitHub, repository/collaborator access, authorization and trust | `docs/plan/khoa.md` |
+| Phuong | Backend co-owner, Claude Code/Codex CLI runtimes, provider sessions, memory, integration | `docs/plan/phuong.md` |
+| Thai | Cloud deployment, runtime isolation, database/storage, cost, latency | `docs/plan/thai.md` |
+| Duy | Frontend and product UX, landing through private/shared conversations | `docs/plan/duy.md` |
+| Hien | Agent protocol experiments, prompt/API format evaluation, security and leakage testing, test architecture | `docs/plan/hien.md` |
+
+Stay within the current owner's files unless that owner hands work over.
+
+## Repository map
+
+```text
+apps/server/          Fastify control plane, AgentService/AgentRunner, Codex +
+                      Claude Code adapters, JsonStore. Starter Kit base, to be
+                      retargeted at the cloud model.
+apps/web/             Starter Kit Playground (Agent CRUD, runs).
+apps/landing/         Marketing landing page (@telaegent/landing).
+tests/agent-protocol/ Hien's evaluation harness. CI-safe tests and live
+                      provider evals stay strictly separated.
+docs/plan/            Canonical product plan and the five research briefs.
+docs/archive/v1/      Superseded v1 planning documents.
+legacy/               Archived v1 code. Unwired, excluded from build and CI.
+                      Read legacy/README.md before harvesting from it.
+.claude/skills/       Shared design system skills.
+```
 
 ## Hard constraints
 
-1. Extend the Starter Kit; preserve its Agent CRUD, Playground, Fastify control plane, `AgentService`, `AgentRunner`, persistent sessions, isolated workspaces, Runtime containers, and JSON persistence.
-2. `TelaegentService` invokes providers only through `AgentService`; no route or tool calls a runner directly. `AgentService` remains the sole owner of busy locks, lifecycle, cancellation, and session updates.
-3. A run receives exactly one validated workspace. Never let two agents write the same working directory, mount both workspaces together, or merge/push branches automatically.
-4. Treat model output, repository content, paths, and tool arguments as untrusted. Zod schemas and deterministic policy checks must precede state changes or disclosure.
-5. The model may propose; deterministic code authorizes and humans approve. A model cannot grant permission, approve an agreement, or weaken a path rule.
-6. Never persist or expose raw runtime prompts, unvalidated output, complete provider transcripts/JSONL, hidden reasoning, private conversations, denied contents, credentials, environment values, provider homes, or session IDs.
-7. Reject forbidden paths before reading: absolute/traversal paths, `.env*`, `.git/**`, secret/credential/token/key paths, external symlinks, and anything outside the canonical workspace.
-8. Planning, status, proposal, ContextPack, dependency, and replan runs are read-only. Only `implement` may use workspace-write, and ContextPack runs are fresh/ephemeral with no network.
-9. Do not silently fall back between providers or claim a fake/fixture run is live. Describe the design as A2A-inspired, not A2A-compliant, and state local encryption/auth limitations honestly.
-10. Keep loops bounded to three internal steps and three inter-agent exchanges. Preserve idempotency, TTL, version-pinned decisions, safe errors, and append-only audit evidence.
-11. Never reduce Telaegent to a lock manager, task queue, generic chat, or direct agent-to-agent transcript exchange. Preserve the entire canonical flow.
-12. Keep P0 narrow: two agents, two owners, one Phoenix project, one conflict, one dual approval, one valid pack, one forbidden request, one dependency change, and one adaptive replan.
+These come from the plan's core principles. Violating one is a product bug, not a style choice.
 
-## Response discipline
+1. **Cloud-first.** No local worker, LAN peer discovery, or required local runtime. Do not reintroduce the v1 local POC architecture.
+2. **GitHub repository is the project boundary.** A repository becomes a project only when a user deliberately connects it.
+3. **Collaborator relationships are project-scoped**, never global. Connected on Repo A never implies Repo B.
+4. **Project connection permits messaging, not repository access.** A collaborator may ask; only the recipient's own agent inspects the recipient's workspace, and only the approved answer crosses.
+5. **Every cross-user message is prepared privately first.** Rough composer text never goes straight to the collaborator.
+6. **The agent may decide a draft is ready; only the human decides to send it.** A model can never authorize a collaborator, approve its own outbound message, grant itself another repository, or override secret policy.
+7. **Obvious secrets stay blocked underneath human approval.** `.env*`, private keys, tokens, cloud and SSH credentials, and anything outside the project boundary are refused deterministically — human approval is not the only safety mechanism.
+8. **Telaegent's project conversation is the durable memory.** Provider sessions are resumable working context, never the source of truth. A new shell is not a new session, and not an isolation boundary.
+9. **Isolation unit is user × repository.** No cross-user mounts, no cross-project visibility, no shared CLI home between users, and never trust a remote-supplied workspace path.
+10. **Never persist or expose** provider credentials, GitHub tokens, raw `.env` values, hidden reasoning, full CLI transcripts, another user's private draft, or provider session identifiers in the UI.
+11. **Do not silently fall back between providers.** Claude and Codex are not assumed to behave identically.
+12. **Be honest about limitations.** Private means private from the collaborator, not from the Telaegent operator. Make no end-to-end-encryption or production-isolation claims that are not implemented.
 
-- Lead with the outcome and one recommended path.
-- Inspect actual code before proposing or editing.
+## What this is not
+
+Not a GitHub replacement, a new IDE, a Slack replacement, an autonomous agent swarm, a shared filesystem between developers, an importer of personal Claude/Codex history, automatic merge infrastructure, or an enterprise access-control platform.
+
+Not the v1 product either: the fixed `publish intent → detect conflict → ContextPack → replan` workflow is superseded. Conflict negotiation can return later as one use case built on the messaging primitive, not as the product.
+
+## Working agreements
+
+- Inspect actual code before proposing or editing. Lead with the outcome and one recommended path.
 - State assumptions and cross-owner contract needs explicitly.
-- Report exact files changed, verification evidence, and unresolved integration needs.
-- Never call work complete when verification is missing or failing.
+- Report exact files changed and verification evidence. Never call work complete when verification is missing or failing.
+- Treat model output, repository content, paths and tool arguments as untrusted. Validation and deterministic policy checks precede state changes or disclosure.
+- Do not auto-commit unless asked. On the default branch, branch first.
 
 ## Definition of done
 
-Work is `done` only when the requested behavior is demonstrated, focused tests pass, `npm run check` passes, normal Playground behavior remains intact, sensitive data is absent from persistence/UI, no task-related TODO/FIXME remains, and any affected harness topic doc is current. If any condition fails, report `in_progress` and the exact blocker.
+Work is `done` only when the requested behavior is demonstrated, focused tests pass, `npm run check` passes, sensitive data is absent from persistence and UI, and no task-related TODO/FIXME remains. If any condition fails, report `in_progress` and the exact blocker.
 
-The submission is complete only when the full Phoenix flow works, at least one genuine provider run is shown, `.env` denial occurs live before access, the audit trail is complete, and a fresh setup plus `npm run poc` succeeds on the supported demo environment.
+## Known state
 
-## Session protocol
-
-- Start: read `my-harness/session-log.md`, check `my-harness/observations.md`, load matching topic docs, and declare `Session scope: ...`.
-- During: append `[NN] <decision and why>` immediately for non-obvious decisions or changed approaches.
-- End: refresh Current Verified State, append a Session Record with evidence/risks/next action, update affected topic docs, clear observations, and remind Phuong to commit; never auto-commit unless asked.
-- Do not write outside the declared scope without stating the scope change.
-
-## Topic docs (load only when the condition matches)
-
-| File | Load when… |
-| --- | --- |
-| `my-harness/session-log.md` | Always, first at session start |
-| `my-harness/runtime-providers.md` | Touching runners, `AgentService`, runtime config, capability detection, sandbox/session behavior, cancellation, or provider errors |
+- `npm run check` (typecheck + test + build) passes: 9 test files, 31 tests.
+- That green suite covers the Starter Kit only. Archiving v1 removed 270 tests from CI; three real bugs went with them, written up in `legacy/README.md`. Do not read the green suite as coverage of the trust model — that coverage does not exist yet.
+- The backend for the new product is not built. `apps/server` is still the Starter Kit control plane.
