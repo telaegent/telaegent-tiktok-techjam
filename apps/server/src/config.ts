@@ -23,7 +23,7 @@ const envSchema = z.object({
   CLAUDE_MODEL: z.string().optional(),
   RUNTIME_OUTPUT_SCHEMA_ROOT: z
     .string()
-    .default(path.resolve("apps/server/src/telaegent/output-schemas")),
+    .default(path.resolve("legacy/telaegent-v1/output-schemas")),
   RUNTIME_PROVIDER: z.enum(["local-process", "container"]).default("local-process"),
   CONTAINER_ENGINE: z.string().min(1).default("docker"),
   CONTAINER_RUNTIME_IMAGE: z.string().min(1).default("volc-agent-runtime:local"),

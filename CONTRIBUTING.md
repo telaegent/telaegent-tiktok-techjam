@@ -18,7 +18,7 @@ For container-based Agent execution, follow
 
 ```bash
 npm run check
-terraform fmt -check -recursive deploy/volcengine
+terraform fmt -check -recursive legacy/local-container-runtime/deploy/volcengine
 docker compose config
 ```
 

@@ -1,5 +1,3 @@
-import type { TelaegentDatabase } from "./telaegent/types.js";
-
 export type AgentStatus = "ready" | "busy" | "stopped" | "error";
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type MessageRole = "user" | "assistant";
@@ -63,7 +61,7 @@ export interface Database {
   messages: Message[];
   runs: AgentRun[];
   /** Optional only while old version-1 files are being backfilled by JsonStore. */
-  telaegent?: TelaegentDatabase | undefined;
+  telaegent?: Record<string, unknown[]> | undefined;
 }
 
 export interface CreateAgentInput {

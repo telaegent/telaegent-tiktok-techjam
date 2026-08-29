@@ -16,7 +16,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test -w @launchpad/server",
     "check": "npm run typecheck && npm run test && npm run build",
-    "poc": "./scripts/start-local-poc.sh",
+    "poc:v1-legacy": "./legacy/local-container-runtime/start-local-poc.sh",
     "start": "npm run start -w @launchpad/server"
   },
   "devDependencies": {

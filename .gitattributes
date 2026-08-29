@@ -1,0 +1,15 @@
+# Normalize line endings. Without this, every commit from a Windows checkout
+# emits "LF will be replaced by CRLF" warnings and risks whole-file diffs when
+# the team mixes platforms.
+* text=auto eol=lf
+
+# Shell scripts must keep LF or they fail to execute in Linux containers.
+*.sh text eol=lf
+
+# Binary — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

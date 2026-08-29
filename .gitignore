@@ -8,9 +8,9 @@ coverage/
 *.log
 *.tsbuildinfo
 .DS_Store
-deploy/volcengine/.terraform/
-deploy/volcengine/*.tfstate*
-deploy/volcengine/terraform.tfvars
+legacy/local-container-runtime/deploy/volcengine/.terraform/
+legacy/local-container-runtime/deploy/volcengine/*.tfstate*
+legacy/local-container-runtime/deploy/volcengine/terraform.tfvars
 my-harness/
 
 # --- secrets ---------------------------------------------------------------
