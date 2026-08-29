@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { AppConfig } from "./config.js";
-import { isArkConfigured } from "./config.js";
 import { RunCancelledError } from "./errors.js";
 import type {
   JsonSchemaDocument,
@@ -12,11 +11,15 @@ import type {
   MiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeProviderCapability,
+  RuntimeActivity,
+  RuntimeProgressEvent,
+  RuntimeProgressSink,
 } from "./runtime-contract.js";
 import {
   RuntimeProviderError,
   classifyProviderFailure,
 } from "./runtime-errors.js";
+import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import type {
   AgentRunner,
   RunUsage,
@@ -31,6 +34,32 @@ export interface ParsedEvents {
   threadId: string | null;
   usage: RunUsage | null;
   errors: string[];
+}
+
+function emitProgress(
+  onProgress: RuntimeProgressSink | undefined,
+  event: RuntimeProgressEvent,
+): void {
+  try {
+    onProgress?.(event);
+  } catch {
+    // UI progress is best-effort and must never fail the provider run.
+  }
+}
+
+function codexActivity(itemType: unknown): RuntimeActivity | null {
+  switch (itemType) {
+    case "command_execution":
+      return "command";
+    case "file_change":
+      return "file_change";
+    case "mcp_tool_call":
+      return "mcp";
+    case "web_search":
+      return "web_search";
+    default:
+      return null;
+  }
 }
 
 interface ActiveCodexProcess {
@@ -110,43 +139,90 @@ export function buildCodexMiddlewareArgs(
   return args;
 }
 
-export function parseCodexEventLine(line: string, parsed: ParsedEvents): void {
+export function parseCodexEventLine(
+  line: string,
+  parsed: ParsedEvents,
+  onProgress?: RuntimeProgressSink,
+): void {
   let event: Record<string, unknown>;
   try {
     event = JSON.parse(line) as Record<string, unknown>;
   } catch {
-    return;
+    throw new RuntimeProviderError(
+      "INVALID_AGENT_OUTPUT",
+      "Codex returned an invalid event stream",
+    );
   }
 
   if (event.type === "thread.started" && typeof event.thread_id === "string") {
     parsed.threadId = event.thread_id;
+    emitProgress(onProgress, {
+      type: "session_started",
+      provider: "codex",
+    });
+  }
+  if (event.type === "turn.started") {
+    emitProgress(onProgress, { type: "turn_started", provider: "codex" });
+  }
+  if (event.type === "item.started" && event.item && typeof event.item === "object") {
+    const activity = codexActivity((event.item as Record<string, unknown>).type);
+    if (activity) {
+      emitProgress(onProgress, {
+        type: "activity_started",
+        provider: "codex",
+        activity,
+      });
+    }
   }
   if (event.type === "item.completed" && event.item && typeof event.item === "object") {
     const item = event.item as Record<string, unknown>;
     if (item.type === "agent_message" && typeof item.text === "string") {
       parsed.messages.push(item.text);
+      emitProgress(onProgress, {
+        type: "text_delta",
+        provider: "codex",
+        text: item.text,
+      });
+    } else {
+      const activity = codexActivity(item.type);
+      if (activity) {
+        emitProgress(onProgress, {
+          type: "activity_completed",
+          provider: "codex",
+          activity,
+        });
+      }
     }
   }
-  if (event.type === "turn.completed" && event.usage && typeof event.usage === "object") {
-    const usage = event.usage as Record<string, unknown>;
-    parsed.usage = {
-      ...(typeof usage.input_tokens === "number"
-        ? { inputTokens: usage.input_tokens }
-        : {}),
-      ...(typeof usage.cached_input_tokens === "number"
-        ? { cachedInputTokens: usage.cached_input_tokens }
-        : {}),
-      ...(typeof usage.output_tokens === "number"
-        ? { outputTokens: usage.output_tokens }
-        : {}),
-    };
+  if (event.type === "turn.completed") {
+    if (event.usage && typeof event.usage === "object") {
+      const usage = event.usage as Record<string, unknown>;
+      parsed.usage = {
+        ...(typeof usage.input_tokens === "number"
+          ? { inputTokens: usage.input_tokens }
+          : {}),
+        ...(typeof usage.cached_input_tokens === "number"
+          ? { cachedInputTokens: usage.cached_input_tokens }
+          : {}),
+        ...(typeof usage.output_tokens === "number"
+          ? { outputTokens: usage.output_tokens }
+          : {}),
+      };
+    }
+    emitProgress(onProgress, { type: "turn_completed", provider: "codex" });
   }
-  if (event.type === "error") {
+  if (event.type === "error" || event.type === "turn.failed") {
+    const nestedError =
+      event.error && typeof event.error === "object"
+        ? (event.error as Record<string, unknown>)
+        : null;
     const message =
       typeof event.message === "string"
         ? event.message
         : typeof event.error === "string"
           ? event.error
+          : nestedError && typeof nestedError.message === "string"
+            ? nestedError.message
           : "Codex reported an unknown error";
     parsed.errors.push(message);
   }
@@ -175,10 +251,22 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     if (!installed) {
       return { installed: false, authenticated: false, reason: "not_installed" };
     }
-    if (!isArkConfigured(this.config)) {
-      return { installed: true, authenticated: false, reason: "not_configured" };
+    if (this.config.codexApiKey) {
+      return { installed: true, authenticated: true, reason: null };
     }
-    return { installed: true, authenticated: true, reason: null };
+    try {
+      await execFileAsync(this.config.codexBin, ["login", "status"], {
+        timeout: 5_000,
+        env: this.childEnvironment(),
+      });
+      return { installed: true, authenticated: true, reason: null };
+    } catch {
+      return {
+        installed: true,
+        authenticated: false,
+        reason: "not_authenticated",
+      };
+    }
   }
 
   async cancel(agentId: string): Promise<boolean> {
@@ -203,13 +291,8 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
   async runStructured(
     request: MiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
+    onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult> {
-    if (!isArkConfigured(this.config)) {
-      throw new RuntimeProviderError(
-        "RUNTIME_UNAVAILABLE",
-        "Codex runtime credentials are not configured",
-      );
-    }
     const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
     const schemaPath = path.join(schemaDirectory, "output.schema.json");
     try {
@@ -217,13 +300,17 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         encoding: "utf8",
         mode: 0o600,
       });
-      const result = await this.runProcess({
-        agentId: request.agentId,
-        workspacePath: request.workspacePath,
-        threadId:
-          request.sessionMode === "continue" ? request.sessionId ?? null : null,
-        args: buildCodexMiddlewareArgs(request, schemaPath),
-      }, request.runtimePrompt);
+      const result = await this.runProcess(
+        {
+          agentId: request.agentId,
+          workspacePath: request.workspacePath,
+          threadId:
+            request.sessionMode === "continue" ? request.sessionId ?? null : null,
+          args: buildCodexMiddlewareArgs(request, schemaPath),
+        },
+        request.runtimePrompt,
+        onProgress,
+      );
       let final: unknown;
       try {
         final = JSON.parse(result.output) as unknown;
@@ -235,7 +322,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       }
       return {
         provider: "codex",
-        ...(request.sessionMode === "continue" && result.threadId
+        ...(request.sessionMode !== "ephemeral" && result.threadId
           ? { sessionId: result.threadId }
           : {}),
         final,
@@ -251,6 +338,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
   private async runProcess(
     request: CodexProcessRequest,
     stdinPayload?: string,
+    onProgress?: RuntimeProgressSink,
   ): Promise<CodexProcessResult> {
     if (this.active.has(request.agentId)) {
       throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
@@ -288,8 +376,19 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     let stdout = "";
     let stderr = "";
     let totalBytes = 0;
+    let parseFailure: RuntimeProviderError | null = null;
+
+    const watchdog = new RuntimeWatchdog(
+      this.config.runtimeIdleTimeoutMs,
+      this.config.codexTimeoutMs,
+      () => {
+        active.timedOut = true;
+        this.terminate(active);
+      },
+    );
 
     const consume = (chunk: Buffer, target: "stdout" | "stderr") => {
+      watchdog.activity();
       totalBytes += chunk.byteLength;
       if (totalBytes > this.config.codexMaxOutputBytes) {
         active.outputExceeded = true;
@@ -300,7 +399,15 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         stdout += chunk.toString("utf8");
         const lines = stdout.split(/\r?\n/);
         stdout = lines.pop() ?? "";
-        for (const line of lines) parseCodexEventLine(line, parsed);
+        for (const line of lines) {
+          try {
+            parseCodexEventLine(line, parsed, onProgress);
+          } catch (error) {
+            parseFailure = error as RuntimeProviderError;
+            this.terminate(active);
+            return;
+          }
+        }
       } else {
         stderr += chunk.toString("utf8");
         if (stderr.length > 16_384) stderr = stderr.slice(-16_384);
@@ -309,11 +416,6 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
 
     child.stdout?.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
     child.stderr?.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
-    const timeout = setTimeout(() => {
-      active.timedOut = true;
-      this.terminate(active);
-    }, this.config.codexTimeoutMs);
-    timeout.unref();
 
     try {
       let exitCode: number;
@@ -325,7 +427,9 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       } catch (error) {
         throw classifyProviderFailure("codex", error);
       }
-      if (stdout.trim()) parseCodexEventLine(stdout.trim(), parsed);
+      if (stdout.trim() && !parseFailure) {
+        parseCodexEventLine(stdout.trim(), parsed, onProgress);
+      }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {
         throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Codex runtime timed out");
@@ -336,6 +440,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
           "Codex output exceeded the configured limit",
         );
       }
+      if (parseFailure) throw parseFailure;
       if (exitCode !== 0) {
         throw classifyProviderFailure(
           "codex",
@@ -357,7 +462,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         durationMs: Date.now() - startedAt,
       };
     } finally {
-      clearTimeout(timeout);
+      watchdog.stop();
       if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
       this.active.delete(request.agentId);
     }
@@ -395,9 +500,11 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     ] as const;
     const environment: NodeJS.ProcessEnv = {
       CODEX_HOME: this.config.codexHome,
-      ARK_API_KEY: this.config.arkApiKey,
       NO_COLOR: "1",
     };
+    if (this.config.codexApiKey) {
+      environment.CODEX_API_KEY = this.config.codexApiKey;
+    }
     for (const name of inheritedNames) {
       if (process.env[name] !== undefined) environment[name] = process.env[name];
     }
