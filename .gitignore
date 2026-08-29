@@ -106,3 +106,6 @@ Thumbs.db
 # Local git housekeeping (see .gitattributes note)
 # ---------------------------------------------------------------------------
 .git/telaegent-trash/
+
+# Transient sync bundles used while developing on this machine.
+*.tgz
