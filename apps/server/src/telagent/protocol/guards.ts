@@ -142,6 +142,104 @@ const INJECTION_ECHOES = [
 ];
 
 /* ========================================================================== *
+ * High-entropy tokens
+ * ========================================================================== */
+
+/**
+ * A finding from the corpus, encoded as code.
+ *
+ * `redactText` detects credential *shapes*: bearer headers, PEM blocks,
+ * provider key prefixes, `NAME=value` assignments, connection strings. Every
+ * one of those has a recognisable structure. It does not — and by construction
+ * cannot — detect a bare high-entropy string presented without any of them:
+ *
+ *     "Here it is: tg-sentinel-jwt-9f4c2ab17e0d5b83"
+ *
+ * That is a real gap, and the security suite found it rather than the design
+ * anticipating it. Two things follow.
+ *
+ * First, the mitigation is layered rather than clever: `.env` is denied by name
+ * before it is ever opened, so in the intended flow the value never reaches an
+ * agent's context to be quoted. Content inspection is the second line, not the
+ * first, and this function is explicitly a backstop.
+ *
+ * Second, the backstop has to accept false positives to be worth anything, so
+ * the exclusions matter more than the detection. Git object ids and content
+ * digests are high-entropy, are legitimately shareable, and appear constantly
+ * in exactly the answers this product exists to produce — so 7-to-64 character
+ * pure-hex tokens are exempt. So are long words and dotted identifiers, which
+ * are code.
+ *
+ * The residue this catches: mixed-class, punctuated, 20-plus-character tokens
+ * that are not hex, not an identifier, and not a path. Those are, in practice,
+ * secrets.
+ */
+const HEX_ONLY = /^[0-9a-f]{7,64}$/i;
+const PATH_LIKE = /[/\\]/;
+
+/**
+ * The positive test: a long unbroken alphanumeric run that mixes letters and
+ * digits densely.
+ *
+ * This, rather than a character-class count, is what separates a secret from an
+ * identifier. `getUserById_v2Handler` and `AWS_SECRET_ACCESS_KEY` mix classes
+ * too, but their alphanumeric runs are short and word-shaped because a human
+ * chose them. `9f4c2ab17e0d5b83` is sixteen unbroken characters at 56% digits
+ * because a random number generator chose it, and nothing a person names looks
+ * like that.
+ *
+ * Sixteen is the threshold, chosen against a specific case rather than by
+ * taste: a UUID's longest run is twelve, and correlation ids move through these
+ * messages legitimately. Raising the bar to sixteen keeps them, while still
+ * catching every secret shape in the fixtures.
+ */
+const DENSE_RUN = /[A-Za-z0-9]{16,}/g;
+
+function hasDenseRandomRun(token: string): boolean {
+  DENSE_RUN.lastIndex = 0;
+  const runs = token.match(DENSE_RUN);
+  if (runs === null) return false;
+
+  for (const run of runs) {
+    const digits = (run.match(/[0-9]/g) ?? []).length;
+    const letters = (run.match(/[A-Za-z]/g) ?? []).length;
+    if (letters === 0) continue;               // a long number is not a secret
+    if (digits / run.length < 0.25) continue;  // a long word is not a secret
+    return true;
+  }
+  return false;
+}
+
+export function looksLikeBareSecret(token: string): boolean {
+  if (token.length < 20 || token.length > 200) return false;
+
+  // Git commits, blob ids, SHA-256 digests. Shareable, and the product needs
+  // them: "my answer is based on commit 81ad2e..." must not be blocked.
+  if (HEX_ONLY.test(token)) return false;
+
+  // A URL or path. Real ones are shareable; an encoded credential in a query
+  // string still carries + or = and falls through to the run test.
+  if (PATH_LIKE.test(token) && !/[+=]/.test(token)) return false;
+
+  return hasDenseRandomRun(token);
+}
+
+/**
+ * Splits on whitespace and quoting, then trims trailing sentence punctuation.
+ *
+ * The trim is not cosmetic. A commit id at the end of a sentence arrives as
+ * "0123...4567." and the trailing full stop stops it matching the pure-hex
+ * exemption, so the backstop would block an answer for citing its own source.
+ * Only the ends are trimmed — an interior dot is part of `src.auth.session`.
+ */
+function tokenize(text: string): string[] {
+  return text
+    .split(/[\s"'`,;()\[\]{}<>]+/)
+    .map((token) => token.replace(/^[.!?:]+/, "").replace(/[.!?:]+$/, ""))
+    .filter((token) => token.length > 0);
+}
+
+/* ========================================================================== *
  * Candidate inspection
  * ========================================================================== */
 
@@ -201,6 +299,20 @@ export function inspectCandidate(candidate: string | null): GuardVerdict {
         redaction.reasons.join(", ").toLowerCase().replace(/_/g, " ") +
         "). Telaegent will not send secret values. Ask for names or structure " +
         "instead.",
+      impliedFlag: "secret_content",
+    });
+  }
+
+  // Backstop for the shape-less case redactText cannot see. Reported under the
+  // same code as a shaped secret, because from the owner's point of view it is
+  // the same event and a second vocabulary would only be a second thing to
+  // explain.
+  if (redaction.count === 0 && tokenize(candidate).some(looksLikeBareSecret)) {
+    findings.push({
+      code: "GUARD_SECRET_VALUE_IN_CANDIDATE",
+      safeReason:
+        "This draft contains a high-entropy value that looks like a credential. " +
+        "Telaegent will not send secret values. Ask for names or structure instead.",
       impliedFlag: "secret_content",
     });
   }

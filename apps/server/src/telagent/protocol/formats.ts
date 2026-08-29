@@ -74,6 +74,21 @@ export interface ProtocolFormat {
   label: string;
   /** What this format is trying to prove or disprove. */
   hypothesis: string;
+  /**
+   * Whether untrusted text is wrapped in the prose envelope from
+   * `prompts/shared.ts`.
+   *
+   * False for exactly one format, P2, and that is the variable P2 exists to
+   * test — it marks untrusted content with a JSON field instead, and the
+   * adversarial categories measure what that costs. Making it a declared
+   * property rather than an emergent one means the security suite can assert
+   * "every format that claims the envelope has it" and separately record that
+   * P2 does not, instead of a blanket assertion that P2 would silently fail.
+   *
+   * A format shipped to production must have this true. Invariant I6 is not
+   * negotiable for anything on the recommended path.
+   */
+  envelopesUntrustedInput: boolean;
   render(input: ProtocolTurnInput): RenderedPrompt;
 }
 
@@ -127,6 +142,7 @@ const P1: ProtocolFormat = {
   hypothesis:
     "Most simple repository questions need only the repo name and the request; " +
     "everything else is cost. Establishes the floor.",
+  envelopesUntrustedInput: true,
   render(input) {
     if (isSender(input)) {
       const user = [
@@ -185,6 +201,7 @@ const P2: ProtocolFormat = {
   hypothesis:
     "Structure alone conveys the context. Expected weakness: an untrusted " +
     "message flattened into a field reads as actionable data.",
+  envelopesUntrustedInput: false,
   render(input) {
     if (isSender(input)) {
       const payload = {
@@ -233,6 +250,7 @@ const P3: ProtocolFormat = {
   hypothesis:
     "Prose for judgement, JSON for identifiers. Identifiers in prose get " +
     "paraphrased; judgement in JSON gets skimmed.",
+  envelopesUntrustedInput: true,
   render(input) {
     const factsBlock =
       "PROJECT FACTS (exact values — do not paraphrase)\n" +
@@ -267,6 +285,7 @@ const P4: ProtocolFormat = {
   hypothesis:
     "Maximum recall, maximum cost. Also expected to amplify conversation " +
     "poisoning, because a false claim repeated across turns reads as settled.",
+  envelopesUntrustedInput: true,
   render(input) {
     const transcript = input.sharedHistory
       .map((turn) => "[" + turn.at + "] " + turn.author + " (" + turn.origin + "): " + turn.text)
@@ -311,6 +330,7 @@ const P5: ProtocolFormat = {
   hypothesis:
     "Recall where it matters, at bounded cost — and the only format whose " +
     "context Telaegent can rebuild after a provider session is lost.",
+  envelopesUntrustedInput: true,
   render(input) {
     const recent = lastTurns(input.sharedHistory, PROTOCOL_LIMITS.recentSharedTurns);
     const omitted = input.sharedHistory.length - recent.length;
