@@ -170,6 +170,7 @@ button:active,
   white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
+  cursor: pointer;
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease,
     transform 120ms ease;
 }
@@ -578,21 +579,9 @@ button:active,
   background: transparent;
 }
 
-.message-pending::after {
-  position: absolute;
-  top: 12px;
-  right: -5px;
-  width: 2px;
-  height: calc(100% - 24px);
-  border-radius: 99px;
-  background: var(--accent);
-  content: "";
-}
-
 .message-incoming {
   margin-top: 24px;
-  padding-left: 16px;
-  border-left: 2px solid var(--line-strong);
+  padding-left: 0;
 }
 
 .message-author {
@@ -663,11 +652,67 @@ button:active,
 
 .agent-state-ready {
   margin-left: auto;
-  color: var(--accent);
+  color: var(--muted);
   font-family: var(--mono);
   font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
+}
+
+.safe-message-approval {
+  width: min(470px, 100%);
+  margin: 26px 0 0 auto;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background: var(--surface);
+}
+
+.safe-message-approval strong,
+.safe-message-approval small {
+  display: block;
+}
+
+.safe-message-approval strong {
+  font-size: 10px;
+}
+
+.safe-message-approval small {
+  margin-top: 4px;
+  color: var(--quiet);
+  font-size: 8px;
+}
+
+.safe-message-approval > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.safe-message-approval button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.safe-message-approval button.send {
+  border-color: var(--button);
+  color: var(--button-text);
+  background: var(--button);
+}
+
+.direct-decision-result {
+  width: fit-content;
+  margin: 27px 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .source-list {
@@ -723,7 +768,6 @@ button:active,
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   color: var(--text);
   background: var(--private-surface);
-  box-shadow: -28px 0 58px rgb(0 0 0 / 16%);
   visibility: hidden;
   transform: translateX(101%);
   transition: transform 280ms cubic-bezier(.22, 1, .36, 1), visibility 0s linear 280ms;
@@ -751,7 +795,7 @@ button:active,
 }
 
 .private-room-header strong {
-  margin-top: 12px;
+  margin-top: 0;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -.02em;
@@ -761,26 +805,6 @@ button:active,
   margin-top: 5px;
   color: var(--quiet);
   font-size: 9px;
-}
-
-.private-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--accent);
-  font-family: var(--mono);
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.private-label i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .private-room-header button {
@@ -847,8 +871,7 @@ button:active,
 
 .private-message-agent {
   margin-top: 22px;
-  padding: 0 0 0 14px;
-  border-left: 2px solid var(--accent);
+  padding: 0;
 }
 
 .private-agent-heading {
@@ -877,17 +900,56 @@ button:active,
 
 .private-suggestions {
   margin-top: 19px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
+  border-top: 1px solid var(--line);
 }
 
-.private-suggestions span {
-  padding: 7px 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
+.private-suggestions button {
+  width: 100%;
+  min-height: 46px;
+  padding: 6px 9px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
   color: var(--muted);
-  font-size: 8px;
+  text-align: left;
+  background: transparent;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.private-suggestions button.selected {
+  margin: 6px 0;
+  border-bottom-color: transparent;
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--surface-selected);
+}
+
+.private-suggestions kbd {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--quiet);
+  background: var(--surface-selected);
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.private-suggestions button.selected kbd {
+  color: var(--text);
+  background: var(--line-strong);
+}
+
+.private-suggestions button small {
+  color: var(--quiet);
+  text-align: right;
+  font-size: 12px;
 }
 
 .private-composer {
@@ -1174,7 +1236,8 @@ button:active,
     flex-direction: column;
   }
 
-  .hero-actions a {
+  .hero-actions a,
+  .hero-actions button {
     width: 100%;
   }
 
@@ -1205,6 +1268,15 @@ button:active,
 
   .message-outgoing {
     max-width: 84%;
+  }
+
+  .safe-message-approval {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .safe-message-approval > div:last-child {
+    align-self: flex-end;
   }
 
   .message-composer {
