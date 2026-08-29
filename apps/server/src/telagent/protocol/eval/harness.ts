@@ -211,6 +211,7 @@ export async function runCase(
     guard: guard?.verdict ?? null,
     leakage,
     clarificationTurnsUsed: testCase.privateTurns?.length ?? 0,
+    ownerInput: testCase.role === "sender" ? testCase.ownerInput : undefined,
   });
 
   return {
