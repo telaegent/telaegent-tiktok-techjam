@@ -3,7 +3,7 @@ import { RuntimeProgressChannel } from "./runtime-progress-channel.js";
 
 const owner = {
   userId: "user-a",
-  githubRepositoryId: 123,
+  githubRepositoryId: "123",
   conversationId: "conversation-1",
 };
 
@@ -48,7 +48,7 @@ describe("RuntimeProgressChannel", () => {
     expect(
       channel.subscribe(
         streamId,
-        { ...owner, githubRepositoryId: 456 },
+        { ...owner, githubRepositoryId: "456" },
         vi.fn(),
       ),
     ).toBeNull();

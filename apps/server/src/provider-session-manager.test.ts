@@ -14,7 +14,7 @@ import {
 
 const scope: ProviderSessionScope = {
   userId: "user-a",
-  githubRepositoryId: 123,
+  githubRepositoryId: "123",
   conversationId: "conversation-1",
   provider: "codex",
 };
@@ -93,7 +93,7 @@ describe("ProviderSessionManager", () => {
     const scopes: ProviderSessionScope[] = [
       scope,
       { ...scope, userId: "user-b" },
-      { ...scope, githubRepositoryId: 456 },
+      { ...scope, githubRepositoryId: "456" },
       { ...scope, conversationId: "conversation-2" },
       { ...scope, provider: "claude" },
     ];

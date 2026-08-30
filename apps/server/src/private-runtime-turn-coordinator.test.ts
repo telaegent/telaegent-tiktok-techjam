@@ -17,7 +17,7 @@ import { RuntimeProgressChannel } from "./runtime-progress-channel.js";
 
 const scope: ProviderSessionScope = {
   userId: "user-a",
-  githubRepositoryId: 123,
+  githubRepositoryId: "123",
   conversationId: "conversation-1",
   provider: "codex",
 };

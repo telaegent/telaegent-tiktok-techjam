@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import type { GitHubRepositoryId } from "./authorization/types.js";
 import type { RuntimeProgressEvent } from "./runtime-contract.js";
 
 export interface RuntimeProgressOwner {
   userId: string;
-  githubRepositoryId: number;
+  /** Stable GitHub numeric repository ID represented as a decimal string. */
+  githubRepositoryId: GitHubRepositoryId;
   conversationId: string;
 }
 
@@ -28,6 +30,7 @@ interface ChannelState {
 }
 
 const validOwnerPart = /^[^\u0000\r\n]{1,256}$/;
+const validGitHubRepositoryId = /^[1-9][0-9]{0,19}$/;
 
 /**
  * Bounded, in-memory bridge between a private CLI turn and a realtime
@@ -115,10 +118,7 @@ export class RuntimeProgressChannel {
         throw new Error("Runtime progress owner is invalid");
       }
     }
-    if (
-      !Number.isSafeInteger(owner.githubRepositoryId) ||
-      owner.githubRepositoryId <= 0
-    ) {
+    if (!validGitHubRepositoryId.test(owner.githubRepositoryId)) {
       throw new Error("Runtime progress owner is invalid");
     }
   }
