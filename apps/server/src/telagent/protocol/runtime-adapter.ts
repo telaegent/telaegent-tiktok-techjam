@@ -139,6 +139,7 @@ export interface DurableConversationContext {
 
 export type DurableContextLoader = (
   scope: ProviderSessionScope,
+  request: Readonly<{ purpose: RunPurpose; correlationId: string }>,
 ) => Promise<DurableConversationContext | null>;
 
 export type ProtocolContextRejectionReporter = (
@@ -157,11 +158,15 @@ export async function loadValidatedDurableContext(options: {
   load: DurableContextLoader;
   scope: ProviderSessionScope;
   purpose: RunPurpose;
+  correlationId: string;
   onRejected?: ProtocolContextRejectionReporter;
 }): Promise<DurableConversationContext> {
   let context: DurableConversationContext | null;
   try {
-    context = await options.load(options.scope);
+    context = await options.load(options.scope, {
+      purpose: options.purpose,
+      correlationId: options.correlationId,
+    });
   } catch {
     return rejectProtocolContext(
       options.scope,
@@ -372,6 +377,7 @@ export function createProtocolHydrator(
       load: options.load,
       scope,
       purpose: request.purpose,
+      correlationId: request.correlationId,
       ...(options.onHydrationRejected
         ? { onRejected: options.onHydrationRejected }
         : {}),

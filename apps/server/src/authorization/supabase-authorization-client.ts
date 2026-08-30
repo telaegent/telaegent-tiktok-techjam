@@ -1,4 +1,5 @@
 import { isGitHubRepositoryId } from "./github-repository-id.js";
+import { isSafeSupabaseOrigin } from "../supabase-origin.js";
 import type {
   SupabaseAuthorizationSnapshotClient,
   SupabasePrivateRuntimeAuthorizationRpcRequest,
@@ -97,14 +98,7 @@ function validateSupabaseUrl(value: string): URL {
   } catch {
     throw configurationError();
   }
-  if (
-    url.protocol !== "https:" ||
-    url.username.length > 0 ||
-    url.password.length > 0 ||
-    url.search.length > 0 ||
-    url.hash.length > 0 ||
-    (url.pathname !== "/" && url.pathname !== "")
-  ) {
+  if (!isSafeSupabaseOrigin(url)) {
     throw configurationError();
   }
   return url;

@@ -50,12 +50,11 @@ export class AuthorizedConversationAccess implements ConversationAccessAuthorize
 }
 
 /**
- * Placeholder for the unbuilt cloud-to-local transport.
+ * Fail-closed fallback when the cloud-to-local transport is not configured.
  *
- * `createAuthorizedProtocolTurnRuntime` can compose a real runtime, but the
- * canonical cloud path needs a `ConnectorJobRelay` implementation that does not
- * exist yet. Until one is supplied, drafting fails closed with a retryable
- * runtime error rather than silently running a provider inside the cloud.
+ * Production composition supplies the long-poll connector relay only when the
+ * durable authorization and protocol-context stores are enabled. Other modes
+ * fail closed rather than silently running a provider inside the cloud.
  */
 export class ConnectorUnavailableDraftRuntime implements PrivateDraftTurnRuntime {
   async start<T = unknown>(): Promise<StartedPrivateRuntimeTurn<T>> {
@@ -91,19 +90,21 @@ export interface ConversationApiFactoryOptions {
   repository?: ConversationRepository | undefined;
   runtime?: PrivateDraftTurnRuntime | undefined;
   authenticatedUserId?: AuthenticatedUserResolver | undefined;
+  authorizer?: PrivateRuntimeAuthorizer | undefined;
 }
 
 /**
  * Composition root for the canonical conversation API.
  *
- * Authorization is real and fail-closed; the draft runtime and per-user
- * identity are the two seams still awaiting an implementation.
+ * Every optional seam has a fail-closed default. Production bootstrap supplies
+ * per-user identity and the connector runtime only when their durable backing
+ * services are configured.
  */
 export function createConversationApi(
   config: Readonly<AppConfig>,
   options: Readonly<ConversationApiFactoryOptions> = {},
 ): ConversationRouteDependencies {
-  const authorizer = new PrivateRuntimeAuthorizationService(
+  const authorizer = options.authorizer ?? new PrivateRuntimeAuthorizationService(
     createConfiguredAuthorizationRepository(config),
     { repositoryAccessMaxAgeMs, repositoryReadTimeoutMs },
   );

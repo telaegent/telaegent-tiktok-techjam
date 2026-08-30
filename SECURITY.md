@@ -112,6 +112,15 @@ remains owner-private and does not become durable shared state until `Send`.
 - resource IDs opaque to the requesting peer; canonical paths never leave the
   owning connector
 
+The first connector transport slice uses a dedicated random bearer per local
+installation. The browser's authenticated Telaegent session may issue, rotate,
+or revoke it; connector routes do not accept the browser cookie or legacy app
+token as a substitute. Only a SHA-256 token hash is durable. Each authenticated
+poll resolves the bound user and connector instance, and a repository proof
+must register the exact opaque user x repository binding before it can receive
+a job. Rotation/revocation removes that principal's live relay bindings, and
+stale presence cannot receive new jobs.
+
 ## Data handling
 
 Durable:
@@ -156,6 +165,11 @@ Do not claim:
 Use controlled demo accounts and repositories until connector authentication,
 local isolation, retention, revocation, and provider-policy questions are
 resolved.
+
+The current long-poll queue and binding-presence map are process-local. A cloud
+restart requires the connector to replay a fresh repository proof, and there is
+not yet durable redelivery across that restart. Connector packaging, signed
+updates, reconnect backoff, and production operational review remain open.
 
 ## Legacy scaffold
 

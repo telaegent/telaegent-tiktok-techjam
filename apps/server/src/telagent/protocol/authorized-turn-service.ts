@@ -176,6 +176,7 @@ export class AuthorizedProtocolTurnService {
       load: this.loadContext,
       scope,
       purpose,
+      correlationId: input.correlationId,
       ...(this.options.onContextRejected
         ? { onRejected: this.options.onContextRejected }
         : {}),
