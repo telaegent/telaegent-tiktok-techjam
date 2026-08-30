@@ -1,4 +1,5 @@
 import type { GitHubRepositoryId } from "./authorization/types.js";
+import { isGitHubRepositoryId } from "./authorization/github-repository-id.js";
 import type {
   AgentProvider,
   MiddlewareRunRequest,
@@ -51,7 +52,6 @@ export type ProviderSessionHydrator = (
 ) => Promise<ManagedAgentTurnRequest>;
 
 const validScopePart = /^[^\u0000\r\n]{1,256}$/;
-const validGitHubRepositoryId = /^[1-9][0-9]{0,19}$/;
 const validSessionId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
 /**
@@ -239,7 +239,7 @@ export class ProviderSessionManager {
         throw new Error("Provider session scope is invalid");
       }
     }
-    if (!validGitHubRepositoryId.test(scope.githubRepositoryId)) {
+    if (!isGitHubRepositoryId(scope.githubRepositoryId)) {
       throw new Error("Provider session scope is invalid");
     }
   }

@@ -15,6 +15,10 @@ Current scope:
    Supabase.
 6. `authorized-private-runtime-turn.ts` converts a fresh authorization result
    into Phuong's provider-session and owner-scoped progress flow.
+7. `github-repository-id.ts` is the single decimal-string validator for the
+   stable external repository boundary.
+8. `supabase-authorization-repository.ts` defines the strict RPC DTO, validates
+   untrusted persistence JSON, and adapts a narrow Supabase client port.
 
 The implemented internal flow is:
 
@@ -45,8 +49,10 @@ provider session manager / owner-scoped private progress stream
 
 - Khoa owns the domain rules, authorization service, denial behavior, and
   security tests.
-- Thai owns Supabase infrastructure and the adapter that loads the repository
-  snapshot.
+- Khoa owns the authorization DTO validation, database-to-domain mapping, and
+  repository adapter behavior.
+- Thai owns Supabase infrastructure, the transactional RPC/schema, and the
+  small client implementation that calls it.
 - Phuong consumes only a successful `AuthorizedPrivateRuntime` result.
 - Duy consumes later HTTP/realtime APIs and never receives a workspace path.
 
@@ -54,7 +60,8 @@ provider session manager / owner-scoped private progress stream
 
 - Supabase/Telaegent identity is distinct from GitHub CLI authorization.
 - GitHub's stable numeric repository ID is represented as a decimal string and
-  is the external repository scope key.
+  is the external repository scope key. It is bounded to PostgreSQL's positive
+  signed `BIGINT` range and is never parsed into a JavaScript number.
 - GitHub access, project membership, collaborator connection, and message
   approval remain separate permissions.
 - A runtime binding belongs to exactly one user and one project/repository.
@@ -116,10 +123,17 @@ production Supabase adapter must preserve the same logical-snapshot behavior.
 
 ## Supabase/Postgres adapter requirements
 
-Thai's adapter should load the snapshot with one SQL statement or transaction,
-honor the supplied abort signal and connection limit, select only the fields in
-the interface, and never return credential references. Recommended
-indexes/constraints:
+`SupabasePrivateRuntimeAuthorizationRepository` and its strict mapper are
+implemented without depending on physical table names or the Supabase SDK.
+Thai's `SupabaseAuthorizationSnapshotClient` implementation must call one SQL
+statement/transactional RPC, honor the supplied abort signal and connection
+limit, and return the canonical DTO. See
+[`supabase-authorization-snapshot-contract.md`](../../../../docs/architecture/supabase-authorization-snapshot-contract.md).
+
+The RPC must project `github_repository_id` as decimal text even when the
+database stores it as `BIGINT`. It must select only the fields in the DTO and
+must never return credential material, credential references, provider session
+IDs, or unrelated rows. Recommended indexes/constraints:
 
 - unique repository project by `github_repository_id`;
 - unique repository access by `(user_id, github_repository_id)`;

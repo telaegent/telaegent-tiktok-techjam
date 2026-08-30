@@ -207,8 +207,10 @@ After GitHub is connected, Telaegent uses that user's GitHub CLI identity to lis
 The backend should normalize repository results into a product-owned shape rather than exposing raw GitHub responses directly:
 
 ```ts
+type GitHubRepositoryId = string; // canonical positive PostgreSQL BIGINT decimal
+
 type RepositorySummary = {
-  githubRepositoryId: number;
+  githubRepositoryId: GitHubRepositoryId;
   owner: string;
   name: string;
   fullName: string;
@@ -216,6 +218,11 @@ type RepositorySummary = {
   defaultBranch: string;
 };
 ```
+
+The GitHub API boundary may initially provide a safe JSON integer. Normalize it
+once to the canonical decimal string. After that boundary, TypeScript domain
+objects, HTTP JSON, Supabase DTOs, provider-session keys, and realtime owner
+scopes must never convert it back to a JavaScript number.
 
 When the user selects a repository, Telaegent clones it into a runtime scoped to that user and repository:
 
