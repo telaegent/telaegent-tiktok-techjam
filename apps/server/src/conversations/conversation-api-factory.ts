@@ -7,7 +7,7 @@ import type { AppConfig } from "../config.js";
 import { HttpError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
-import { InMemoryConversationRepository } from "./in-memory-repository.js";
+import { createConfiguredConversationRepository } from "./conversation-repository-factory.js";
 import type { ConversationRepository } from "./repository.js";
 import type {
   AuthenticatedUserResolver,
@@ -84,9 +84,9 @@ export const unresolvedAuthenticatedUserId: AuthenticatedUserResolver = () => {
 
 export interface ConversationApiFactoryOptions {
   /**
-   * Conversation persistence. The default keeps drafts and approved messages in
-   * memory only, so they do not survive a restart; a durable repository is not
-   * implemented yet.
+   * Conversation persistence override. When omitted, the repository is chosen
+   * by `CONVERSATION_PERSISTENCE`, which defaults to the in-memory adapter and
+   * therefore does not survive a restart.
    */
   repository?: ConversationRepository | undefined;
   runtime?: PrivateDraftTurnRuntime | undefined;
@@ -108,7 +108,7 @@ export function createConversationApi(
     { repositoryAccessMaxAgeMs, repositoryReadTimeoutMs },
   );
   const service = new ConversationService(
-    options.repository ?? new InMemoryConversationRepository(),
+    options.repository ?? createConfiguredConversationRepository(config),
     new AuthorizedConversationAccess(authorizer),
     options.runtime ?? new ConnectorUnavailableDraftRuntime(),
   );

@@ -54,6 +54,7 @@ const envSchema = z.object({
     .regex(/^[A-Za-z0-9._~-]*$/, "APP_AUTH_TOKEN must use URL-safe characters")
     .optional(),
   AUTHORIZATION_PERSISTENCE: z.enum(["memory", "supabase"]).default("memory"),
+  CONVERSATION_PERSISTENCE: z.enum(["memory", "supabase"]).default("memory"),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
   ARK_API_KEY: z.string().optional(),
@@ -82,7 +83,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     typeof process.getuid === "function" && typeof process.getgid === "function"
       ? process.getuid() + ":" + process.getgid()
       : "1000:1000";
-  const supabase = loadSupabaseAuthorizationConfig(env);
+  const supabase = loadSupabaseConfig(env);
   const config = {
     host: env.HOST,
     port: env.PORT,
@@ -114,6 +115,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     runtimeInstanceId: env.RUNTIME_INSTANCE_ID,
     authToken,
     authorizationPersistence: env.AUTHORIZATION_PERSISTENCE,
+    conversationPersistence: env.CONVERSATION_PERSISTENCE,
     supabaseUrl: supabase.url,
     supabaseSecretKey: supabase.secretKey,
     arkApiKey: env.ARK_API_KEY?.trim() ?? "",
@@ -132,16 +134,20 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
   return config;
 }
 
-function loadSupabaseAuthorizationConfig(
+function loadSupabaseConfig(
   env: Readonly<{
     AUTHORIZATION_PERSISTENCE: "memory" | "supabase";
+    CONVERSATION_PERSISTENCE: "memory" | "supabase";
     SUPABASE_URL?: string | undefined;
     SUPABASE_SECRET_KEY?: string | undefined;
   }>,
 ): Readonly<{ url: string; secretKey: string }> {
-  // Credentials are inert unless persistence is explicitly switched. This
-  // prevents a copied local .env from silently turning database access on.
-  if (env.AUTHORIZATION_PERSISTENCE !== "supabase") {
+  // Credentials are inert unless some persistence flag is explicitly switched.
+  // This prevents a copied local .env from silently turning database access on.
+  if (
+    env.AUTHORIZATION_PERSISTENCE !== "supabase" &&
+    env.CONVERSATION_PERSISTENCE !== "supabase"
+  ) {
     return { url: "", secretKey: "" };
   }
 
@@ -151,7 +157,7 @@ function loadSupabaseAuthorizationConfig(
   try {
     url = new URL(rawUrl);
   } catch {
-    throw invalidSupabaseAuthorizationConfig();
+    throw invalidSupabaseConfig();
   }
   if (
     url.protocol !== "https:" ||
@@ -162,15 +168,15 @@ function loadSupabaseAuthorizationConfig(
     (url.pathname !== "/" && url.pathname !== "") ||
     !/^sb_secret_[A-Za-z0-9_-]{20,480}$/.test(secretKey)
   ) {
-    throw invalidSupabaseAuthorizationConfig();
+    throw invalidSupabaseConfig();
   }
 
   return { url: url.origin, secretKey };
 }
 
-function invalidSupabaseAuthorizationConfig(): Error {
+function invalidSupabaseConfig(): Error {
   // Never include configuration values: this error can reach startup logs.
-  return new Error("Supabase authorization configuration is invalid");
+  return new Error("Supabase configuration is invalid");
 }
 
 export function isArkConfigured(config: AppConfig): boolean {

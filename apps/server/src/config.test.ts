@@ -81,6 +81,6 @@ describe("authorization persistence configuration", () => {
         AUTHORIZATION_PERSISTENCE: "supabase",
         ...candidate,
       }),
-    ).toThrow("Supabase authorization configuration is invalid");
+    ).toThrow("Supabase configuration is invalid");
   });
 });
