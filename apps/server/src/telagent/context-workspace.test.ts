@@ -56,7 +56,11 @@ describe("what reaches the isolated workspace", () => {
     const copied = ports.fs
       .list()
       .filter((entry) => entry.startsWith(created.value.root))
-      .map((entry) => path.relative(created.value.root, entry))
+      // path.relative returns the platform separator, so on Windows this was
+      // "docs\\architecture\\auth.md" against a POSIX expectation. The manifest
+      // and every rule are workspace-relative POSIX by contract, so the
+      // comparison canonicalises rather than the expectation bending.
+      .map((entry) => path.relative(created.value.root, entry).split(path.sep).join("/"))
       .filter((entry) => entry.length > 0 && ports.fs.read(path.join(created.value.root, entry)) !== undefined);
 
     expect(copied.sort()).toEqual([

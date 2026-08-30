@@ -286,3 +286,81 @@ describe("enumeration", () => {
     expect(result.value.totalBytes).toBeGreaterThan(0);
   });
 });
+
+/* ========================================================================== *
+ * A root that is not its own real path
+ * ========================================================================== */
+
+describe("a workspace root that is not already canonical", () => {
+  // Reproduces, on a POSIX runner, the mechanism that broke every Windows run:
+  // enumerateApprovedSources compares a realpath()-ed child against the root it
+  // was handed, so a root that is not real makes every file look like a symlink
+  // escape. On Windows the non-real root is an 8.3 short name
+  // (C:\Users\HIENPH~1\...); here it is a symlinked ancestor. Same bug, same
+  // fix, and this one can actually run in CI.
+
+  it("enumerates files when the root itself is a symlink", async () => {
+    const fs = createMemoryFileSystem();
+    fs.addFile("/real/ws/src/auth/session.ts", "export interface Session {}\n");
+    fs.addFile("/real/ws/src/auth/oauth.ts", "export const oauth = 1;\n");
+    fs.addSymlink("/link/ws", "/real/ws");
+
+    const rules = normalizeRuleSet(["src/auth/**"]);
+    expect(rules.ok).toBe(true);
+    if (!rules.ok) return;
+
+    // The root handed in is the LINK, not the real directory.
+    const enumerated = await enumerateApprovedSources(rules.value, "/link/ws", fs);
+
+    expect(enumerated.ok, "a non-canonical root must not deny every file").toBe(true);
+    if (!enumerated.ok) return;
+    expect(enumerated.value.files.map((file) => file.relativePath).sort()).toEqual([
+      "src/auth/oauth.ts",
+      "src/auth/session.ts",
+    ]);
+  });
+
+  it("still refuses a link that escapes the real root", async () => {
+    // The fix must not have traded a false denial for a false acceptance.
+    //
+    // An escaping link aborts the whole enumeration rather than being skipped
+    // quietly - consider() treats FORBID_SYMLINK_ESCAPE as a hard failure,
+    // because a link pointing out of the workspace means something is actively
+    // wrong and partial results would hide it. Asserting the denial rather than
+    // a filtered file list is what actually pins that behaviour down.
+    const fs = createMemoryFileSystem();
+    fs.addFile("/outside/secrets/leak.ts", "export const leak = 1;\n");
+    fs.addFile("/real/ws/src/auth/session.ts", "export interface Session {}\n");
+    fs.addSymlink("/real/ws/src/auth/escape", "/outside/secrets");
+
+    const rules = normalizeRuleSet(["src/auth/**"]);
+    expect(rules.ok).toBe(true);
+    if (!rules.ok) return;
+
+    const enumerated = await enumerateApprovedSources(rules.value, "/real/ws", fs);
+
+    expect(enumerated.ok).toBe(false);
+    if (enumerated.ok) return;
+    expect(enumerated.code).toBe("FORBID_SYMLINK_ESCAPE");
+  });
+
+  it("catches an escaping link even when the root is itself a symlink", async () => {
+    // Both halves at once: a non-canonical root must not make the escape check
+    // pass by accident once the root is canonicalised.
+    const fs = createMemoryFileSystem();
+    fs.addFile("/outside/secrets/leak.ts", "export const leak = 1;\n");
+    fs.addFile("/real/ws/src/auth/session.ts", "export interface Session {}\n");
+    fs.addSymlink("/real/ws/src/auth/escape", "/outside/secrets");
+    fs.addSymlink("/link/ws", "/real/ws");
+
+    const rules = normalizeRuleSet(["src/auth/**"]);
+    expect(rules.ok).toBe(true);
+    if (!rules.ok) return;
+
+    const enumerated = await enumerateApprovedSources(rules.value, "/link/ws", fs);
+
+    expect(enumerated.ok).toBe(false);
+    if (enumerated.ok) return;
+    expect(enumerated.code).toBe("FORBID_SYMLINK_ESCAPE");
+  });
+});
