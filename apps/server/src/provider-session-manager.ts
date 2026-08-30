@@ -1,3 +1,4 @@
+import type { GitHubRepositoryId } from "./authorization/types.js";
 import type {
   AgentProvider,
   MiddlewareRunRequest,
@@ -8,7 +9,8 @@ import { RuntimeProviderError } from "./runtime-errors.js";
 
 export interface ProviderSessionScope {
   userId: string;
-  repositoryId: string;
+  /** Stable GitHub numeric repository ID represented as a decimal string. */
+  githubRepositoryId: GitHubRepositoryId;
   conversationId: string;
   provider: AgentProvider;
 }
@@ -49,6 +51,8 @@ export type ProviderSessionHydrator = (
 ) => Promise<ManagedAgentTurnRequest>;
 
 const validScopePart = /^[^\u0000\r\n]{1,256}$/;
+const validGitHubRepositoryId = /^[1-9][0-9]{0,19}$/;
+const validSessionId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
 /**
  * Owns provider session references behind Telaegent's product scope.
@@ -72,6 +76,7 @@ export class ProviderSessionManager {
     request: ManagedAgentTurnRequest,
     onProgress?: RuntimeProgressSink,
     onExecutionStarted?: () => void,
+    beforeExecution?: () => void | Promise<void>,
   ): Promise<ManagedAgentTurnResult<T>> {
     this.validateScope(scope);
     const key = sessionKey(scope);
@@ -85,12 +90,40 @@ export class ProviderSessionManager {
 
     await previous;
     try {
+      // Authorization-sensitive callers use this after queueing so revocation
+      // cannot take effect while a turn waits and still permit execution.
+      await beforeExecution?.();
       try {
         onExecutionStarted?.();
       } catch {
         // Realtime coordination is best-effort and cannot fail a provider turn.
       }
       return await this.runExclusive<T>(scope, request, onProgress);
+    } finally {
+      release();
+      if (this.queues.get(key) === queued) this.queues.delete(key);
+    }
+  }
+
+  /**
+   * Removes a private provider cache entry after a disconnect, credential
+   * change, runtime replacement, repository revocation, or conversation
+   * deletion. Invalidation is serialized with turns in the same scope.
+   */
+  async invalidate(scope: ProviderSessionScope): Promise<void> {
+    this.validateScope(scope);
+    const key = sessionKey(scope);
+    const previous = this.queues.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => current);
+    this.queues.set(key, queued);
+
+    await previous;
+    try {
+      await this.sessions.delete(scope);
     } finally {
       release();
       if (this.queues.get(key) === queued) this.queues.delete(key);
@@ -118,6 +151,10 @@ export class ProviderSessionManager {
 
     const existing = await this.sessions.get(scope);
     if (!existing) {
+      return await this.startFresh<T>(scope, request, onProgress, true);
+    }
+    if (!validSessionId.test(existing.sessionId)) {
+      await this.sessions.delete(scope);
       return await this.startFresh<T>(scope, request, onProgress, true);
     }
 
@@ -167,6 +204,13 @@ export class ProviderSessionManager {
       await this.sessions.delete(scope);
       return;
     }
+    if (!validSessionId.test(sessionId)) {
+      await this.sessions.delete(scope);
+      throw new RuntimeProviderError(
+        "INVALID_AGENT_OUTPUT",
+        "Agent provider returned an invalid session ID",
+      );
+    }
     await this.sessions.set({
       ...scope,
       sessionId,
@@ -190,14 +234,13 @@ export class ProviderSessionManager {
   }
 
   private validateScope(scope: ProviderSessionScope): void {
-    for (const value of [
-      scope.userId,
-      scope.repositoryId,
-      scope.conversationId,
-    ]) {
+    for (const value of [scope.userId, scope.conversationId]) {
       if (!validScopePart.test(value)) {
         throw new Error("Provider session scope is invalid");
       }
+    }
+    if (!validGitHubRepositoryId.test(scope.githubRepositoryId)) {
+      throw new Error("Provider session scope is invalid");
     }
   }
 }
@@ -222,7 +265,7 @@ export class InMemoryProviderSessionStore implements ProviderSessionStore {
 function sessionKey(scope: ProviderSessionScope): string {
   return [
     scope.userId,
-    scope.repositoryId,
+    scope.githubRepositoryId,
     scope.conversationId,
     scope.provider,
   ].join("\u0000");

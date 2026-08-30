@@ -88,7 +88,7 @@ const workspacePath = await mkdtemp(
 );
 const scope: ProviderSessionScope = {
   userId: "recovery-demo-user",
-  repositoryId: "recovery-demo-repository",
+  githubRepositoryId: "1",
   conversationId: "recovery-demo-conversation",
   provider,
 };

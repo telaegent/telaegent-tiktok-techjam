@@ -17,7 +17,7 @@ import { RuntimeProgressChannel } from "./runtime-progress-channel.js";
 
 const scope: ProviderSessionScope = {
   userId: "user-a",
-  repositoryId: "repo-123",
+  githubRepositoryId: "123",
   conversationId: "conversation-1",
   provider: "codex",
 };
@@ -75,9 +75,19 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     );
 
     const started = coordinator.start(scope, request);
+    expect(started).toMatchObject({
+      turnId: expect.any(String),
+      streamId: expect.any(String),
+      initialState: "queued",
+    });
+    expect(coordinator.status(started.turnId, scope)).toMatchObject({
+      state: "queued",
+      allowedActions: [],
+    });
     const listener = vi.fn();
     const subscription = coordinator.subscribe(started.streamId, scope, listener);
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(coordinator.status(started.turnId, scope)?.state).toBe("running");
     emitProgress({ type: "turn_started", provider: "codex" });
     emitProgress({ type: "text_delta", provider: "codex", text: "Working" });
     finish(result());
@@ -93,7 +103,12 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     expect(listener.mock.calls.map(([event]) => event.progress)).toEqual([
       { type: "turn_started", provider: "codex" },
       { type: "text_delta", provider: "codex", text: "Working" },
+      { type: "turn_completed", provider: "codex" },
     ]);
+    expect(coordinator.status(started.turnId, scope)).toMatchObject({
+      state: "completed",
+      allowedActions: [],
+    });
   });
 
   it("rejects a different owner even when the stream ID is known", () => {
@@ -108,6 +123,9 @@ describe("PrivateRuntimeTurnCoordinator", () => {
         { ...scope, userId: "user-b" },
         vi.fn(),
       ),
+    ).toBeNull();
+    expect(
+      coordinator.status(started.turnId, { ...scope, userId: "user-b" }),
     ).toBeNull();
     return started.completion;
   });
@@ -130,12 +148,48 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     });
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({
-        progress: { type: "turn_failed", provider: "codex" },
+        progress: expect.objectContaining({
+          type: "turn_failed",
+          provider: "codex",
+          failure: {
+            code: "RUNTIME_AUTHENTICATION_FAILED",
+            error: "Agent provider authentication is required",
+            retryable: false,
+          },
+          allowedActions: ["reconnect_provider", "dismiss"],
+        }),
       }),
     );
+    expect(coordinator.status(started.turnId, scope)).toMatchObject({
+      state: "failed",
+      failure: { code: "RUNTIME_AUTHENTICATION_FAILED", retryable: false },
+      allowedActions: ["reconnect_provider", "dismiss"],
+    });
     expect(JSON.stringify(listener.mock.calls)).not.toContain(
       "secret provider detail",
     );
+  });
+
+  it("replaces a premature provider completion with the final managed outcome", async () => {
+    const coordinator = new PrivateRuntimeTurnCoordinator(
+      manager(async (_request, onProgress) => {
+        onProgress?.({ type: "turn_completed", provider: "codex" });
+        throw new RuntimeProviderError(
+          "INVALID_AGENT_OUTPUT",
+          "private malformed output detail",
+        );
+      }),
+    );
+    const started = coordinator.start(scope, request);
+    const listener = vi.fn();
+    coordinator.subscribe(started.streamId, scope, listener);
+
+    await expect(started.completion).rejects.toMatchObject({
+      code: "INVALID_AGENT_OUTPUT",
+    });
+    expect(listener.mock.calls.map(([event]) => event.progress.type)).toEqual([
+      "turn_failed",
+    ]);
   });
 
   it("distinguishes a safe timeout from an unknown provider failure", async () => {
@@ -156,7 +210,16 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     });
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({
-        progress: { type: "turn_timed_out", provider: "codex" },
+        progress: expect.objectContaining({
+          type: "turn_timed_out",
+          provider: "codex",
+          failure: {
+            code: "RUNTIME_TIMEOUT",
+            error: "Agent runtime timed out",
+            retryable: true,
+          },
+          allowedActions: ["retry", "edit_request", "dismiss"],
+        }),
       }),
     );
     expect(JSON.stringify(listener.mock.calls)).not.toContain(
@@ -187,19 +250,29 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
 
     await expect(
-      coordinator.cancel(started.streamId, { ...scope, userId: "user-b" }),
+      coordinator.cancel(started.turnId, { ...scope, userId: "user-b" }),
     ).resolves.toBe(false);
     expect(canceller.cancelMiddlewareTurn).not.toHaveBeenCalled();
 
-    await expect(coordinator.cancel(started.streamId, scope)).resolves.toBe(true);
+    await expect(coordinator.cancel(started.turnId, scope)).resolves.toBe(true);
     await expect(started.completion).rejects.toBeInstanceOf(RunCancelledError);
     expect(canceller.cancelMiddlewareTurn).toHaveBeenCalledWith(request.agentId);
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({
-        progress: { type: "turn_cancelled", provider: "codex" },
+        progress: expect.objectContaining({
+          type: "turn_cancelled",
+          provider: "codex",
+          failure: {
+            code: "RUNTIME_CANCELLED",
+            error: "Agent provider turn was cancelled",
+            retryable: false,
+          },
+          allowedActions: ["dismiss"],
+        }),
       }),
     );
-    await expect(coordinator.cancel(started.streamId, scope)).resolves.toBe(false);
+    expect(coordinator.status(started.turnId, scope)?.state).toBe("cancelled");
+    await expect(coordinator.cancel(started.turnId, scope)).resolves.toBe(false);
   });
 
   it("does not let a queued turn cancel the active turn ahead of it", async () => {
@@ -224,7 +297,7 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     });
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
 
-    await expect(coordinator.cancel(second.streamId, scope)).resolves.toBe(false);
+    await expect(coordinator.cancel(second.turnId, scope)).resolves.toBe(false);
     expect(canceller.cancelMiddlewareTurn).not.toHaveBeenCalled();
 
     finishFirst(result());
@@ -259,5 +332,6 @@ describe("PrivateRuntimeTurnCoordinator", () => {
 
     cleanup();
     expect(coordinator.subscribe(started.streamId, scope, vi.fn())).toBeNull();
+    expect(coordinator.status(started.turnId, scope)).toBeNull();
   });
 });

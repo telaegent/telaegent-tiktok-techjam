@@ -1,17 +1,11 @@
 import { RunCancelledError } from "./errors.js";
-import type { AgentProvider } from "./runtime-contract.js";
+import type {
+  AgentProvider,
+  PublicRuntimeErrorCode,
+  RuntimeErrorCode,
+} from "./runtime-contract.js";
 
-export type RuntimeErrorCode =
-  | "RUNTIME_UNAVAILABLE"
-  | "RUNTIME_AUTHENTICATION_FAILED"
-  | "RUNTIME_SESSION_NOT_FOUND"
-  | "RUNTIME_TIMEOUT"
-  | "RUNTIME_OUTPUT_LIMIT"
-  | "INVALID_AGENT_OUTPUT"
-  | "UNSUPPORTED_RUNTIME_POLICY"
-  | "RUNTIME_FAILED";
-
-export type PublicRuntimeErrorCode = RuntimeErrorCode | "RUNTIME_CANCELLED";
+export type { PublicRuntimeErrorCode, RuntimeErrorCode } from "./runtime-contract.js";
 
 export interface NormalizedRuntimeFailure {
   code: PublicRuntimeErrorCode;

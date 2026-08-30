@@ -14,7 +14,7 @@ import {
 
 const scope: ProviderSessionScope = {
   userId: "user-a",
-  repositoryId: "repo-123",
+  githubRepositoryId: "123",
   conversationId: "conversation-1",
   provider: "codex",
 };
@@ -93,7 +93,7 @@ describe("ProviderSessionManager", () => {
     const scopes: ProviderSessionScope[] = [
       scope,
       { ...scope, userId: "user-b" },
-      { ...scope, repositoryId: "repo-456" },
+      { ...scope, githubRepositoryId: "456" },
       { ...scope, conversationId: "conversation-2" },
       { ...scope, provider: "claude" },
     ];
@@ -158,6 +158,40 @@ describe("ProviderSessionManager", () => {
       code: "RUNTIME_FAILED",
     });
     expect(provider.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects and forgets an invalid provider session ID", async () => {
+    const store = new InMemoryProviderSessionStore();
+    const provider = runtime(async () => result("--not-a-provider-session"));
+    const manager = new ProviderSessionManager(
+      provider,
+      store,
+      async (_scope, request) => request,
+    );
+
+    await expect(manager.run(scope, turn)).rejects.toMatchObject({
+      code: "INVALID_AGENT_OUTPUT",
+    });
+    expect(await store.get(scope)).toBeNull();
+  });
+
+  it("invalidates a stored session before the next turn", async () => {
+    const store = new InMemoryProviderSessionStore();
+    const provider = runtime(async (request) =>
+      result(request.sessionId ?? "replacement-session"),
+    );
+    const hydrate = vi.fn(async (_scope, request) => request);
+    const manager = new ProviderSessionManager(provider, store, hydrate);
+
+    await manager.run(scope, turn);
+    await manager.invalidate(scope);
+    await manager.run(scope, turn);
+
+    expect(provider.run.mock.calls[1]?.[0]).toMatchObject({
+      sessionMode: "fresh",
+    });
+    expect(provider.run.mock.calls[1]?.[0]).not.toHaveProperty("sessionId");
+    expect(hydrate).toHaveBeenCalledTimes(2);
   });
 
   it("keeps ephemeral probes out of session memory", async () => {
