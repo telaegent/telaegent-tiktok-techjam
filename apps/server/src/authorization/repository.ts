@@ -2,6 +2,7 @@ import type {
   AuthorizePrivateRuntimeInput,
   GitHubConnection,
   GitHubRepositoryAccess,
+  ProjectConnection,
   ProjectConversation,
   ProjectMembership,
   RepositoryProject,
@@ -24,7 +25,15 @@ export interface PrivateRuntimeAuthorizationSnapshot {
   project: RepositoryProject | null;
   membership: ProjectMembership | null;
   conversation: ProjectConversation | null;
+  projectConnections: readonly ProjectConnection[];
   runtimeBinding: RuntimeBinding | null;
+}
+
+export interface PrivateRuntimeAuthorizationReadOptions {
+  /** Implementations should pass this signal to their database client. */
+  signal?: AbortSignal | undefined;
+  /** Apply this as a database limit; the service checks it again. */
+  maximumProjectConnections: number;
 }
 
 /**
@@ -45,6 +54,6 @@ export interface PrivateRuntimeAuthorizationSnapshot {
 export interface PrivateRuntimeAuthorizationRepository {
   loadPrivateRuntimeAuthorizationSnapshot(
     input: Readonly<AuthorizePrivateRuntimeInput>,
+    options?: Readonly<PrivateRuntimeAuthorizationReadOptions>,
   ): Promise<PrivateRuntimeAuthorizationSnapshot>;
 }
-
