@@ -105,7 +105,7 @@ export class AuthorizedPrivateRuntimeTurnStarter {
 
     const scope: ProviderSessionScope = {
       userId: authorized.userId,
-      repositoryId: authorized.githubRepositoryId,
+      githubRepositoryId: authorized.githubRepositoryId,
       conversationId: input.authorization.conversationId,
       provider: input.provider,
     };
