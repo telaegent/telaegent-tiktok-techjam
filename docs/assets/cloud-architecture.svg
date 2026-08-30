@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
+  <title id="title">Telaegent cloud-first architecture</title>
+  <desc id="desc">The browser connects to the control plane, which stores shared state in Supabase and manages two isolated user by repository runtimes with separate GitHub, repository, and provider state.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07152F"/><stop offset="1" stop-color="#10234B"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#16C8F3"/><stop offset="1" stop-color="#6F57FF"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="13" stdDeviation="17" flood-color="#010817" flood-opacity=".35"/></filter>
+    <marker id="arrow" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto"><path d="M0 0 L11 5.5 L0 11 Z" fill="#44D8FF"/></marker>
+  </defs>
+  <rect width="1440" height="760" rx="28" fill="url(#background)"/>
+  <g opacity=".18" fill="none" stroke="#5EBAF6"><circle cx="90" cy="104" r="172"/><circle cx="1360" cy="676" r="214"/><path d="M0 624 C252 535 387 757 675 653 S1142 548 1440 655"/></g>
+  <text x="720" y="66" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="31" font-weight="700">Cloud-first collaboration, isolated at user × repository.</text>
+
+  <g fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)">
+    <path d="M720 166 V203"/>
+    <path d="M570 248 C486 248 452 284 421 316"/>
+    <path d="M720 293 V316"/>
+    <path d="M651 420 C608 446 500 449 418 488"/>
+    <path d="M789 420 C832 446 940 449 1022 488"/>
+    <path d="M340 598 V634"/>
+    <path d="M1100 598 V634"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="570" y="84" width="300" height="82" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
+    <text x="720" y="116" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Browser product</text><text x="720" y="143" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="17">React / Vite</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="570" y="205" width="300" height="88" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
+    <text x="720" y="238" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Control plane</text><text x="720" y="265" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="17">Caddy + Fastify</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="120" y="316" width="300" height="104" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
+    <text x="270" y="350" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Supabase</text><text x="270" y="378" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="16">Identity · project data ·</text><text x="270" y="400" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="16">shared conversation</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="570" y="316" width="300" height="104" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
+    <text x="720" y="357" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Cloud runtime manager</text><text x="720" y="387" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="16">Creates and binds isolated workspaces</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="160" y="488" width="360" height="110" rx="20" fill="#1B2854" stroke="#8B72FF" stroke-width="2"/>
+    <text x="340" y="531" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">User A × Repository X</text><text x="340" y="561" text-anchor="middle" fill="#CFC7FF" font-family="Arial, Helvetica, sans-serif" font-size="17">isolated runtime</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="920" y="488" width="360" height="110" rx="20" fill="#1B2854" stroke="#8B72FF" stroke-width="2"/>
+    <text x="1100" y="531" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">User B × Repository X</text><text x="1100" y="561" text-anchor="middle" fill="#CFC7FF" font-family="Arial, Helvetica, sans-serif" font-size="17">isolated runtime</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="130" y="634" width="420" height="76" rx="18" fill="#102747" stroke="#2F608B" stroke-width="2"/>
+    <text x="340" y="665" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">GitHub CLI · repository checkout</text><text x="340" y="691" text-anchor="middle" fill="#B9D9ED" font-family="Arial, Helvetica, sans-serif" font-size="16">Claude Code and/or Codex CLI</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="890" y="634" width="420" height="76" rx="18" fill="#102747" stroke="#2F608B" stroke-width="2"/>
+    <text x="1100" y="665" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">GitHub CLI · repository checkout</text><text x="1100" y="691" text-anchor="middle" fill="#B9D9ED" font-family="Arial, Helvetica, sans-serif" font-size="16">Claude Code and/or Codex CLI</text>
+  </g>
+</svg>
