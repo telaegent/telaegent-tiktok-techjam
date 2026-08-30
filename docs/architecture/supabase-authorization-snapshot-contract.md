@@ -80,19 +80,19 @@ Notable constraints:
 - `githubRepositoryId` is a canonical positive decimal string no greater than
   `9223372036854775807`;
 - conversation participants and project-connection pairs are unique;
-- a `ready` runtime binding must contain `workspacePath`;
-- a non-ready runtime binding must not contain `workspacePath`;
+- a runtime binding is an opaque connector binding and never contains a local
+  workspace path, credential reference, provider home, or session ID;
 - additional fields at any level are rejected.
 
-The runtime workspace path is necessary inside this trusted backend snapshot,
-but the RPC and adapter must never be browser-callable and the DTO must never
-be serialized to the frontend.
+The RPC and adapter must never be browser-callable and the DTO must never be
+serialized to the frontend. The local binding-to-workspace mapping exists only
+inside the owning connector.
 
 ## Supabase exposure rules
 
 Prefer a backend-only database role or narrowly granted RPC. Do not grant
 browser `anon` or ordinary `authenticated` roles direct read access to runtime
-bindings or workspace metadata.
+bindings or connector metadata.
 
 If the RPC uses `SECURITY DEFINER`:
 
@@ -119,7 +119,7 @@ bounds successful response bodies to 1 MiB before strict DTO validation.
 - Database/network failures produce a generic persistence-unavailable error.
 - Timeout or cancellation aborts the read and becomes a generic authorization
   unavailable response.
-- Error messages never contain record values, repository IDs, workspace paths,
+- Error messages never contain record values, repository IDs, local paths,
   credentials, or validation issue details.
 
 No successful authorization result is cached across turns. The backend reads

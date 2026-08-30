@@ -8,9 +8,13 @@
 
 # 1. Product you are designing
 
-### Architecture note: cloud-only
+### Architecture note: cloud product, local execution
 
-The judged product has **no required local connector**. GitHub CLI, repository checkout, Claude Code/Codex CLI, and Telaegent-created provider sessions run in isolated cloud environments.
+The judged product requires a small local connector. GitHub CLI, the selected
+repository/worktree, Claude Code/Codex, credentials, tools, and provider
+sessions stay on the developer's machine. The browser and cloud control plane
+show connector status and route bounded jobs; they never choose a local path or
+run a provider CLI.
 
 
 Telaegent lets:
@@ -29,7 +33,9 @@ Landing
 Sign in
   ↓
 Connect GitHub
-  ↓
+        ↓
+Run/connect local Telaegent connector
+        ↓
 Connect Claude Code / Codex
   ↓
 Choose repository
@@ -138,39 +144,41 @@ Design the exact first-run experience.
 
 Telaegent identity is handled through the cloud product, provisionally Supabase Auth.
 
-Signing into Telaegent is conceptually separate from authorizing the cloud GitHub CLI to access private repositories.
+Signing into Telaegent is conceptually separate from the developer's local GitHub CLI identity and repository proof.
 
-## Step 2 — GitHub cloud connection
+## Step 2 — Local connector and GitHub proof
 
-Current P0 direction is GitHub CLI auth inside the user's cloud environment.
-
-The frontend should support the real observed headless flow, for example:
+Current P0 direction is `telaegent connect .` (or equivalent) in the selected
+local repository. The frontend should support a handoff/status flow such as:
 
 ```text
-Connect GitHub
+Connect this repository
 
-Open GitHub:
-github.com/login/device
+Run locally:
+telaegent connect .
 
-Code:
-ABCD-EFGH
-
-[ Open GitHub ]
-
-Waiting for authorization…
+Waiting for connector…
 ```
 
-Do not hard-code this exact URL/code UX until Khoa has tested the actual CLI behavior.
+If local `gh auth status` fails, tell the user to authenticate GitHub CLI
+locally and retry. Never imply Telaegent cloud stores that GitHub login.
 
 After success:
 
 ```text
+Local connector
+✓ Online
+
 GitHub
-✓ Connected as @phuong
-[ Choose repositories ]
+✓ Verified locally as @phuong
+
+Repository
+✓ telaegent/backend · feat/auth · 81ad2e
 ```
 
-The repo picker must include repos accessible through ownership, collaboration, or organization membership.
+P0 may register one deliberately selected local repository at a time. A future
+local picker may include repos accessible through ownership, collaboration, or
+organization membership without uploading the whole list by default.
 
 ## Step 3 — Coding agent
 
@@ -190,6 +198,7 @@ Possible states:
 Not connected
 Connecting…
 Connected
+Connector offline
 Reconnect required
 Unavailable
 ```
@@ -562,9 +571,10 @@ telaegent/backend    Connected
 DueLook              Connected
 secret               Disconnect
 
+Local connector      Online
 Coding agents
-Claude Code          Connected
-Codex                Connected
+Claude Code          Connected locally
+Codex                Connected locally
 
 Default
 Claude Code
@@ -664,18 +674,19 @@ The user should always know:
 Design explicit UI for:
 
 - GitHub not connected
+- local connector not installed/offline
 - repository permission revoked
 - collaborator not connected
 - connection pending
 - collaborator revoked access
 - Claude/Codex reconnect required
-- runtime unavailable
+- connector/provider unavailable
 - agent timed out
 - private draft failed
 - send blocked by policy
 - backend disconnected
 - repo unavailable
-- stale repository checkout
+- stale local repository metadata
 - provider switched
 - no eligible collaborators
 
@@ -906,4 +917,3 @@ without someone explaining the backend.
 - Do not copy x.ai/bot branding.
 - Do not add dozens of settings.
 - Do not implement backend policy in React.
-

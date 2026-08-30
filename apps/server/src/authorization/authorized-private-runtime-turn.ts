@@ -42,6 +42,7 @@ export type BackendPreparedPrivateTurn = Omit<
   ManagedAgentTurnRequest,
   | "agentId"
   | "workspacePath"
+  | "connectorBindingId"
   | "purpose"
   | "sandboxMode"
   | "networkMode"
@@ -78,8 +79,8 @@ export class InvalidPrivateRuntimeTurnError extends Error {
  * The fail-closed seam from product authorization into Phuong's private
  * provider-session and realtime coordinator.
  *
- * Every call re-authorizes. The caller cannot select the runtime binding,
- * workspace, sandbox, network policy, or execution budget. A future
+ * Every call re-authorizes. The caller cannot select the connector binding,
+ * local workspace, sandbox, network policy, or execution budget. A future
  * write-capable workflow must use a separate, explicitly reviewed policy seam
  * rather than weakening this private messaging path.
  */
@@ -115,7 +116,7 @@ export class AuthorizedPrivateRuntimeTurnStarter {
     const request: ManagedAgentTurnRequest = {
       agentId: authorized.runtimeBindingId,
       purpose: input.turn.purpose,
-      workspacePath: authorized.workspacePath,
+      connectorBindingId: authorized.runtimeBindingId,
       runtimePrompt: input.turn.runtimePrompt,
       persistedSummary: input.turn.persistedSummary,
       sessionMode: input.turn.sessionMode ?? "continue",
@@ -132,7 +133,7 @@ export class AuthorizedPrivateRuntimeTurnStarter {
       );
       if (!sameRuntimeBinding(authorized, current)) {
         // A rotated/reprovisioned binding is not necessarily hostile, but the
-        // queued request contains the old workspace. Fail closed and let the
+        // queued request targets the old connector binding. Fail closed and let the
         // caller retry through a freshly constructed request.
         throw new PrivateRuntimeAuthorizationError(
           "PRIVATE_RUNTIME_FORBIDDEN",
@@ -150,8 +151,7 @@ function sameRuntimeBinding(
   return (
     expected.userId === current.userId &&
     expected.githubRepositoryId === current.githubRepositoryId &&
-    expected.runtimeBindingId === current.runtimeBindingId &&
-    expected.workspacePath === current.workspacePath
+    expected.runtimeBindingId === current.runtimeBindingId
   );
 }
 

@@ -18,7 +18,6 @@ describe("private runtime authorization contract", () => {
     expectTypeOf<AuthorizedPrivateRuntime>().toEqualTypeOf<{
       userId: string;
       githubRepositoryId: string;
-      workspacePath: string;
       runtimeBindingId: string;
     }>();
   });
@@ -39,7 +38,6 @@ describe("private runtime authorization contract", () => {
       projectId: "project-1",
       githubRepositoryId: "1345851083",
       status: "ready",
-      workspacePath: "/srv/telaegent/user-1/1345851083",
     } satisfies RuntimeBinding;
     const unavailable = {
       runtimeBindingId: "runtime-1",
@@ -49,7 +47,7 @@ describe("private runtime authorization contract", () => {
       status: "unavailable",
     } satisfies RuntimeBinding;
 
-    expect(ready.workspacePath).toContain("1345851083");
+    expect("workspacePath" in ready).toBe(false);
     expect("workspacePath" in unavailable).toBe(false);
   });
 

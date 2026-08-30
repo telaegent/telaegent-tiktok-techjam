@@ -17,6 +17,10 @@ import type {
   NormalizedRunResult,
   SessionMode,
 } from "../../runtime-contract.js";
+import type {
+  ConnectorJobRelay,
+  ConnectorJobRequest,
+} from "../../connectors/connector-turn-executor.js";
 import type { ProjectFacts, ProtocolRole } from "./contract.js";
 import {
   AuthorizedProtocolTurnService,
@@ -33,7 +37,6 @@ const AUTHORIZATION: AuthorizePrivateRuntimeInput = {
   githubRepositoryId: "123",
   conversationId: "conv-1",
 };
-const BOUND_WORKSPACE = "/srv/telaegent/runtimes/user-justin/123";
 const POLICY: AuthorizedPrivateRuntimeTurnPolicy = {
   maxTurns: 3,
   maximumRuntimePromptBytes: 1_048_576,
@@ -79,7 +82,6 @@ function fakeAuthorizer(revoked = false): PrivateRuntimeAuthorizer {
         userId: input.authenticatedUserId,
         githubRepositoryId: input.githubRepositoryId,
         runtimeBindingId: "binding-1",
-        workspacePath: BOUND_WORKSPACE,
       };
     },
   };
@@ -153,7 +155,8 @@ describe("AuthorizedProtocolTurnService", () => {
       expect(runs).toHaveLength(1);
       expect(runs[0]).toMatchObject({
         purpose: role === "sender" ? "sender_draft" : "recipient_answer",
-        workspacePath: BOUND_WORKSPACE,
+        // Cloud-facing requests remain path-free; the local connector resolves
+        // its workspace from the opaque binding.
         agentId: "binding-1",
         sandboxMode: "read-only",
         networkMode: "none",
@@ -217,6 +220,45 @@ describe("AuthorizedProtocolTurnService", () => {
       retryable: false,
     });
     expect(runs).toHaveLength(0);
+  });
+
+  it("dispatches the canonical cloud composition to a local connector", async () => {
+    const jobs: ConnectorJobRequest[] = [];
+    const connector: ConnectorJobRelay = {
+      async dispatch(job) {
+        jobs.push(job as ConnectorJobRequest);
+        return {
+          provider: job.provider,
+          final: { state: "ready" },
+          changedFiles: [],
+          exitCode: 0,
+          durationMs: 1,
+        };
+      },
+      cancel: async () => false,
+    };
+    const runtime = createAuthorizedProtocolTurnRuntime({
+      authorizer: fakeAuthorizer(),
+      loadContext: async () => durableContext(),
+      connector,
+      policy: POLICY,
+    });
+
+    // The cloud build owns no provider session cache; the connector does.
+    expect(runtime.sessions).toBeUndefined();
+    await (await start(runtime.turns)).completion;
+
+    expect(jobs).toHaveLength(1);
+    const job = jobs[0]!;
+    expect(job.connectorBindingId).toBe("binding-1");
+    expect(job.sandboxMode).toBe("read-only");
+    expect(job.networkMode).toBe("none");
+    // Assert on the job envelope, not the prompt body: Hien's prompt text
+    // legitimately uses words like "workspace" when instructing the agent.
+    const { runtimePrompt: _prompt, ...envelope } = job;
+    expect(JSON.stringify(envelope)).not.toMatch(
+      /workspacePath|sessionId|credential/i,
+    );
   });
 
   it("authorizes before reading private durable context", async () => {

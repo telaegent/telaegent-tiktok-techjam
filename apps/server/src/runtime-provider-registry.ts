@@ -75,6 +75,7 @@ export class FileOutputSchemaResolver implements RuntimeOutputSchemaResolver {
   }
 }
 
+/** Local connector-side registry. It requires a locally resolved workspace. */
 export class RuntimeProviderRegistry {
   private readonly runners = new Map<AgentProvider, MiddlewareProviderRunner>();
 
@@ -104,8 +105,18 @@ export class RuntimeProviderRegistry {
       );
     }
     try {
+      if (!request.workspacePath) {
+        throw new RuntimeProviderError(
+          "UNSUPPORTED_RUNTIME_POLICY",
+          "Local connector has not resolved a registered workspace",
+        );
+      }
       const schema = await this.schemas.resolve(request.outputSchemaName);
-      return await runner.runStructured(request, schema, onProgress);
+      return await runner.runStructured(
+        { ...request, workspacePath: request.workspacePath },
+        schema,
+        onProgress,
+      );
     } catch (error) {
       throw safeRuntimeError(error);
     }

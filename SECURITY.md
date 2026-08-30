@@ -23,24 +23,25 @@ Before shared delivery, deterministic policy must be able to block:
 
 The agent may recommend a safe alternative such as environment-variable names or configuration structure. It cannot approve itself, change project authorization, or send automatically.
 
-## Cloud custody
+## Local custody and cloud transit
 
-The browser-first architecture means Telaegent cloud may hold:
+The browser-first product still uses local execution. Telaegent cloud may hold:
 
-- repository checkouts
-- GitHub delegated authorization
-- Claude Code/Codex authorization and session state
-- private drafts and temporary runtime context
+- approved shared messages and compact shared memory
+- project identity, permissions, connector presence, and safe audit events
+- bounded private draft/job payloads while they are being routed
 
-Credential material requires stronger storage than ordinary product rows, such as Azure Key Vault, a protected encrypted volume, or another owner-isolated secret mechanism selected after research.
+Telaegent cloud must not hold repository checkouts, GitHub/provider credentials,
+provider home directories, provider sessions, raw local tool output, or hidden
+reasoning. If a private draft transits the cloud for the browser experience, it
+remains owner-private and does not become durable shared state until `Send`.
 
 ## Isolation requirements
 
-- runtime boundary scoped to user x repository
-- no shared unrestricted `$HOME`
-- no cross-user or sibling-repository mounts
-- no Docker socket exposed to agent runtimes
-- remote messages cannot select host paths or executables
+- connector binding scoped to user x repository
+- local workspace resolved from connector registration, never from a cloud job
+- no cross-project path traversal or sibling-repository access
+- remote messages cannot select local paths, executables, or arbitrary commands
 - bounded process resources, lifetime, output, and cancellation
 - safe log redaction
 - revocation and cleanup behavior
@@ -56,8 +57,12 @@ Durable:
 
 Protected/private:
 
+- private draft state visible only to its owner while transiting/stored by the product
+
+Local-only:
+
 - GitHub/provider auth and provider session state
-- private draft state visible only to its owner
+- repositories, provider homes, and raw tool output
 
 Ephemeral by default:
 
@@ -71,13 +76,15 @@ Never intentionally store hidden chain-of-thought or raw blocked secrets.
 
 Do not claim:
 
-- repositories or provider credentials never reach Telaegent cloud
+- that a connector can execute while the developer machine is offline
 - zero knowledge or end-to-end encryption
-- production-grade multi-tenant isolation
+- perfect local sandboxing across every supported provider/tool
 - that a fresh shell creates a fresh identity/session
-- that provider terms permit every hosted automation pattern
+- that provider terms permit every connector-driven automation pattern
 
-Use controlled demo accounts and repositories until cloud authentication, isolation, retention, revocation, and provider-policy questions are resolved.
+Use controlled demo accounts and repositories until connector authentication,
+local isolation, retention, revocation, and provider-policy questions are
+resolved.
 
 ## Legacy scaffold
 

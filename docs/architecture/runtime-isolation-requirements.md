@@ -1,127 +1,140 @@
-# Private runtime isolation requirements
+# Local connector execution requirements
 
 **Owner handoff:** Phuong to Thai and Khoa
-**Status:** required boundary; infrastructure mechanism remains open
+**Status:** required boundary; connector mechanism remains open
 
-This contract describes what a private Claude Code or Codex turn needs from the
-cloud runtime. It does not authorize a browser to choose paths, credentials, or
-runtime bindings.
+This contract describes what a private Claude Code or Codex turn needs from
+the local connector. Telaegent cloud authorizes and routes bounded work; it
+does not choose a local path, hold credentials, or launch a provider process.
 
 ## Resolution boundary
 
-Khoa's authorization layer resolves the authenticated user, stable GitHub
-repository ID, and conversation into server-owned runtime information. The
-runtime layer accepts only that resolved binding.
-
 ```text
-trusted authenticated user
+trusted Telaegent user
   + stable GitHub repository ID
   + conversation ID
-        -> authorization
-        -> runtime binding
-        -> isolated provider process
+        -> cloud authorization
+        -> opaque connector binding
+        -> bounded connector job
+        -> connector resolves registered local workspace/provider
+        -> local provider process
 ```
 
-The browser may identify the repository and conversation it wants to use. It
-must never supply or override:
+The browser and cloud job must never supply or override:
 
-- user ID;
-- workspace path;
-- runtime binding ID;
-- provider home or session path;
-- credential location;
-- executable or raw command.
+- local user ID or operating-system identity;
+- workspace/provider-home/session path;
+- provider credential or credential location;
+- executable, shell command, environment variable, or tool allowlist;
+- another connector or repository binding.
 
 ## Minimum isolation unit
 
-The runtime filesystem and process boundary is **user x repository**. Two
-repositories owned by the same user must not share provider session files,
-working trees, temporary files, or unrestricted mounts. Two users must never
-share a writable provider home.
+The execution boundary is **user × repository**. The cloud holds only an
+opaque connector binding and safe status/metadata. The local connector holds
+the private binding-to-workspace/provider mapping.
 
-Provider authentication may eventually use a per-user encrypted credential
-source for usability, but it must be injected into an isolated user x
-repository runtime. Sharing a host home directory is not acceptable.
+The connector must resolve every job against that mapping, canonicalize the
+registered workspace, and reject path escapes or repository/binding mismatch.
+Provider authentication may be per local user, but provider sessions, working
+directory, temporary output, and project context must remain scoped so Repo A
+cannot read or resume Repo B through a Telaegent job.
 
-## Runtime binding inputs
+## Cloud connector binding
 
-The infrastructure implementation must resolve these values from server-owned
-records:
+Cloud-owned fields may include:
 
-- opaque runtime binding ID;
-- authenticated internal user ID;
-- stable GitHub repository ID;
-- canonical workspace path and checked-out revision;
-- selected and authorized provider;
-- isolated provider-home path or credential mount;
-- isolated temporary directory;
-- process identity/container identity;
-- sandbox, network, timeout, output, CPU, memory, and process limits.
+- opaque connector binding ID;
+- authenticated Telaegent user ID;
+- stable GitHub repository/project ID;
+- status and last-seen timestamp;
+- supported provider availability;
+- safe branch/commit metadata.
 
-Conversation ID scopes provider-session lookup and durable rehydration. It does
-not weaken the user x repository filesystem boundary.
+They must not include local paths, credentials, repository contents, provider
+session IDs, provider homes, or arbitrary runtime configuration.
 
-## Persistence matrix
+## Local connector state
 
-| State | Lifetime | Required behavior |
-| --- | --- | --- |
-| Telaegent conversation | Durable database | Authoritative approved shared memory |
-| Repository workspace | Reconstructable or persistent per binding | Never selected from browser-provided paths |
-| Provider credential | Persist only as required | Encrypted, owner-scoped, revocable, never logged |
-| Provider session state | Private cache, user x repository and conversation scoped | May disappear; must rehydrate from Telaegent memory |
-| Draft/tool output | Ephemeral or short-lived | Never shared before human Send; do not retain hidden reasoning |
-| Temporary files | One runtime/turn | Removed after completion or runtime destruction |
-| Safe audit events | Durable | IDs and state transitions only; no credentials or raw CLI streams |
+Local-only state includes:
+
+- binding ID -> canonical workspace mapping;
+- selected provider and executable discovered from trusted local setup;
+- local GitHub/provider authentication;
+- provider session references/state;
+- local temporary/tool output;
+- cancellation handles for owned child processes.
 
 ## Process contract
 
-Each turn starts a fresh CLI process inside the resolved runtime binding. The
-runtime manager must:
+For each accepted job, the connector must:
 
-- launch a fixed provider executable without a shell;
-- set the canonical repository as the working directory;
-- use an environment allowlist and replace all home/config/temp variables with
-  binding-owned locations;
-- mount only the selected repository and required provider state;
-- apply read-only or workspace-write policy from the authorized turn purpose;
-- bound total time, idle time, output bytes, CPU, memory, and child processes;
-- terminate the whole owned process group on cancellation or timeout;
-- prevent access to host paths, sibling bindings, and control-plane sockets;
-- redact credentials and avoid persisting prompts or raw provider streams;
-- return normalized failures without provider-private error text.
+- authenticate and integrity-check the job, expiry, binding, user, repository,
+  purpose, and correlation ID;
+- accept only a fixed schema of purposes and policy values;
+- resolve the working directory from local registration, never job text;
+- launch a fixed locally discovered provider executable without a shell;
+- use an environment allowlist and avoid printing credentials;
+- enforce read-only or separately reviewed write policy for the job purpose;
+- bound total time, idle time, output size, and child-process lifetime;
+- terminate the owned process tree on cancellation or timeout;
+- prevent path traversal and cross-project access;
+- keep raw streams, tool output, hidden reasoning, and session IDs local;
+- return only normalized progress and bounded structured candidate output.
 
-For Windows-hosted development, replacing only `HOME` is insufficient. The
-runtime must also account for platform config roots such as `USERPROFILE`,
-`APPDATA`, `LOCALAPPDATA`, and temp variables. Production proof should happen
-in the actual Linux/container target.
+Container or OS sandboxing may strengthen the local boundary, but the cloud
+must not assume that every supported developer platform provides the same
+sandbox. P0 messaging turns remain read-only and deterministic backend policy
+still scans the candidate before it can be shared.
+
+## Transport contract
+
+The connector initiates outbound HTTPS/WebSocket/long-poll transport. No
+inbound public port or peer-to-peer link is required. Delivery must define:
+
+- connector authentication and key rotation;
+- heartbeat/presence and offline state;
+- monotonic/unique job IDs, acknowledgement, expiry, and deduplication;
+- bounded queueing and reconnect/redelivery behavior;
+- cancellation and late-result rejection;
+- revocation before subsequent work;
+- safe logs containing identifiers/status only.
+
+## Persistence matrix
+
+| State | Location/lifetime | Required behavior |
+| --- | --- | --- |
+| Approved Telaegent conversation | Cloud, durable | Authoritative shared memory |
+| Connector binding/status | Cloud, durable/revocable | Opaque; no local path |
+| Binding-to-workspace mapping | Local connector | Never uploaded |
+| Repository/worktree | Local developer machine | Never selected from cloud input |
+| GitHub/provider credential | Local developer machine | Never uploaded or logged |
+| Provider session state | Local private cache | May disappear; rehydrate from bounded shared memory |
+| Draft/job payload | Cloud transit or owner-private temporary state | Never shared before human `Send` |
+| Raw provider/tool output | Local, ephemeral | Never persisted to shared cloud state |
+| Safe audit events | Cloud, durable | IDs/states only; no paths, credentials, or streams |
 
 ## Lifecycle and revocation
 
-The session manager exposes exact-scope invalidation. Infrastructure and
-authorization integrations must invoke it when:
+Revocation must prevent new cloud jobs first. The connector rejects jobs for a
+revoked/rotated binding and cancels or finishes in-flight work under the agreed
+policy. Disconnecting a connector removes its local registration and cloud
+binding but must not log the developer out of GitHub or a provider globally.
 
-- a provider disconnects or reconnects;
-- provider credentials rotate or expire;
-- a runtime binding is destroyed or replaced;
-- repository access is revoked;
-- a conversation is deleted;
-- the user explicitly clears provider context.
-
-Revocation must prevent new turns first, cancel or finish in-flight work under
-the agreed policy, then remove credentials and provider-session state. Deleting
-a provider session must not delete the durable Telaegent conversation.
+Provider session loss deletes/recreates only local cache. It must not delete
+the durable approved Telaegent conversation.
 
 ## Acceptance checks
 
-The cloud runtime is ready for browser integration only when automated or
-recorded proofs show:
-
-- same binding can start a new process and reuse its authorized provider state;
-- different user or repository bindings cannot read each other's workspace,
-  provider home, temp files, credentials, or session data;
-- a supplied path or runtime-binding value from an untrusted request is ignored
-  or rejected;
-- cancellation and timeout leave no provider child process running;
-- runtime recreation retains only explicitly persistent state;
-- repository/provider revocation prevents subsequent turns;
-- loss of provider session state recreates once from durable Telaegent context.
+- a connector reconnects to the same authorized opaque binding;
+- Repo A jobs cannot resolve Repo B or paths outside the registered workspace;
+- cloud/browser payloads containing a path, executable, command, provider
+  session ID, or credential field are rejected;
+- connector registration/job/result payloads contain no local path,
+  credential, repository content, or raw provider stream;
+- cancellation and timeout leave no owned provider child running;
+- offline/revoked connectors do not execute jobs or appear available;
+- duplicate/expired/late jobs cannot create duplicate candidates or messages;
+- provider session loss recreates once from bounded durable Telaegent context;
+- candidates still require deterministic policy and the owning human's exact
+  `Send` action before entering shared conversation state.

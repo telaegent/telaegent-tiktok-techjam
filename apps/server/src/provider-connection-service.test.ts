@@ -19,9 +19,7 @@ const connectedCapability: RuntimeProviderCapability = {
 function target(bindingId = "user-a:repo-x") {
   return {
     bindingId,
-    agentId: "agent-a",
     provider: "codex" as const,
-    workspacePath: "/runtime/user-a/repo-x",
     correlationId: "corr-1",
   };
 }

@@ -65,7 +65,20 @@ export class AgentService {
     this.runtimeProviders =
       runtimeProviders ?? createRuntimeProviderRegistry(config);
     this.providerConnections = new ProviderConnectionService(
-      this.runtimeProviders,
+      {
+        capability: (_bindingId, provider) =>
+          this.runtimeProviders.capability(provider),
+        probe: (target, onProgress) =>
+          this.runtimeProviders.probe(
+            {
+              agentId: target.bindingId,
+              provider: target.provider,
+              workspacePath: this.workspaces.workspacePath(target.bindingId),
+              correlationId: target.correlationId,
+            },
+            onProgress,
+          ),
+      },
     );
     this.runtimeOptions = runtimeOptions;
   }
@@ -301,9 +314,7 @@ export class AgentService {
     return this.providerConnections.probe(
       {
         bindingId: agent.id,
-        agentId: agent.id,
         provider,
-        workspacePath: agent.workspacePath,
         correlationId,
       },
       onProgress,
@@ -603,6 +614,9 @@ export class AgentService {
       );
     }
 
+    if (!request.workspacePath) {
+      throw new HttpError(400, "Local connector workspace is not resolved");
+    }
     const authorized = this.runtimeOptions.authorizeWorkspace
       ? await this.runtimeOptions.authorizeWorkspace(request, agent)
       : path.resolve(request.workspacePath) === path.resolve(agent.workspacePath);

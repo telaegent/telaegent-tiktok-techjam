@@ -49,7 +49,11 @@ export function createInMemoryPorts(options: {
   const runner = createFakeRunner(options.script ?? []);
   const audit: SafeAuditHint[] = [];
   const { git, commands } = createRecordingGit(options.gitResponses);
-  const temporaryRoot = options.temporaryRoot ?? "/tmp/telagent-test";
+  // Keep the value exposed through the port identical to the path form used by
+  // the in-memory filesystem. On Windows, `path.resolve("/tmp/...")` adds the
+  // current drive; returning the unresolved POSIX-looking value makes cleanup
+  // validation reject a workspace that the fake filesystem actually created.
+  const temporaryRoot = path.resolve(options.temporaryRoot ?? "/tmp/telagent-test");
   const now = options.now ?? new Date("2026-08-28T02:00:00.000Z");
 
   return {

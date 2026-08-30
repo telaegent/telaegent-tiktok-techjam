@@ -10,7 +10,7 @@ import "./product-app.css";
 type Theme = "light" | "dark";
 type ProductRoute = "onboarding" | "projects" | "connections" | "settings" | "workspace";
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
-type GithubStage = "idle" | "device" | "connected";
+type GithubStage = "idle" | "connector" | "connected";
 type WorkspaceTab = "chat" | "people" | "settings";
 type Participant = "phuong" | "justin";
 type PrivateMode = "outgoing" | "recipient";
@@ -60,9 +60,9 @@ const collaborators: Collaborator[] = [
     id: "thai",
     initial: "T",
     name: "Thai",
-    topic: "Cloud deployment",
+    topic: "Cloud relay and connector networking",
     provider: "Claude Code",
-    branch: "infra/cloud-runtime",
+    branch: "infra/connector-relay",
     status: "available",
   },
   {
@@ -204,37 +204,37 @@ function Onboarding({
           {step === "github" && (
             <>
               <span className="app-eyebrow">Repository connection</span>
-              <h1>Connect GitHub to this cloud workspace.</h1>
+              <h1>Connect this local repository.</h1>
               <p>
-                Telaegent only sees repositories you deliberately connect. This is separate from
-                signing in to your account.
+                Run the connector in the repository you choose. Your checkout,
+                GitHub login, credentials, and local path stay on this machine.
               </p>
 
               {githubStage === "idle" && (
                 <div className="setup-row">
                   <div>
-                    <strong>GitHub CLI</strong>
-                    <small>Not connected</small>
+                    <strong>Local Telaegent connector</strong>
+                    <small>Not connected for this repository</small>
                   </div>
-                  <button type="button" onClick={() => setGithubStage("device")}>Connect</button>
+                  <button type="button" onClick={() => setGithubStage("connector")}>Connect</button>
                 </div>
               )}
 
-              {githubStage === "device" && (
+              {githubStage === "connector" && (
                 <div className="device-flow">
                   <div>
-                    <span>Open in GitHub</span>
-                    <strong>github.com/login/device</strong>
+                    <span>Run locally in your repository</span>
+                    <strong>telaegent connect .</strong>
                   </div>
                   <div>
-                    <span>One-time code</span>
-                    <code>TLGT-4829</code>
+                    <span>What remains local</span>
+                    <code>repo · gh · Claude/Codex · sessions</code>
                   </div>
-                  <p>Waiting for authorization in your browser…</p>
+                  <p>Waiting for the outbound connector…</p>
                   <div className="inline-actions">
-                    <button className="app-secondary-action" type="button">Open GitHub</button>
+                    <button className="app-secondary-action" type="button">Copy command</button>
                     <button className="app-primary-action" type="button" onClick={() => setGithubStage("connected")}>
-                      I&apos;ve authorized
+                      Simulate connector online
                     </button>
                   </div>
                 </div>
@@ -243,8 +243,8 @@ function Onboarding({
               {githubStage === "connected" && (
                 <div className="setup-row connected">
                   <div>
-                    <strong><StatusMark /> Connected as @phuong</strong>
-                    <small>3 repositories available to choose</small>
+                    <strong><StatusMark /> Connector online · @phuong</strong>
+                    <small>telaegent/backend · feat/auth · 81ad2e</small>
                   </div>
                   <button type="button" onClick={() => setStep("agent")}>Continue</button>
                 </div>
@@ -257,8 +257,8 @@ function Onboarding({
               <span className="app-eyebrow">Your project agent</span>
               <h1>Choose who works privately with you.</h1>
               <p>
-                Connect Claude Code, Codex, or both. Telaegent creates separate project sessions;
-                unrelated conversations are never imported.
+                The connector probes your local Claude Code, Codex, or both.
+                Provider login and project sessions stay local; unrelated conversations are never imported.
               </p>
               <div className="provider-picker">
                 {["Claude Code", "Codex"].map((agent) => {
@@ -267,7 +267,7 @@ function Onboarding({
                     <button className={connected ? "connected" : ""} type="button" key={agent} onClick={() => toggleAgent(agent)}>
                       <span>
                         <strong>{agent}</strong>
-                        <small>{connected ? "Connected" : "Available"}</small>
+                        <small>{connected ? "Connected locally" : "Detected locally"}</small>
                       </span>
                       <span>{connected ? "Connected" : "Connect"}</span>
                     </button>
@@ -294,8 +294,9 @@ function Onboarding({
                 and approvals.
               </p>
               <div className="ready-summary">
-                <span><StatusMark /> GitHub connected</span>
-                <span><StatusMark /> {connectedAgents.join(" + ")} connected</span>
+                <span><StatusMark /> Local connector online</span>
+                <span><StatusMark /> GitHub repository verified locally</span>
+                <span><StatusMark /> {connectedAgents.join(" + ")} connected locally</span>
               </div>
               <button className="app-primary-action" type="button" onClick={onComplete}>
                 Choose a repository
@@ -453,27 +454,27 @@ function ToolsSettings() {
       <header className="app-page-heading">
         <span className="app-eyebrow">Account and connected tools</span>
         <h1>Settings</h1>
-        <p>Manage the tools and repositories that Telaegent may use on your behalf.</p>
+        <p>Manage cloud connections and the local tools reported by your connector.</p>
       </header>
 
       <section className="settings-section">
         <header><h2>Account</h2></header>
         <article className="tool-row">
-          <div><strong>GitHub</strong><small>@phuong · account identity</small></div>
-          <span><StatusMark /> Connected</span>
+          <div><strong>Local connector</strong><small>@phuong · telaegent/backend</small></div>
+          <span><StatusMark /> Online</span>
         </article>
       </section>
 
       <section className="settings-section">
         <header><h2>Coding agents</h2></header>
         <article className="tool-row">
-          <div><strong>Codex</strong><small>Default for telaegent/backend</small></div>
-          <span><StatusMark /> Connected</span>
+          <div><strong>Codex</strong><small>Local default for telaegent/backend</small></div>
+          <span><StatusMark /> Connected locally</span>
         </article>
         <article className="tool-row warning">
-          <div><strong>Claude Code</strong><small>{claudeConnected ? "Connection restored" : "Authentication expired · reconnect to use this agent"}</small></div>
+          <div><strong>Claude Code</strong><small>{claudeConnected ? "Local connection restored" : "Local authentication unavailable · sign in locally"}</small></div>
           {claudeConnected ? (
-            <span><StatusMark /> Connected</span>
+            <span><StatusMark /> Connected locally</span>
           ) : (
             <button className="app-secondary-action" type="button" onClick={() => setClaudeConnected(true)}>Reconnect</button>
           )}
@@ -484,7 +485,7 @@ function ToolsSettings() {
         <header><h2>Repositories</h2></header>
         {projects.map((project) => (
           <article className="tool-row" key={project.id}>
-            <div><strong>{project.owner}/{project.name}</strong><small>Connected through GitHub</small></div>
+            <div><strong>{project.owner}/{project.name}</strong><small>Registered by local connector</small></div>
             <button className="app-text-button danger" type="button">Disconnect</button>
           </article>
         ))}

@@ -16,7 +16,7 @@ separate from the preserved Phoenix/conflict workflow under `src/telagent/`.
 | `GET` | `/api/conversations/:conversationId/messages` | Read approved shared messages only. |
 
 The authenticated user is injected by trusted server authentication. No route
-accepts a user ID, workspace path, runtime binding, provider session ID,
+accepts a user ID, local workspace path, connector binding, provider session ID,
 sandbox policy, or turn budget from the browser.
 
 `send` requires an idempotency key. Durable repository adapters must commit the

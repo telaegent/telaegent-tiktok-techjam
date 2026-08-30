@@ -4,10 +4,15 @@ import {
   type AuthorizedPrivateRuntimeTurnInput,
 } from "../../authorization/authorized-private-runtime-turn.js";
 import type { PrivateRuntimeAuthorizer } from "../../authorization/private-runtime-authorization.js";
+import {
+  ConnectorTurnExecutor,
+  type ConnectorJobRelay,
+} from "../../connectors/connector-turn-executor.js";
 import type { AuthorizePrivateRuntimeInput } from "../../authorization/types.js";
 import {
   PrivateRuntimeTurnCoordinator,
   type PrivateRuntimeTurnCoordinatorOptions,
+  type PrivateTurnExecutor,
   type StartedPrivateRuntimeTurn,
 } from "../../private-runtime-turn-coordinator.js";
 import {
@@ -47,20 +52,40 @@ export interface AuthorizedProtocolTurnServiceOptions {
   onContextRejected?: ProtocolContextRejectionReporter;
 }
 
-export interface AuthorizedProtocolTurnRuntimeDependencies
-  extends AuthorizedProtocolTurnServiceOptions {
-  authorizer: PrivateRuntimeAuthorizer;
-  loadContext: DurableContextLoader;
+/**
+ * Canonical cloud composition. Every turn leaves as a path-free connector job,
+ * so the cloud owns no provider process, workspace, or provider session.
+ */
+export interface ConnectorProtocolTurnExecution {
+  connector: ConnectorJobRelay;
+  createJobId?: () => string;
+}
+
+/**
+ * Connector-side/local composition. The provider CLI runs in this process, so
+ * it is only valid inside a local connector, a dev script, or a test.
+ */
+export interface LocalProtocolTurnExecution {
   runtime: ProviderSessionRuntime;
   sessionStore: ProviderSessionStore;
-  policy: Readonly<AuthorizedPrivateRuntimeTurnPolicy>;
-  coordinatorOptions?: PrivateRuntimeTurnCoordinatorOptions;
 }
+
+export type AuthorizedProtocolTurnRuntimeDependencies =
+  AuthorizedProtocolTurnServiceOptions & {
+    authorizer: PrivateRuntimeAuthorizer;
+    loadContext: DurableContextLoader;
+    policy: Readonly<AuthorizedPrivateRuntimeTurnPolicy>;
+    coordinatorOptions?: PrivateRuntimeTurnCoordinatorOptions;
+  } & (ConnectorProtocolTurnExecution | LocalProtocolTurnExecution);
 
 export interface AuthorizedProtocolTurnRuntime {
   turns: AuthorizedProtocolTurnService;
   coordinator: PrivateRuntimeTurnCoordinator;
-  sessions: ProviderSessionManager;
+  /**
+   * Present only for the local composition. Provider sessions are a private
+   * connector-side cache and never exist in the cloud build.
+   */
+  sessions?: ProviderSessionManager | undefined;
 }
 
 /**
@@ -72,19 +97,31 @@ export interface AuthorizedProtocolTurnRuntime {
 export function createAuthorizedProtocolTurnRuntime(
   dependencies: AuthorizedProtocolTurnRuntimeDependencies,
 ): AuthorizedProtocolTurnRuntime {
-  const hydrator = createProtocolHydrator({
-    load: dependencies.loadContext,
-    ...(dependencies.onContextRejected
-      ? { onHydrationRejected: dependencies.onContextRejected }
-      : {}),
-  });
-  const sessions = new ProviderSessionManager(
-    dependencies.runtime,
-    dependencies.sessionStore,
-    hydrator,
-  );
+  // Provider session recovery is a local concern: the connector rebuilds a lost
+  // session from the bounded summary the cloud already puts in every job, so
+  // the hydrator exists only where a provider actually runs in-process.
+  let sessions: ProviderSessionManager | undefined;
+  let executor: PrivateTurnExecutor;
+  if ("connector" in dependencies) {
+    executor = new ConnectorTurnExecutor(
+      dependencies.connector,
+      dependencies.createJobId ? { createJobId: dependencies.createJobId } : {},
+    );
+  } else {
+    sessions = new ProviderSessionManager(
+      dependencies.runtime,
+      dependencies.sessionStore,
+      createProtocolHydrator({
+        load: dependencies.loadContext,
+        ...(dependencies.onContextRejected
+          ? { onHydrationRejected: dependencies.onContextRejected }
+          : {}),
+      }),
+    );
+    executor = sessions;
+  }
   const coordinator = new PrivateRuntimeTurnCoordinator(
-    sessions,
+    executor,
     undefined,
     dependencies.coordinatorOptions,
   );

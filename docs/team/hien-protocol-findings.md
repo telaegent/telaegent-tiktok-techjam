@@ -303,12 +303,14 @@ workspace is not leaving your scope. Only genuine escapes count now.
 that stays yours in `runtime-contract.ts`. Two seams:
 
 **`ProtocolTurnInput` is built by the backend, never by a message.**
-`repositoryFullName`, `githubRepositoryId`, `branch`, `commit` and the workspace
-path all come from the runtime binding. A remote collaborator must never
-influence any of them — they determine which files an agent can reach.
+`repositoryFullName`, `githubRepositoryId`, `branch`, and `commit` come from
+safe connector registration. The workspace path does not enter the backend
+protocol at all; the local connector resolves it from the opaque binding. A
+remote collaborator must never influence either set of values.
 
-**Suggested settings for a recipient turn:** `sandboxMode: "read-only"`,
-`networkMode: "none"`, and an absolute workspace path. The evaluation runners use
+**Suggested settings for a recipient turn:** `sandboxMode: "read-only"` and
+`networkMode: "none"`. After accepting a bounded job, the connector resolves
+its registered absolute local workspace privately. The evaluation runners use
 `--sandbox read-only` for Codex for a specific reason: a prompt-injection case
 that succeeds in persuading the agent to modify the repository then fails at the
 OS boundary instead of corrupting the fixture for every case after it. The same

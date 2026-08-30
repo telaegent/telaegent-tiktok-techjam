@@ -4,9 +4,10 @@
 **Checked:** 2026-08-30
 **Environment:** local Windows development machine
 
-This memo separates observations from claims that still need a clean Linux or
-cloud-runtime proof. Local authentication is useful adapter evidence, but it is
-not evidence of production isolation.
+This memo separates observations from claims that still need proof through the
+canonical local connector. Local authentication is directly relevant, but the
+current server-side adapter does not prove connector binding, transport, or
+cross-project isolation.
 
 ## Evidence status
 
@@ -20,7 +21,7 @@ not evidence of production isolation.
 | Resume from a new process | Adapter implemented | Adapter implemented | Live proof pending |
 | Missing-session recovery | One-delete/one-recreate path implemented | One-delete/one-recreate path implemented | Automated proof passes; live script exists but live provider run is pending |
 | Cancel, timeout, malformed output, output limit | Implemented and normalized | Implemented and normalized | Automated runner tests; clean-runtime proof pending |
-| User x repository isolation | Not provided by the local process runner | Not provided by the local process runner | Blocked on runtime binding and cloud isolation implementation |
+| User x repository isolation | Not provided by the current local process runner | Not provided by the current local process runner | Blocked on connector binding and local path isolation implementation |
 
 The live commands are intentionally not recorded as successful until they have
 actually completed. The existing entry points are:
@@ -39,7 +40,8 @@ data, or provider session IDs.
 ## What the current adapters prove
 
 - Both providers are launched without a shell and receive the prompt on stdin.
-- The working directory is selected by the server request.
+- The adapters can use a selected working directory; canonical connector jobs
+  must not contain it, and the connector must resolve it from local binding.
 - Runtime duration, idle time, and output size are bounded.
 - Cancellation terminates the owned child process.
 - Provider failures are normalized before crossing the runtime boundary.
@@ -52,21 +54,21 @@ data, or provider session IDs.
 - Claude inherits the server account's home-related environment.
 - Codex uses one configured `CODEX_HOME` and also inherits the server account's
   general home environment.
-- A server-owned workspace path does not itself prevent the child process from
+- A connector-owned workspace path does not itself prevent the child process from
   reading other paths available to the same operating-system identity.
-- A temporary probe workspace is not a cloud sandbox.
-- Local login persistence does not establish the correct production credential
-  mount, encryption, revocation, or retention design.
+- A temporary probe workspace is not proof of local user × repository isolation.
+- Local login persistence does not establish connector authentication,
+  binding, revocation, or safe transport.
 
-These are deployment blockers, not reasons to weaken the browser-first product
-boundary.
+These are connector blockers, not reasons to move execution or credentials to
+the cloud.
 
-## Required clean-runtime proof
+## Required connector-mediated proof
 
-For each provider, record the following in a clean Linux/container environment:
+For each provider, record the following on supported local developer platforms:
 
 1. CLI version and installation source.
-2. Authentication completed using a controlled account.
+2. Existing local authentication detected using a controlled account.
 3. A structured, read-only turn succeeds in the bound repository.
 4. A fresh CLI process reuses only the intended persisted authentication.
 5. A session created by Telaegent resumes from a fresh process.
@@ -74,11 +76,13 @@ For each provider, record the following in a clean Linux/container environment:
    and exactly one rehydrated fresh turn.
 7. Cancellation, timeout, malformed output, and output-limit behavior match the
    normalized contract.
-8. Attempts to read another user or repository runtime path fail at the
-   operating-system or container boundary.
-9. Revocation removes credentials and session state before another turn can
-   start.
+8. Repo A jobs cannot resolve Repo B or paths outside the locally registered
+   workspace.
+9. Revocation disables the connector binding before another turn can start;
+   it does not require uploading or deleting the user's global CLI credential.
+10. Cloud registration, job, progress, result, and audit payloads contain no
+    local path, credential, provider session ID, or raw provider stream.
 
-The proof result should name the image/runtime version, provider version,
-binding ID, repository ID, and timings. It must not include provider session
-IDs or secret material.
+The proof result should name the connector version, operating system, provider
+version, opaque binding ID, repository ID, and timings. It must not include
+provider session IDs, local paths, repository contents, or secret material.

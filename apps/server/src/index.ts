@@ -20,10 +20,16 @@ if (isArkConfigured(config)) {
 }
 
 const store = new JsonStore(path.join(config.dataDirectory, "launchpad.json"));
-const workspaces = new WorkspaceManager(config.workspaceRoot);
-const runner = createRunner(config);
-const service = new AgentService(config, store, workspaces, runner);
-await service.initialize();
+// The inherited Playground can still be enabled for local legacy maintenance,
+// but the cloud server must never construct a provider runner or workspace.
+// Canonical provider execution belongs to the outbound local connector.
+let service: AgentService | undefined;
+if (config.enableLegacyLocalPlayground) {
+  const workspaces = new WorkspaceManager(config.workspaceRoot);
+  const runner = createRunner(config);
+  service = new AgentService(config, store, workspaces, runner);
+  await service.initialize();
+}
 const telagentService = new TelagentService(
   store,
   new RuntimeUnavailableConversationOrchestrator(),

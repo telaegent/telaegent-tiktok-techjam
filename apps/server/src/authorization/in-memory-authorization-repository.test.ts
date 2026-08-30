@@ -66,7 +66,6 @@ function validData(): InMemoryPrivateRuntimeAuthorizationData {
       projectId: "project-1",
       githubRepositoryId: "1345851083",
       status: "ready",
-      workspacePath: "/srv/telaegent/user-1/1345851083",
     }],
   };
 }
@@ -98,7 +97,6 @@ describe("InMemoryPrivateRuntimeAuthorizationRepository", () => {
     expect(snapshot.projectConnections[0]?.status).toBe("revoked");
     expect(snapshot.runtimeBinding).toMatchObject({
       runtimeBindingId: "runtime-binding-1",
-      workspacePath: "/srv/telaegent/user-1/1345851083",
     });
   });
 
@@ -141,7 +139,6 @@ describe("InMemoryPrivateRuntimeAuthorizationRepository", () => {
         projectId: "project-1",
         githubRepositoryId: "1345851083",
         status: "ready",
-        workspacePath: "/srv/telaegent/user-2/1345851083",
       },
     ];
 

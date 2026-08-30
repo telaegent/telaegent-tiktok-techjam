@@ -7,20 +7,22 @@
 3. Inspect the current branch and working tree; preserve teammate changes.
 4. State whether the work is research, documentation, legacy maintenance, or authorized implementation.
 
-The current guide freezes product direction but intentionally defers the implementation plan. Do not add speculative cloud application code unless implementation has been explicitly authorized.
+The current guide freezes product direction but intentionally defers the implementation plan. Do not add speculative cloud execution code: Telaegent cloud coordinates, while the local connector executes GitHub and provider CLI work.
 
 ## Current workstreams
 
 - Phuong and Khoa co-own backend architecture.
 - Duy owns product/frontend design.
 - Hien owns protocol and security evaluation.
-- Thai owns cloud infrastructure research.
+- Thai owns cloud infrastructure and connector-to-cloud networking research.
 
 These are research/design responsibilities, not permanent code ownership. Shared contracts should be frozen only after the assigned experiments.
 
 ## Product invariants
 
-- cloud-first, browser-first judged experience
+- cloud-first, browser-first product with a required outbound local connector
+- local GitHub CLI, repository, Claude Code/Codex, credentials, tools, and provider sessions
+- cloud coordination, routing, approvals, shared memory, presence, and audit only
 - GitHub repository as project boundary
 - project-scoped collaborator connection
 - private sender and recipient agent rooms

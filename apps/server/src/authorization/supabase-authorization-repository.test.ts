@@ -73,7 +73,6 @@ function validPayload(): SupabasePrivateRuntimeAuthorizationSnapshotDto {
       projectId: "project-1",
       githubRepositoryId: "1345851083",
       status: "ready",
-      workspacePath: "/srv/telaegent/workspaces/user-1/1345851083",
     },
   };
 }
@@ -91,7 +90,6 @@ function authorizationService(
 ): PrivateRuntimeAuthorizationService {
   return new PrivateRuntimeAuthorizationService(
     new SupabasePrivateRuntimeAuthorizationRepository(client),
-    { async contains() { return true; } },
     {
       repositoryAccessMaxAgeMs: 5 * 60_000,
       repositoryReadTimeoutMs: 100,
@@ -109,7 +107,6 @@ describe("Supabase authorization snapshot mapper", () => {
     expect(snapshot).not.toBe(payload);
     expect(snapshot.runtimeBinding).toMatchObject({
       runtimeBindingId: "runtime-binding-1",
-      workspacePath: "/srv/telaegent/workspaces/user-1/1345851083",
     });
   });
 

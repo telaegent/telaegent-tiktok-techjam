@@ -1,4 +1,4 @@
-# Phuong — Backend Co-Owner, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, and Integration Architecture
+# Phuong — Backend Co-Owner, Local Connector, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, and Integration Architecture
 
 **Status:** Architecture/research brief before implementation  
 **Product:** Telaegent  
@@ -11,16 +11,19 @@
 
 ## 1.1 Architecture reconciliation
 
-Khoa's cloud GitHub CLI model is adopted. Thai's local connector is fallback only.
+The local connector model is canonical. Khoa's GitHub proof and Phuong's
+provider execution both happen on the developer machine; the cloud authorizes
+and routes only opaque connector-bound jobs.
 
 ```text
 Telaegent backend
-→ cloud runtime manager
-→ User × Repo isolated environment
-   ├─ gh authenticated as owner
-   ├─ repo checkout
-   ├─ Claude/Codex auth
-   └─ provider sessions
+→ connector presence/job relay
+→ User × Repo opaque connector binding
+→ outbound local connector
+   ├─ local gh authenticated as owner
+   ├─ local repo/worktree
+   ├─ local Claude/Codex auth
+   └─ local provider sessions
 ```
 
 
@@ -41,8 +44,8 @@ You currently own the broadest integration seam:
 - Claude Code CLI integration
 - Codex CLI integration
 - provider connection/auth lifecycle
-- cloud runtime request contract
-- process launching
+- connector/cloud job contract
+- local process launching
 - structured output parsing
 - session creation/resume
 - provider switching
@@ -68,7 +71,7 @@ Claude Code CLI
 Codex CLI
 ```
 
-inside cloud-hosted isolated user/repository environments.
+through the connector inside the owning developer's registered local repository environment.
 
 The user's personal app conversations are not imported.
 
@@ -81,11 +84,11 @@ Telaegent-created provider sessions belong only to Telaegent work.
 The product concept is simple:
 
 ```text
-User clicks Connect Claude Code
+User starts/connects the local Telaegent connector
         ↓
-Telaegent user's cloud runtime has Claude CLI
+Connector detects local Claude CLI
         ↓
-Authenticate if needed
+Use existing local authentication; user signs in locally if needed
         ↓
 Run live probe
         ↓
@@ -148,9 +151,9 @@ A new shell sharing the same `$HOME` may reuse:
 Desired model:
 
 ```text
-persistent isolated user×repo environment
+persistent local user×repo connector binding
         ↓
-spawn fresh CLI process per agent turn
+spawn a fresh local CLI process per agent turn
         ↓
 optionally resume Telaegent-created provider session
 ```
@@ -167,16 +170,18 @@ Prove:
 
 ```text
 GitHub auth connects
-→ credential persists safely
-→ new process runs gh auth status
-→ gh auth setup-git works
-→ clone/fetch works
-→ credential only reaches owning user
+→ local credential remains available to the user
+→ connector runs `gh auth status`
+→ selected local remote/repository ID is verified
+→ connector registers only safe metadata
+→ credential never reaches Telaegent cloud
 ```
 
 Do not use `gh repo list` as the universal picker source. Khoa supplies repository membership from authenticated-user API discovery.
 
-The workspace passed to Claude/Codex must come from backend runtime binding, never collaborator-controlled text.
+The connector resolves the workspace from its private local mapping for the
+cloud-issued opaque binding. Neither backend nor collaborator text may contain
+or choose the path.
 
 ---
 
@@ -186,7 +191,7 @@ Document/test:
 
 - installation
 - authentication mechanism
-- headless/cloud login options
+- local login and non-interactive invocation options
 - auth persistence location/semantics
 - `claude -p`
 - output formats
@@ -203,7 +208,7 @@ Document/test:
 - login expiry/reconnect behavior
 - config/home dependencies
 - whether session files can be isolated per Telaegent runtime
-- any usage/policy constraints relevant to hosted execution
+- any usage/policy constraints relevant to connector automation
 
 Build a minimal adapter design, not a giant framework.
 
@@ -372,7 +377,7 @@ Why:
 - auth can expire
 - provider can change
 - provider can compact
-- cloud runtime can be recreated
+- local connector/provider session can be restarted or lost
 - user may switch Claude ↔ Codex
 - product history must remain visible/auditable
 
@@ -610,18 +615,18 @@ Key invariants:
 
 ---
 
-# 16. Runtime isolation contract with Thai
+# 16. Connector isolation contract with Thai
 
 Give Thai exact requirements.
 
 At minimum:
 
 ```text
-user × repo filesystem isolation
-separate provider/Git credentials
-separate CLI home/session state
-no cross-user mounts
-no arbitrary remote path
+opaque cloud binding per user × repo
+local binding-to-workspace mapping
+provider/Git credentials remain local
+separate project session state where required
+no arbitrary cloud/collaborator path, executable, or command
 bounded process lifetime
 bounded output
 kill/cancel support
@@ -630,9 +635,11 @@ persistent auth only where required
 ephemeral temp data
 ```
 
-Decide whether a provider home can be shared across multiple repos for the same user.
+Decide whether a local provider home can be shared across multiple repos for the same user.
 
-Security says per-user×repo is cleaner; usability/cost may favor per-user auth volume + per-repo workspace. Research.
+Security says project-specific sessions/workspace bindings are cleaner;
+usability may favor one local user auth home plus per-repo sessions. Research
+without uploading either.
 
 ---
 
@@ -812,16 +819,16 @@ You then implement the runtime adapter around evidence.
 
 Before coding full architecture:
 
-1. Get `claude -p "Print exactly: TELAEGENT IS CONNECTED"` working in a clean Linux/cloud-like environment.
+1. Get `claude -p "Print exactly: TELAEGENT IS CONNECTED"` working through the local connector on supported developer operating systems.
 2. Get equivalent Codex noninteractive probe working.
-3. Determine exactly what files/environment each CLI needs to remain authenticated.
+3. Determine exactly what local files/environment each CLI needs; never include them in cloud payloads.
 4. Start a new process and prove auth survives.
 5. Create a provider session, exit, resume it from a new process.
 6. Move/lose session state and verify failure behavior.
 7. Test structured output.
 8. Test cancellation.
 9. Measure startup + simple inference latency.
-10. Give Thai concrete persistent-state requirements.
+10. Give Thai concrete connector transport/presence requirements and document local-only state.
 11. Give Hien a callable harness for repeated evaluations.
 
 These experiments answer more than architecture speculation.
@@ -850,7 +857,7 @@ What is durable, private, ephemeral, compacted, and rehydrated.
 
 With Khoa.
 
-### F. Runtime isolation requirements
+### F. Connector/local isolation requirements
 
 For Thai.
 
@@ -860,7 +867,7 @@ For Duy/backend.
 
 ### H. Live proof
 
-At least one real cloud-like Claude turn and one Codex turn if both are available.
+At least one real connector-mediated local Claude turn and one local Codex turn if both are available.
 
 ---
 
@@ -874,14 +881,13 @@ You are done with the architecture phase when we can answer:
 
 # 26. Do not do yet
 
-- Do not build local LAN workers.
+- Do not build LAN discovery, peer-to-peer links, inbound local servers, or cloud provider runtimes.
 - Do not integrate the Claude consumer app or Codex app conversation UI.
 - Do not depend exclusively on provider session memory.
 - Do not store chain-of-thought.
 - Do not silently fall back from Claude to Codex.
-- Do not share CLI home directories between users.
-- Do not accept arbitrary workspace paths from remote messages.
+- Do not upload or share CLI home directories, credentials, repositories, or local paths.
+- Do not accept arbitrary workspace paths, executables, or commands from cloud jobs or remote messages.
 - Do not start coding a huge generic agent framework.
 - Do not freeze prompt schema before Hien's tests.
 - Do not put all private CLI output into the product database.
-

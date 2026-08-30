@@ -5,7 +5,7 @@ import { RunCancelledError } from "./errors.js";
 import type {
   JsonSchemaDocument,
   MiddlewareProviderRunner,
-  MiddlewareRunRequest,
+  LocalMiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeProviderCapability,
   RuntimeProgressEvent,
@@ -27,7 +27,7 @@ export interface ParsedClaudeEvents {
 }
 
 export function buildClaudeArgs(
-  request: MiddlewareRunRequest,
+  request: LocalMiddlewareRunRequest,
   outputSchema: JsonSchemaDocument,
 ): string[] {
   if (request.networkMode === "none" && request.sandboxMode === "workspace-write") {
@@ -235,7 +235,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
   }
 
   async runStructured(
-    request: MiddlewareRunRequest,
+    request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
     onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult> {
