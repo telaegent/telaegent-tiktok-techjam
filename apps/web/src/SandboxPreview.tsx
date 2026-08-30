@@ -5,10 +5,20 @@ import {
   peopleById,
   sandboxRepositories,
   type SandboxPersonId,
+  type SandboxSide,
 } from "./sandbox-data";
 
 type DemoPhase = "thinking" | "private" | "sent" | "declined" | "dismissed";
 type SwitchStage = "idle" | "out" | "in";
+
+type SandboxTransfer = {
+  repositoryId: string;
+  conversationId: string;
+  senderId: SandboxPersonId;
+  recipientId: SandboxPersonId;
+  content: string;
+  evaluation: SandboxSide;
+};
 
 function SandboxPerson({
   id,
@@ -51,6 +61,7 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
   const [tryOutMounted, setTryOutMounted] = useState(false);
   const [tryOutOpen, setTryOutOpen] = useState(false);
   const [switchStage, setSwitchStage] = useState<SwitchStage>("idle");
+  const [transfer, setTransfer] = useState<SandboxTransfer | null>(null);
   const tryOutMountFrame = useRef<number | null>(null);
   const tryOutOpenFrame = useRef<number | null>(null);
   const switchTimer = useRef<number | null>(null);
@@ -65,7 +76,13 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
   const activeConversation = findSandboxConversation(repository, viewerId, peerId)
     ?? repository.conversations[0];
   const activeSide = activeConversation.sides[viewerId];
-  const selectedAnswer = selectedOption === null ? null : activeSide.options[selectedOption];
+  const isReceivingTransfer =
+    transfer?.repositoryId === repository.id
+    && transfer.conversationId === activeConversation.id
+    && transfer.senderId === peerId
+    && transfer.recipientId === viewerId;
+  const privateSide = isReceivingTransfer ? transfer.evaluation : activeSide;
+  const selectedAnswer = selectedOption === null ? null : privateSide.options[selectedOption];
 
   useEffect(() => {
     setPhase("thinking");
@@ -122,6 +139,22 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
     setViewerId(nextViewer);
     setPeerId(nextPeer);
     setRun((current) => current + 1);
+  }
+
+  function sendPreparedMessage() {
+    const content = isReceivingTransfer && selectedAnswer
+      ? selectedAnswer.answer
+      : activeSide.intent;
+
+    setTransfer({
+      repositoryId: repository.id,
+      conversationId: activeConversation.id,
+      senderId: viewerId,
+      recipientId: peerId,
+      content,
+      evaluation: activeSide,
+    });
+    setPhase("sent");
   }
 
   function interceptSandboxSend(event: FormEvent<HTMLFormElement>) {
@@ -240,15 +273,23 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
             <small>Approved by {peer.name} · {peer.branch}</small>
           </article>
 
-          <article className="message message-outgoing message-pending sandbox-entry sandbox-entry-step-2">
-            <span className="message-author">{viewer.name} · rough request</span>
-            <p>{activeSide.intent}</p>
+          <article
+            className={`message ${isReceivingTransfer ? "message-incoming message-received" : "message-outgoing message-pending"} sandbox-entry sandbox-entry-step-2`}
+          >
+            <span className="message-author">
+              {isReceivingTransfer
+                ? `${peer.name} · approved request`
+                : `${viewer.name} · rough request`}
+            </span>
+            <p>{isReceivingTransfer ? transfer.content : activeSide.intent}</p>
             <small>
-              {phase === "sent"
-                ? `Sent to ${peer.name}`
-                : phase === "declined"
-                  ? "Declined. Nothing was shared."
-                  : "Not shared"}
+              {isReceivingTransfer
+                ? `Received by ${viewer.name}`
+                : phase === "sent"
+                  ? `Sent to ${peer.name}`
+                  : phase === "declined"
+                    ? "Declined. Nothing was shared."
+                    : "Not shared"}
             </small>
           </article>
 
@@ -259,7 +300,11 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
               inert={phase !== "thinking"}
             >
               <div className="agent-thinking" role="status">
-                <span>{viewer.name}'s {viewer.provider} is preparing the request</span>
+                <span>
+                  {isReceivingTransfer
+                    ? `${viewer.name}'s ${viewer.provider} is evaluating the request`
+                    : `${viewer.name}'s ${viewer.provider} is preparing the request`}
+                </span>
                 <span className="typing-dots" aria-label="Working"><i /><i /><i /></span>
               </div>
             </div>
@@ -269,7 +314,11 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
               aria-hidden={phase !== "private"}
               inert={phase !== "private"}
             >
-              <p className="agent-state agent-state-ready">Private question ready for {viewer.name}</p>
+              <p className="agent-state agent-state-ready">
+                {isReceivingTransfer
+                  ? `Private evaluation ready for ${viewer.name}`
+                  : `Private question ready for ${viewer.name}`}
+              </p>
             </div>
 
             <div
@@ -278,7 +327,11 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
               inert={phase !== "sent" && phase !== "declined"}
             >
               <p className="direct-decision-result">
-                {phase === "sent" ? `Sent to ${peer.name}.` : "Declined. Nothing was shared."}
+                {phase === "sent"
+                  ? isReceivingTransfer
+                    ? `Response sent to ${peer.name}.`
+                    : `Sent to ${peer.name}.`
+                  : "Declined. Nothing was shared."}
               </p>
             </div>
           </div>
@@ -329,12 +382,20 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
       <aside
         className="private-room"
         aria-hidden={phase !== "private"}
-        aria-label={`Private conversation between ${viewer.name} and ${viewer.provider}`}
+        aria-label={
+          isReceivingTransfer
+            ? `Private evaluation of ${peer.name}'s request by ${viewer.name}'s ${viewer.provider}`
+            : `Private conversation between ${viewer.name} and ${viewer.provider}`
+        }
       >
         <header className="private-room-header">
           <div>
             <strong>Message Preparation</strong>
-            <small>Private with {viewer.name}'s {viewer.provider}. Not visible to {peer.name}.</small>
+            <small>
+              {isReceivingTransfer
+                ? `${viewer.name}'s ${viewer.provider} is evaluating ${peer.name}'s request privately.`
+                : `Private with ${viewer.name}'s ${viewer.provider}. Not visible to ${peer.name}.`}
+            </small>
           </div>
           <button type="button" onClick={() => setPhase("dismissed")} aria-label="Close private room">Close</button>
         </header>
@@ -342,26 +403,33 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
         <div className="private-context">
           <span>{repository.shortName}</span>
           <span>{viewer.branch}</span>
-          <span>to {peer.name}</span>
+          <span>{isReceivingTransfer ? `from ${peer.name}` : `to ${peer.name}`}</span>
         </div>
 
         <div className="private-thread">
           <article className="private-message private-message-user private-entry private-entry-user">
-            <span>{viewer.name}</span>
-            <p>{activeSide.intent}</p>
+            <span>{isReceivingTransfer ? `${peer.name} · received` : viewer.name}</span>
+            <p>{isReceivingTransfer ? transfer?.content : activeSide.intent}</p>
           </article>
 
           <article className="private-message private-message-agent private-entry private-entry-agent">
             <div className="private-agent-heading">
               <span>{viewer.provider}</span>
-              <small>Needs direction</small>
+              <small>{isReceivingTransfer ? "Evaluating request" : "Needs direction"}</small>
             </div>
-            <p>{activeSide.agentQuestion}</p>
-            <p className="private-note">{activeSide.note}</p>
+            <p>
+              {isReceivingTransfer
+                ? `${peer.name} sent this request. What should I verify before preparing your response?`
+                : privateSide.agentQuestion}
+            </p>
+            <p className="private-note">{privateSide.note}</p>
           </article>
 
-          <div className="private-suggestions private-entry-actions" aria-label="Questions for the private agent">
-            {activeSide.options.map((option, index) => (
+          <div
+            className="private-suggestions private-entry-actions"
+            aria-label={isReceivingTransfer ? "Evaluation paths" : "Questions for the private agent"}
+          >
+            {privateSide.options.map((option, index) => (
               <button
                 className={selectedOption === index ? "selected" : ""}
                 type="button"
@@ -396,7 +464,7 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
               <span>Review before sharing</span>
               <div className="private-composer-actions">
                 <button type="button" onClick={() => setPhase("declined")}>Decline</button>
-                <button className="send" type="button" onClick={() => setPhase("sent")}>Send</button>
+                <button className="send" type="button" onClick={sendPreparedMessage}>Send</button>
               </div>
             </>
           ) : (
