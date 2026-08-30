@@ -727,6 +727,7 @@ button:active,
 }
 
 .message-composer {
+  position: relative;
   min-height: 66px;
   margin: 0 20px 20px;
   padding: 10px 10px 10px 15px;
@@ -756,6 +757,79 @@ button:active,
   border: 1px solid var(--button);
   color: var(--button-text);
   background: var(--button);
+}
+
+.sandbox-prompt-backdrop {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--canvas) 72%, transparent);
+  backdrop-filter: blur(3px);
+  animation: prompt-arrive 160ms ease-out both;
+}
+
+.sandbox-prompt {
+  width: min(360px, 100%);
+  padding: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  color: var(--text);
+  background: var(--surface-raised);
+  box-shadow: 0 18px 55px rgb(0 0 0 / 22%);
+}
+
+.sandbox-prompt-kicker {
+  color: var(--quiet);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.sandbox-prompt h3 {
+  margin: 8px 0 0;
+  font-size: 20px;
+  font-weight: 560;
+  letter-spacing: -.025em;
+}
+
+.sandbox-prompt p {
+  margin: 10px 0 22px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.sandbox-prompt > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sandbox-prompt button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sandbox-prompt button.primary {
+  border-color: var(--button);
+  color: var(--button-text);
+  background: var(--button);
+}
+
+@keyframes prompt-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .private-room {
@@ -939,6 +1013,26 @@ button:active,
   background: var(--surface-selected);
   font-family: inherit;
   font-size: 10px;
+}
+
+.message-composer input {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+}
+
+.message-composer input::placeholder {
+  color: var(--quiet);
+  opacity: 1;
+}
+
+.message-composer:focus-within {
+  border-color: var(--line-strong);
 }
 
 .private-suggestions button.selected kbd {

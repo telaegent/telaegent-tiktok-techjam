@@ -2,6 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import telaegentLogo from "../../../ui/logo/telaegent-logo-transparent-dark.png";
 import telaegentLogoBright from "../../../ui/logo/telaegent-logo-transparent-bright.png";
 import telaegentMark from "../../../ui/logo/telaegent-logo-symbol-transparent.png";
+import connectionsIcon from "../../../ui/icon/connections.svg";
+import projectsIcon from "../../../ui/icon/project.svg";
+import settingsIcon from "../../../ui/icon/setting.svg";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -312,10 +315,10 @@ function ProductNav({
   route: ProductRoute;
   onNavigate: (route: ProductRoute) => void;
 }) {
-  const items: Array<{ route: ProductRoute; label: string; short: string }> = [
-    { route: "projects", label: "Projects", short: "PR" },
-    { route: "connections", label: "Connections", short: "CN" },
-    { route: "settings", label: "Settings", short: "ST" },
+  const items: Array<{ route: ProductRoute; label: string; icon: string }> = [
+    { route: "projects", label: "Projects", icon: projectsIcon },
+    { route: "connections", label: "Connections", icon: connectionsIcon },
+    { route: "settings", label: "Settings", icon: settingsIcon },
   ];
 
   return (
@@ -327,7 +330,7 @@ function ProductNav({
           key={item.route}
           onClick={() => onNavigate(item.route)}
         >
-          <span aria-hidden="true">{item.short}</span>
+          <img src={item.icon} alt="" aria-hidden="true" />
           <strong>{item.label}</strong>
           {item.route === "connections" && <i>1</i>}
         </button>

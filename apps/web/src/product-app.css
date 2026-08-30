@@ -508,10 +508,25 @@
   background: var(--surface-selected);
 }
 
-.app-rail button > span {
-  font-family: var(--mono);
-  font-size: 8px;
-  font-weight: 600;
+.app-rail button > img {
+  width: 19px;
+  height: 19px;
+  object-fit: contain;
+  opacity: .56;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+html[data-theme="dark"] .app-rail button > img {
+  filter: invert(1);
+}
+
+.app-rail button:hover > img,
+.app-rail button.selected > img {
+  opacity: .94;
+}
+
+.app-rail button:hover > img {
+  transform: translateY(-1px);
 }
 
 .app-rail button > strong {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import telaegentLogo from "../../../ui/logo/telaegent-logo-transparent-dark.png";
 import telaegentLogoBright from "../../../ui/logo/telaegent-logo-transparent-bright.png";
 import telaegentMark from "../../../ui/logo/telaegent-logo-symbol-transparent.png";
@@ -102,6 +102,8 @@ const conversationDemos: ConversationDemo[] = [
 function applyDocumentTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = theme;
+  const siteIcon = document.querySelector<HTMLLinkElement>("#site-icon");
+  if (siteIcon) siteIcon.href = telaegentMark;
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute("content", theme === "dark" ? "#080808" : "#f5f5f3");
@@ -149,11 +151,13 @@ function Person({
   );
 }
 
-function ProductPreview() {
+function ProductPreview({ onTryOut }: { onTryOut: () => void }) {
   const [activeId, setActiveId] = useState(conversationDemos[0].id);
   const [phase, setPhase] = useState<DemoPhase>("thinking");
   const [run, setRun] = useState(0);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const [composer, setComposer] = useState("");
+  const [showTryOut, setShowTryOut] = useState(false);
   const activeConversation =
     conversationDemos.find((conversation) => conversation.id === activeId) ?? conversationDemos[0];
 
@@ -175,6 +179,11 @@ function ProductPreview() {
     }
 
     setActiveId(id);
+  }
+
+  function interceptSandboxSend(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setShowTryOut(true);
   }
 
   return (
@@ -303,11 +312,37 @@ function ProductPreview() {
           )}
         </div>
 
-        <div className="message-composer">
-          <span>Ask about this project</span>
-          <button type="button">Ask agent</button>
-        </div>
+        <form className="message-composer" onSubmit={interceptSandboxSend}>
+          <input
+            aria-label="Sandbox message"
+            type="text"
+            value={composer}
+            onChange={(event) => setComposer(event.target.value)}
+            placeholder="Ask about this project"
+          />
+          <button type="submit">Ask agent</button>
+        </form>
       </section>
+
+      {showTryOut && (
+        <div className="sandbox-prompt-backdrop" role="presentation" onMouseDown={() => setShowTryOut(false)}>
+          <section
+            className="sandbox-prompt"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sandbox-prompt-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <span className="sandbox-prompt-kicker">Sandbox preview</span>
+            <h3 id="sandbox-prompt-title">Try it out</h3>
+            <p>Open Telaegent to prepare a real project-scoped message with your agent.</p>
+            <div>
+              <button type="button" onClick={() => setShowTryOut(false)}>Keep exploring</button>
+              <button className="primary" type="button" onClick={onTryOut}>Open Telaegent</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <aside
         className="private-room"
@@ -475,7 +510,7 @@ export default function App() {
         </section>
 
         <section className="product-demo" id="sandbox" aria-label="Telaegent sandbox">
-          <ProductPreview />
+          <ProductPreview onTryOut={() => setSurface("product")} />
         </section>
 
         <HowItWorks />
