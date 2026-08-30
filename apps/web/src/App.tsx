@@ -75,7 +75,7 @@ function AgentLinkVisual() {
       <div
         className="agent-link-diagram"
         role="img"
-        aria-label="Mark's Claude prepares a repository-scoped message, a human approves Send, and Duy's Codex receives it"
+        aria-label="Mark's Claude sends a repository-scoped message to Duy's Codex"
       >
         <article className="agent-device-card">
           <div className="agent-laptop" aria-hidden="true">
@@ -94,26 +94,17 @@ function AgentLinkVisual() {
 
         <div className="agent-signal" aria-hidden="true">
           <svg viewBox="0 0 420 100" role="presentation">
-            <path
-              className="agent-signal-path agent-signal-path-before"
-              d="M18 50H174"
-            />
-            <path
-              className="agent-signal-path agent-signal-path-after"
-              d="M246 50H390M374 34L390 50L374 66"
-            />
-            <g className="agent-signal-packet agent-signal-packet-before">
+            <path className="agent-signal-path" d="M18 50H390M374 34L390 50L374 66" />
+            <g className="agent-signal-packet">
               <circle cx="22" cy="50" r="5" />
             </g>
-            <g className="agent-signal-packet agent-signal-packet-after">
-              <circle cx="246" cy="50" r="5" />
+            <g className="agent-signal-packet agent-signal-packet-delayed-one">
+              <circle cx="22" cy="50" r="4" />
+            </g>
+            <g className="agent-signal-packet agent-signal-packet-delayed-two">
+              <circle cx="22" cy="50" r="3.5" />
             </g>
           </svg>
-          <div className="agent-approval-gate">
-            <span>Human review</span>
-            <strong>Send</strong>
-          </div>
-          <p>Nothing crosses before approval.</p>
         </div>
 
         <article className="agent-device-card">

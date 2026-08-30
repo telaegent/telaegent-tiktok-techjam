@@ -440,14 +440,6 @@ button:disabled:active,
   text-align: center;
 }
 
-.agent-signal > p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
 .agent-signal svg {
   width: 100%;
   height: auto;
@@ -469,105 +461,32 @@ button:disabled:active,
   transform-box: view-box;
   transform-origin: 0 0;
   transform: translateX(0);
+  animation: agent-signal-travel 3.8s var(--motion-ease-in-out) 900ms infinite;
 }
 
-.agent-signal-packet-before {
-  animation: agent-signal-to-review 3.8s var(--motion-ease-in-out) 900ms infinite;
+.agent-signal-packet-delayed-one {
+  animation-delay: 2.15s;
 }
 
-.agent-signal-packet-after {
-  animation: agent-signal-after-review 3.8s var(--motion-ease-in-out) 900ms infinite;
+.agent-signal-packet-delayed-two {
+  animation-delay: 3.4s;
 }
 
-.agent-approval-gate {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 92px;
-  min-height: 62px;
-  padding: 9px 8px 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  gap: 5px;
-  color: var(--text);
-  background: var(--surface-raised);
-  box-shadow: 0 8px 28px color-mix(in srgb, var(--canvas) 62%, transparent);
-  transform: translate(-50%, -54%);
-}
-
-.agent-approval-gate span {
-  color: var(--quiet);
-  font-family: var(--mono);
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.agent-approval-gate strong {
-  min-width: 50px;
-  padding: 5px 9px;
-  border-radius: 999px;
-  color: var(--button-text);
-  background: var(--button);
-  font-size: 10px;
-  font-weight: 700;
-  animation: agent-approval-confirm 3.8s var(--motion-ease-out) 900ms infinite;
-}
-
-@keyframes agent-signal-to-review {
+@keyframes agent-signal-travel {
   0% {
     opacity: 0;
     transform: translateX(0);
   }
-  8% {
+  10% {
     opacity: 1;
   }
-  36% {
+  86% {
     opacity: 1;
-    transform: translateX(148px);
-  }
-  43%,
-  100% {
-    opacity: 0;
-    transform: translateX(148px);
-  }
-}
-
-@keyframes agent-signal-after-review {
-  0%,
-  54% {
-    opacity: 0;
-    transform: translateX(0);
-  }
-  61% {
-    opacity: 1;
-  }
-  91% {
-    opacity: 1;
-    transform: translateX(140px);
+    transform: translateX(360px);
   }
   100% {
     opacity: 0;
-    transform: translateX(140px);
-  }
-}
-
-@keyframes agent-approval-confirm {
-  0%,
-  38%,
-  70%,
-  100% {
-    color: var(--button-text);
-    background: var(--button);
-    transform: scale(1);
-  }
-  47%,
-  59% {
-    color: #061317;
-    background: var(--logo-blue);
-    transform: scale(1.04);
+    transform: translateX(360px);
   }
 }
 
@@ -2402,9 +2321,6 @@ button:disabled:active,
     animation: none;
   }
 
-  .agent-approval-gate strong {
-    animation: none;
-  }
 }
 
 @keyframes perspective-switch-nudge {
