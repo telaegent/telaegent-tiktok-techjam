@@ -10,6 +10,7 @@ import {
   ApiError,
   type ConversationMessage,
   type PrivateDraftView,
+  type TelaegentWebUser,
 } from "./api";
 import "./product-app.css";
 
@@ -218,11 +219,13 @@ function Onboarding({
   onToggleTheme,
   onComplete,
   onExit,
+  user,
 }: {
   theme: Theme;
   onToggleTheme: () => void;
   onComplete: () => void;
   onExit: () => void;
+  user: TelaegentWebUser | null;
 }) {
   const [step, setStep] = useState<OnboardingStep>("identity");
   const [githubStage, setGithubStage] = useState<GithubStage>("idle");
@@ -268,9 +271,9 @@ function Onboarding({
                 separate, so you always know what you are granting.
               </p>
               <button className="app-primary-action" type="button" onClick={() => setStep("github")}>
-                Continue with GitHub
+                Continue setup
               </button>
-              <small>Demo account: Phuong · no personal agent history is imported</small>
+              <small>{user ? `Signed in as @${user.githubLogin}` : "Local demo account"} · no personal agent history is imported</small>
             </>
           )}
 
@@ -1195,10 +1198,14 @@ export default function ProductApp({
   theme,
   onToggleTheme,
   onExit,
+  user,
+  onLogout,
 }: {
   theme: Theme;
   onToggleTheme: () => void;
   onExit: () => void;
+  user: TelaegentWebUser | null;
+  onLogout: () => void | Promise<void>;
 }) {
   const [route, setRoute] = useState<ProductRoute>("onboarding");
   const [requestAccepted, setRequestAccepted] = useState(false);
@@ -1209,6 +1216,7 @@ export default function ProductApp({
         theme={theme}
         onToggleTheme={onToggleTheme}
         onExit={onExit}
+        user={user}
         onComplete={() => setRoute("projects")}
       />
     );
@@ -1225,7 +1233,10 @@ export default function ProductApp({
         </div>
         <div className="app-topbar-actions">
           <button className="app-text-button" type="button" onClick={onToggleTheme}>{theme === "dark" ? "Light" : "Dark"}</button>
-          <button className="account-button" type="button"><span>DP</span><strong>Phuong</strong></button>
+          <button className="account-button" type="button" onClick={() => void onLogout()} title="Sign out">
+            <span>{(user?.githubLogin ?? "Demo").slice(0, 2).toUpperCase()}</span>
+            <strong>{user?.githubLogin ?? "Demo"}</strong>
+          </button>
         </div>
       </header>
       <div className="app-body">

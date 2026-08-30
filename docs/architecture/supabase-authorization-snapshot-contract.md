@@ -150,7 +150,7 @@ Observed result:
 - the browser publishable role could not execute the RPC.
 
 This smoke verifies the live transport, RPC name, backend grant, browser-role
-denial, and empty-snapshot contract. It does not claim that Supabase Auth JWT
-middleware, seeded successful authorization, workspace existence, provider
-execution, or revocation during a live turn has been proven. Those remain
-separate integration gates.
+denial, and empty-snapshot contract. It does not claim that Telaegent's GitHub
+OAuth/session middleware, seeded successful authorization, workspace existence,
+provider execution, or revocation during a live turn has been proven. Those
+remain separate integration gates.

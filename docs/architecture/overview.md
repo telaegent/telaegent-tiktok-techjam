@@ -9,7 +9,8 @@ This document describes the target architecture from the [canonical product plan
 ```mermaid
 flowchart TB
     Browser["React/Vite browser product"] --> API["Caddy + Fastify control plane"]
-    API --> DB["Supabase Auth / Postgres / Realtime"]
+    Browser --> GH["GitHub OAuth for Telaegent account identity"]
+    API --> DB["Supabase Postgres / Realtime persistence"]
     API --> Relay["Connector presence and job relay"]
     Relay <--> A["User A local connector"]
     Relay <--> B["User B local connector"]

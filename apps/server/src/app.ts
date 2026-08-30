@@ -19,6 +19,11 @@ import {
   type ConversationRouteDependencies,
 } from "./conversations/routes.js";
 import { MessagePolicyError } from "./conversations/service.js";
+import { UserAuthenticationError } from "./authentication/types.js";
+import {
+  registerIdentityRoutes,
+  type IdentityRouteDependencies,
+} from "./authentication/routes.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
@@ -38,12 +43,22 @@ const updateAgentBody = createAgentBody.partial().refine(
 const messageBody = z.object({
   content: z.string().trim().min(1).max(50_000),
 });
+const userAuthenticatedConversationRoutes = new Set([
+  "/api/conversations/:conversationId/drafts",
+  "/api/conversations/:conversationId/messages",
+  "/api/drafts/:draftId",
+  "/api/drafts/:draftId/run",
+  "/api/drafts/:draftId/messages",
+  "/api/drafts/:draftId/cancel",
+  "/api/drafts/:draftId/send",
+]);
 
 export async function createApp(
   config: AppConfig,
   service: AgentService | undefined,
   telagentService?: TelagentService,
   conversationApi?: ConversationRouteDependencies,
+  identityApi?: IdentityRouteDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -61,11 +76,15 @@ export async function createApp(
   });
 
   app.addHook("onRequest", async (request, reply) => {
+    const requestPath = request.url.split("?", 1)[0] ?? request.url;
     if (
       !config.authToken ||
       !request.url.startsWith("/api/") ||
       request.url === "/api/health" ||
-      request.url === "/api/auth"
+      requestPath === "/api/auth" ||
+      requestPath.startsWith("/api/auth/") ||
+      (conversationApi &&
+        userAuthenticatedConversationRoutes.has(request.routeOptions.url ?? ""))
     ) {
       return;
     }
@@ -86,7 +105,19 @@ export async function createApp(
     service: "telaegent-control-plane",
   }));
 
-  app.get("/api/auth", async () => ({ required: config.authToken.length > 0 }));
+  app.get("/api/auth", async () => ({
+    required: identityApi ? true : config.authToken.length > 0,
+    provider: identityApi ? "github" : "disabled",
+  }));
+
+  if (identityApi) {
+    registerIdentityRoutes(app, identityApi);
+  } else {
+    app.get("/api/auth/session", async () => ({
+      enabled: false,
+      authenticated: false,
+    }));
+  }
 
   if (service) {
     registerLegacyPlaygroundRoutes(app, service);
@@ -123,6 +154,7 @@ export async function createApp(
     const policyError = error instanceof MessagePolicyError ? error : null;
     const authorizationError =
       error instanceof PrivateRuntimeAuthorizationError ? error : null;
+    const authenticationError = error instanceof UserAuthenticationError ? error : null;
     const frameworkStatus =
       typeof (error as { statusCode?: unknown }).statusCode === "number"
         ? (error as { statusCode: number }).statusCode
@@ -130,6 +162,8 @@ export async function createApp(
     const statusCode =
       runtimeError
         ? runtimeError.statusCode
+        : authenticationError
+          ? authenticationError.statusCode
         : policyError
           ? 422
           : authorizationError
@@ -155,10 +189,14 @@ export async function createApp(
     return reply.code(statusCode).send({
       error:
         runtimeError?.message ??
+        authenticationError?.message ??
         authorizationError?.message ??
         (statusCode >= 500 ? "Internal server error" : appError.message),
       ...(runtimeError
         ? { code: runtimeError.code, retryable: runtimeError.retryable }
+        : {}),
+      ...(authenticationError
+        ? { code: authenticationError.code, retryable: authenticationError.retryable }
         : {}),
       ...(policyError ? { findings: policyError.findings } : {}),
       ...(validationError ? { details: error.issues } : {}),
