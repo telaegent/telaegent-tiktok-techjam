@@ -17,6 +17,10 @@ import type {
   NormalizedRunResult,
   SessionMode,
 } from "../../runtime-contract.js";
+import type {
+  ConnectorJobRelay,
+  ConnectorJobRequest,
+} from "../../connectors/connector-turn-executor.js";
 import type { ProjectFacts, ProtocolRole } from "./contract.js";
 import {
   AuthorizedProtocolTurnService,
@@ -216,6 +220,45 @@ describe("AuthorizedProtocolTurnService", () => {
       retryable: false,
     });
     expect(runs).toHaveLength(0);
+  });
+
+  it("dispatches the canonical cloud composition to a local connector", async () => {
+    const jobs: ConnectorJobRequest[] = [];
+    const connector: ConnectorJobRelay = {
+      async dispatch(job) {
+        jobs.push(job as ConnectorJobRequest);
+        return {
+          provider: job.provider,
+          final: { state: "ready" },
+          changedFiles: [],
+          exitCode: 0,
+          durationMs: 1,
+        };
+      },
+      cancel: async () => false,
+    };
+    const runtime = createAuthorizedProtocolTurnRuntime({
+      authorizer: fakeAuthorizer(),
+      loadContext: async () => durableContext(),
+      connector,
+      policy: POLICY,
+    });
+
+    // The cloud build owns no provider session cache; the connector does.
+    expect(runtime.sessions).toBeUndefined();
+    await (await start(runtime.turns)).completion;
+
+    expect(jobs).toHaveLength(1);
+    const job = jobs[0]!;
+    expect(job.connectorBindingId).toBe("binding-1");
+    expect(job.sandboxMode).toBe("read-only");
+    expect(job.networkMode).toBe("none");
+    // Assert on the job envelope, not the prompt body: Hien's prompt text
+    // legitimately uses words like "workspace" when instructing the agent.
+    const { runtimePrompt: _prompt, ...envelope } = job;
+    expect(JSON.stringify(envelope)).not.toMatch(
+      /workspacePath|sessionId|credential/i,
+    );
   });
 
   it("authorizes before reading private durable context", async () => {

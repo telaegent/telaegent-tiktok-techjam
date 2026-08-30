@@ -1,15 +1,17 @@
 # Cloud-to-local connector seam
 
-> **Status: contract only.** `ConnectorTurnExecutor` defines this seam and is
-> covered by its own tests, but it is not yet wired into a composition root.
-> `createAuthorizedProtocolTurnRuntime` still composes the local
-> `ProviderSessionManager` directly. Wiring the relay is the next step.
+> **Status: composed, transport pending.** `createAuthorizedProtocolTurnRuntime`
+> takes either a `connector` relay (canonical cloud) or a `runtime` +
+> `sessionStore` pair (connector-side/local, dev scripts, tests). The cloud
+> composition builds no `ProviderSessionManager`. What does not exist yet is a
+> `ConnectorJobRelay` implementation: the outbound WebSocket/long-poll
+> transport and connector presence tracking are still to be built.
 
-Canonical cloud orchestration is intended to dispatch an authorized, bounded,
-path-free job through `ConnectorTurnExecutor`. A job contains an opaque
-connector binding, stable repository scope, provider, purpose, bounded
-prompt/context, schema name, correlation ID, execution budget, and the
-authorized sandbox/network policy the connector must enforce locally.
+Canonical cloud orchestration dispatches an authorized, bounded, path-free job
+through `ConnectorTurnExecutor`. A job contains an opaque connector binding,
+stable repository scope, provider, purpose, bounded prompt/context, schema name,
+correlation ID, execution budget, and the authorized sandbox/network policy the
+connector must enforce locally.
 
 It never contains a local path, executable, command, environment variable,
 credential, provider-home location, or provider session ID. The owning local
