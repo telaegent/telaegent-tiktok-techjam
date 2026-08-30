@@ -11,11 +11,12 @@ each developer's machine and are reached through an outbound connector.
 Before changing product behavior, architecture, API contracts, runtime
 integration, security policy, UX, demo flow, or implementation plans, read:
 
-1. `docs/product/high-level-plan.md`
-2. `docs/product/product-flow.md`
-3. `docs/architecture/overview.md`
-4. `SECURITY.md`
-5. the relevant owner brief under `docs/team/`
+1. `docs/product/canonical-build-plan.md`
+2. `docs/product/high-level-plan.md`
+3. `docs/product/product-flow.md`
+4. `docs/architecture/overview.md`
+5. `SECURITY.md`
+6. the relevant owner brief under `docs/team/`
 
 For GitHub authentication, repository access, collaborator trust, or backend
 authorization work, also read `docs/team/khoa.md` and
@@ -31,9 +32,11 @@ Use this order when project material conflicts:
 4. the active implementation;
 5. preserved legacy material.
 
-The product plan dated **2026-08-29** freezes the product direction but
-intentionally defers the final implementation plan until the assigned research
-gates are resolved. Do not turn an unvalidated hypothesis into a production
+`docs/product/canonical-build-plan.md` is prescriptive and wins on
+architecture: what runs where, what to build, what to prove, and who owns it.
+`docs/product/high-level-plan.md` is descriptive and wins on product behaviour.
+Both freeze direction rather than schedule work, and the research gates they
+name are still open. Do not turn an unvalidated hypothesis into a production
 claim.
 
 ## Non-negotiable product principles

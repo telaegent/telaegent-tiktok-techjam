@@ -18,7 +18,7 @@ repository checkouts.
 
 **Status:** New canonical high-level product direction  
 **Scope:** Product idea, user experience, trust model, and high-level architecture only  
-**Implementation plan:** Intentionally deferred  
+**Implementation plan:** [`canonical-build-plan.md`](canonical-build-plan.md)  
 **Product name:** **Telaegent**
 
 > **Current team note:** This document freezes the product direction, not the implementation.  

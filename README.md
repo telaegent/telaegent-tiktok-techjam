@@ -118,6 +118,7 @@ The source tree also preserves an inherited Starter Kit and earlier Telaegent wo
 
 Start here when you are evaluating or extending product behavior:
 
+- [Canonical build plan](docs/product/canonical-build-plan.md) - what runs where, the local connector, capability-scoped collaboration, the proof list, and ownership.
 - [Canonical high-level product plan](docs/product/high-level-plan.md) - product promise, trust model, cloud/local boundary, and unresolved gates.
 - [Canonical product flow](docs/product/product-flow.md) - the end-to-end experience and durable/private state split.
 - [Architecture overview](docs/architecture/overview.md) - target topology, control-plane and runtime responsibilities.
