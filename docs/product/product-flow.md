@@ -26,6 +26,9 @@ shared project conversation
 
 Each boundary answers a different question. None implies the next.
 
+Human approval can be *narrowed and reused* within one task, never widened. See
+[Capability-scoped follow-up](#capability-scoped-follow-up).
+
 ## Canonical end-to-end flow
 
 1. User signs in to the cloud-hosted Telaegent product.
@@ -39,9 +42,10 @@ Each boundary answers a different question. None implies the next.
 9. Sender's local private agent may inspect the sender's own local project workspace, review bounded approved conversation context, ask clarification, flag risk, and prepare a send candidate.
 10. Sender chooses Send, Edit, or No. Only explicit Send can append the candidate to the shared conversation.
 11. Recipient sees the approved request. Recipient's local connector dispatches it only to the recipient's local private agent, which may inspect only the registered local project workspace and prepare an answer candidate.
-12. Recipient chooses Send, Edit, or No.
-13. Only the approved response enters the durable shared project conversation.
-14. Follow-ups repeat the same symmetrical trust boundary.
+12. The recipient agent may need files it does not own. It asks the sender's connector for them. The first request for a file the sender has not granted for this task pauses for the sender to choose Deny, Allow once, or Allow for this task. A file already granted for this task, to this peer, read-only, then resolves automatically by opaque resource ID without interrupting the sender again.
+13. Recipient chooses Send, Edit, or No.
+14. Only the approved response enters the durable shared project conversation.
+15. Follow-ups repeat the same symmetrical trust boundary.
 
 ## Secret example
 
@@ -58,6 +62,40 @@ Do you need secret values, or only the required variable names and safe configur
 ```
 
 The system must never show raw secret values merely to ask whether they may be sent. Deterministic policy blocks `.env*`, private keys, tokens, cloud credentials, SSH material, cross-project paths, and another user's private runtime data. The agent should offer safe alternatives.
+
+## Capability-scoped follow-up
+
+Full specification in [canonical build plan section 8](canonical-build-plan.md).
+Designed, not built.
+
+Agents may collaborate autonomously, but only inside authority a human already
+granted:
+
+> An agent may consume or narrow delegated authority. It may never
+> autonomously broaden it.
+
+```text
+A approves for task X:  LandingPage.tsx READ, LandingPage.css READ
+
+B asks for LandingPage.tsx again   -> auto
+B asks for LandingPage.css again   -> auto
+B asks for settings.ts             -> A decides
+B asks to WRITE LandingPage.tsx    -> denied in P0
+B asks for .env                    -> hard denied
+```
+
+When B needs something new, A sees what, why, and at what access level, then
+chooses **Deny**, **Allow once**, or **Allow for this task**. The third option
+adds that one file to this task's read-only scope so later requests resolve
+without interrupting A again; it expires with the task or on revocation.
+
+The separation that makes this safe:
+
+```text
+using existing authority   -> may be automatic
+gaining new authority      -> human approval
+final cross-user message   -> human Send
+```
 
 ## Cloud coordination and local execution
 
@@ -80,11 +118,14 @@ Durable shared state:
 - approved shared messages
 - outbound approvals and safe audit events
 - compact conversation memory for provider rehydration
+- task IDs, opaque resource IDs and safe resource metadata, and capability
+  grant/expiry/revocation events
 
 Private/local state:
 
 - GitHub/provider credentials and provider home directories
 - repository checkout, local tool output, and provider sessions
+- canonical local paths and the resource-ID mapping behind them
 - rough drafts and clarification turns
 - raw provider streams and temporary tool output
 
@@ -97,9 +138,12 @@ Provider sessions accelerate work but never replace Telaegent's durable shared c
 - no zero-knowledge or end-to-end-encryption claim
 - no direct collaborator filesystem access
 - no automatic cross-user send
+- no LLM-decided permission expansion; scope is deterministic code
+- no automatic write capability in P0
+- no capability reuse across a different task or peer
 - no personal Claude/Codex history import
 - no canonical LAN dependency
 
 ## Demo proof
 
-The three-minute demo should show two users, one shared GitHub project, two different coding-agent providers, sender private preparation, sender approval, recipient repository-grounded investigation, recipient approval, and a safe `.env` reformulation with raw values never disclosed.
+The three-minute demo should show two users, one shared GitHub project, two different coding-agent providers, sender private preparation, sender approval, recipient repository-grounded investigation, one scope-expansion prompt answered with **Allow for this task**, a second request for the same file resolving automatically, recipient approval, and a safe `.env` reformulation with raw values never disclosed.
