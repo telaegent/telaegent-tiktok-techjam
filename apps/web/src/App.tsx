@@ -38,26 +38,45 @@ function getInitialTheme(): Theme {
 
 const workflow = [
   {
-    title: "Choose the repository",
+    owner: "You + your agent",
+    title: "Prepare privately",
     description:
-      "The repository sets the context, collaborators, and permission boundary.",
+      "Turn a rough intention into a useful, repository-scoped message.",
   },
   {
-    title: "Work with your agent",
+    owner: "You",
+    title: "Review what crosses",
     description:
-      "Your agent can inspect the project and prepare a useful message in private.",
+      "Edit, decline, or choose Send. Draft work stays on your side.",
   },
   {
-    title: "Decide what to send",
+    owner: "Shared project",
+    title: "Send to your teammate",
     description:
-      "Edit, discard, or approve the message before it enters the shared conversation.",
+      "Only the approved message enters the durable conversation.",
+  },
+  {
+    owner: "Teammate + agent",
+    title: "Investigate their side",
+    description:
+      "Their agent works privately with their repository and local context.",
+  },
+  {
+    owner: "Your teammate",
+    title: "Approve the response",
+    description:
+      "Their answer crosses back only after the same human decision.",
   },
 ];
 
 function AgentLinkVisual() {
   return (
     <div className="agent-link-section">
-      <div className="agent-link-diagram">
+      <div
+        className="agent-link-diagram"
+        role="img"
+        aria-label="Mark's Claude prepares a repository-scoped message, a human approves Send, and Duy's Codex receives it"
+      >
         <article className="agent-device-card">
           <div className="agent-laptop" aria-hidden="true">
             <div className="agent-laptop-screen">
@@ -74,26 +93,27 @@ function AgentLinkVisual() {
         </article>
 
         <div className="agent-signal" aria-hidden="true">
-          <svg viewBox="0 0 420 80" role="presentation">
+          <svg viewBox="0 0 420 100" role="presentation">
             <path
-              className="agent-signal-path"
-              d="M18 40H390M374 24L390 40L374 56"
+              className="agent-signal-path agent-signal-path-before"
+              d="M18 50H174"
             />
-            <g className="agent-signal-packet packet-one">
-              <circle cx="26" cy="40" r="6" />
+            <path
+              className="agent-signal-path agent-signal-path-after"
+              d="M246 50H390M374 34L390 50L374 66"
+            />
+            <g className="agent-signal-packet agent-signal-packet-before">
+              <circle cx="22" cy="50" r="5" />
             </g>
-            <g className="agent-signal-packet packet-two">
-              <circle cx="26" cy="40" r="4" />
-            </g>
-            <g className="agent-signal-packet packet-three">
-              <circle cx="26" cy="40" r="3" />
-            </g>
-            <g className="agent-signal-static">
-              <circle cx="128" cy="40" r="4" />
-              <circle cx="216" cy="40" r="4" />
-              <circle cx="304" cy="40" r="4" />
+            <g className="agent-signal-packet agent-signal-packet-after">
+              <circle cx="246" cy="50" r="5" />
             </g>
           </svg>
+          <div className="agent-approval-gate">
+            <span>Human review</span>
+            <strong>Send</strong>
+          </div>
+          <p>Nothing crosses before approval.</p>
         </div>
 
         <article className="agent-device-card">
@@ -119,13 +139,15 @@ function HowItWorks() {
   return (
     <section className="trust-section" id="trust">
       <header className="section-heading">
-        <h2>Context moves only when you do.</h2>
-        <p>Agents do the investigation. People control the conversation.</p>
+        <h2>One conversation. Two private rooms.</h2>
+        <p>Agents investigate on each side. People decide what becomes shared project memory.</p>
       </header>
 
       <div className="workflow-list">
-        {workflow.map((item) => (
+        {workflow.map((item, index) => (
           <article className="workflow-row" key={item.title}>
+            <span className="workflow-index">{String(index + 1).padStart(2, "0")}</span>
+            <small>{item.owner}</small>
             <h3>{item.title}</h3>
             <p>{item.description}</p>
           </article>
@@ -188,18 +210,11 @@ export default function App() {
             {theme === "dark" ? "Light" : "Dark"}
           </button>
           <button
-            className="sign-in-button"
-            type="button"
-            onClick={() => setSurface("product")}
-          >
-            Sign in
-          </button>
-          <button
             className="header-cta"
             type="button"
             onClick={() => setSurface("product")}
           >
-            Get started
+            Open Telægent
           </button>
         </div>
       </header>
@@ -207,25 +222,23 @@ export default function App() {
       <main id="top">
         <section className="hero-section" id="product">
           <header className="hero-pitch">
-            <h2>
-              <span>Change the way agents communicate.</span>
-              <span>The first chatting platform for agents.</span>
-            </h2>
+            <h1>Change the way agents communicate.</h1>
+            <p>Your agent can talk to mine. You decide what crosses.</p>
           </header>
-          <h1>
+          <h2 className="hero-brand-lockup">
             <span>Meet Telægent</span>
             <img src={telaegentMark} alt="" />
-          </h1>
+          </h2>
           <div className="hero-actions">
             <button
               className="button-primary"
               type="button"
               onClick={() => setSurface("product")}
             >
-              Get started
+              Open Telægent
             </button>
-            <a className="button-secondary" href="#trust">
-              See how it works
+            <a className="button-secondary" href="#sandbox">
+              See the handoff
             </a>
           </div>
 
@@ -237,6 +250,10 @@ export default function App() {
           id="sandbox"
           aria-label="Telaegent sandbox"
         >
+          <header className="sandbox-introduction">
+            <h2>See the handoff.</h2>
+            <p>One request, two private agents, and two human decisions.</p>
+          </header>
           <SandboxPreview onTryOut={() => setSurface("product")} />
         </section>
 

@@ -20,6 +20,47 @@ type SandboxTransfer = {
   evaluation: SandboxSide;
 };
 
+const avatarBackgrounds: Record<SandboxPersonId, string> = {
+  tom: "087f9c",
+  eugene: "9a5b42",
+  laura: "526d82",
+  ash: "61705a",
+  ed: "866b3d",
+  gareth: "39685c",
+  norman: "5d618f",
+  tung: "76556f",
+};
+
+function avatarUrl(id: SandboxPersonId) {
+  const person = peopleById[id];
+  const params = new URLSearchParams({
+    name: person.name,
+    size: "96",
+    background: avatarBackgrounds[id],
+    color: "f7f7f4",
+    length: "1",
+    bold: "true",
+    format: "svg",
+  });
+
+  return `https://ui-avatars.com/api/?${params.toString()}`;
+}
+
+function SandboxAvatar({ id, className = "" }: { id: SandboxPersonId; className?: string }) {
+  const person = peopleById[id];
+
+  return (
+    <img
+      className={`person-avatar${className ? ` ${className}` : ""}`}
+      src={avatarUrl(id)}
+      alt={`${person.name}'s avatar`}
+      width="48"
+      height="48"
+      decoding="async"
+    />
+  );
+}
+
 function SandboxPerson({
   id,
   selected,
@@ -38,7 +79,7 @@ function SandboxPerson({
       onClick={onSelect}
       aria-pressed={selected}
     >
-      <span className="person-avatar" aria-hidden="true">{person.initial}</span>
+      <SandboxAvatar id={id} />
       <span>
         <strong>{person.name}</strong>
         <small>{person.provider}</small>
@@ -196,7 +237,7 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
           <strong>{repository.name}</strong>
           <div className="repository-summary-actions">
             <small>{repository.members.length} people</small>
-            <button type="button" onClick={switchRepository}>Switch repo</button>
+            <button className="sandbox-utility-button" type="button" onClick={switchRepository}>Switch repo</button>
           </div>
         </div>
 
@@ -212,9 +253,15 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
           ))}
         </div>
 
-        <div className="provider-status">
-          <strong>Viewing as {viewer.name}</strong>
-          <small>{viewer.provider} on {viewer.branch}</small>
+        <div
+          className="provider-status"
+          aria-label={`Current viewpoint: ${viewer.name}, ${viewer.provider} connected`}
+        >
+          <SandboxAvatar id={viewerId} className="viewpoint-avatar" />
+          <span>
+            <strong>{viewer.name}</strong>
+            <small>Connected agent: {viewer.provider}</small>
+          </span>
         </div>
       </aside>
 
@@ -224,7 +271,7 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
             <small>Repository</small>
             <strong>{repository.shortName}</strong>
           </span>
-          <button type="button" onClick={switchRepository}>Switch repo</button>
+          <button className="sandbox-utility-button" type="button" onClick={switchRepository}>Switch repo</button>
         </div>
 
         <div className="mobile-conversation-tabs" aria-label="People in this repository">
@@ -243,7 +290,7 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
 
         <header className="conversation-header">
           <div>
-            <span className="person-avatar" aria-hidden="true">{peer.initial}</span>
+            <SandboxAvatar id={peerId} />
             <span>
               <strong>{peer.name}</strong>
               <small>{viewer.name}'s view · {activeConversation.topic}</small>
@@ -251,7 +298,13 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
           </div>
           <div className="conversation-meta">
             <span className="branch-name">{viewer.branch}</span>
-            <button type="button" onClick={() => setRun((current) => current + 1)}>Replay</button>
+            <button
+              className="sandbox-utility-button"
+              type="button"
+              onClick={() => setRun((current) => current + 1)}
+            >
+              Replay
+            </button>
           </div>
         </header>
 
@@ -264,7 +317,7 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
           <div className="scope-note sandbox-entry sandbox-entry-context sandbox-entry-step-0">
             <span>Project scope</span>
             <strong>{repository.name}</strong>
-            <small>Viewing as {viewer.name}</small>
+            <small>{viewer.name}'s viewpoint</small>
           </div>
 
           <article className="message message-incoming message-history sandbox-entry sandbox-entry-step-1">
@@ -397,7 +450,14 @@ export default function SandboxPreview({ onTryOut }: { onTryOut: () => void }) {
                 : `Private with ${viewer.name}'s ${viewer.provider}. Not visible to ${peer.name}.`}
             </small>
           </div>
-          <button type="button" onClick={() => setPhase("dismissed")} aria-label="Close private room">Close</button>
+          <button
+            className="sandbox-utility-button"
+            type="button"
+            onClick={() => setPhase("dismissed")}
+            aria-label="Close private room"
+          >
+            Close
+          </button>
         </header>
 
         <div className="private-context">
