@@ -11,10 +11,11 @@ Telaegent is a hackathon proof of concept. The canonical repository is [telaegen
 
 Passing one boundary never grants the next. A project connection permits requests, not direct repository access or automatic responses.
 
-Boundary 4 may be *narrowed and reused*, never widened. When an owner approves a
-set of files for a task, their agent may serve later requests for those exact
-files within that task without asking again. Anything outside that set returns
-to the human. See [Capability-scoped autonomous collaboration](#capability-scoped-autonomous-collaboration).
+Boundary 4 may be *narrowed and reused*, never widened, and only for resource
+access. When an owner approves a set of files for a task, their agent may serve
+later requests for those exact files within that task without asking again.
+Anything outside that set returns to the human, and a cross-user message still
+crosses only on `Send`. See [Capability-scoped autonomous collaboration](#capability-scoped-autonomous-collaboration).
 
 ## Hard protection
 

@@ -1138,11 +1138,14 @@ Justin's agent can inspect Justin's connected repository and reason about the an
 
 ### Step 13 — Justin's agent asks for a file it does not own
 
-Justin's agent needs `LandingPage.tsx` from Phuong's side. Phuong already
-approved it for this task, so it resolves automatically. It then needs
-`settings.ts`, which nobody granted, so Phuong is asked and chooses **Allow for
-this task**. A later request for `settings.ts` in the same task resolves without
-asking again.
+Justin's agent needs `LandingPage.tsx` from Phuong's side. Nothing is granted
+yet, so Phuong is asked and chooses **Allow for this task**. The agent then
+needs `settings.ts`; that is a second question, and Phuong answers it the same
+way. When the agent comes back to `LandingPage.tsx` later in the same task, it
+resolves with no prompt.
+
+How the first grant of a task is made - attached at send time, or asked for on
+first request as shown here - is [24.7](#247-capability-scope-mechanics).
 
 ### Step 14 — Justin approves the response
 
@@ -1300,6 +1303,8 @@ automatic access requires same task, same peer, same exact resource, read-only,
 an unexpired grant, and safe resolution inside the registered project. What the
 implementation plan still has to decide:
 
+- where a task's initial grant comes from: whether the sender attaches files
+  when sending, or the first request is always a prompt
 - where capability grants live, and how expiry and revocation propagate to a
   connector that was offline when the owner revoked
 - whether a resource ID stays stable when the file is renamed or deleted, not

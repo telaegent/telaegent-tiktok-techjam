@@ -160,7 +160,7 @@ shared request
 
 No remote filesystem API.
 
-## 8.1 Task-scoped capability grants
+### 8.1 Task-scoped capability grants
 
 [Canonical build plan section 8](../product/canonical-build-plan.md) adds a
 narrowing of that rule, and the policy is yours to specify.

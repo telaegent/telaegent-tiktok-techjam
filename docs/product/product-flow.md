@@ -42,7 +42,7 @@ Human approval can be *narrowed and reused* within one task, never widened. See
 9. Sender's local private agent may inspect the sender's own local project workspace, review bounded approved conversation context, ask clarification, flag risk, and prepare a send candidate.
 10. Sender chooses Send, Edit, or No. Only explicit Send can append the candidate to the shared conversation.
 11. Recipient sees the approved request. Recipient's local connector dispatches it only to the recipient's local private agent, which may inspect only the registered local project workspace and prepare an answer candidate.
-12. The recipient agent may need files it does not own. It asks the sender connector for them by opaque resource ID. A resource already granted for this task, to this peer, read-only, resolves automatically; anything new pauses for the owner to choose Deny, Allow once, or Allow for this task.
+12. The recipient agent may need files it does not own. It asks the sender's connector for them. The first request for a file the sender has not granted for this task pauses for the sender to choose Deny, Allow once, or Allow for this task. A file already granted for this task, to this peer, read-only, then resolves automatically by opaque resource ID without interrupting the sender again.
 13. Recipient chooses Send, Edit, or No.
 14. Only the approved response enters the durable shared project conversation.
 15. Follow-ups repeat the same symmetrical trust boundary.

@@ -599,7 +599,7 @@ The three failure modes to design against:
 2. **Persuasion.** The reason text is agent-authored. A well-written reason must
    not make a broad grant feel routine.
 3. **Invisible accumulation.** The owner needs a place to see what this task has
-   been served and to revoke mid-task - see section 14.
+   been served and to revoke mid-task - see 12.2.
 
 ## 12.2 Granted-scope panel
 

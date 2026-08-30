@@ -89,18 +89,15 @@ Design commitment; nothing in `apps/` implements it.
 A recipient's agent often needs a file it does not own. The request path keeps
 the cloud out of the decision:
 
-```text
-peer agent requests a resource
-        ↓
-control plane routes the request to the owning connector
-        ↓
-owning connector validates task + peer + resource + grant
-        ↓
-AUTO_ALLOW            HUMAN_REQUIRED            DENY
-        ↓                     ↓
-local file broker      Deny / Allow once / Allow for this task
-        ↓
-bounded content returned
+```mermaid
+flowchart TB
+    Req["Peer agent requests a resource by opaque ID"] --> Route["Control plane routes to the owning connector"]
+    Route --> Check["Owning connector checks task + peer + resource + mode + grant"]
+    Check -->|AUTO_ALLOW| Broker["Local file broker reads and returns bounded content"]
+    Check -->|HUMAN_REQUIRED| Ask["Owner chooses Deny / Allow once / Allow for this task"]
+    Check -->|DENY| Stop["Refused, with a reason; no read occurs"]
+    Ask -->|allowed| Broker
+    Ask -->|denied| Stop
 ```
 
 The control plane routes; it never authorizes. The owning connector is the
