@@ -36,8 +36,21 @@ approval, shared message, and draft state in one transaction. Human-edited
 content is passed through the deterministic protocol guard again immediately
 before that transaction.
 
-The current adapter is in-memory and intended for tests/local composition. The
-module is not registered by the production bootstrap until Supabase-backed
-conversation persistence and a verified Telaegent user-session resolver are
-wired. Silently treating the legacy shared app token or a browser header as a
-user identity would destroy the owner-private boundary.
+Persistence is selected only through `CONVERSATION_PERSISTENCE`. It defaults to
+`memory`, which is intended for tests and local composition and does not survive
+a restart. `supabase` selects the durable adapter, whose nine RPCs each run as a
+single transaction; `send_private_draft` is the only writer of shared messages,
+so approval, message append, and draft state commit together or not at all. A
+Supabase failure never falls back to memory: serving an empty transcript after
+an outage would present canonical project memory as if it never happened.
+
+The module is registered by the production bootstrap. The resolver seam now has
+an implementation in `authentication/`, but `createConversationApi` does not yet
+compose it, so every route still fails closed with 401. Silently treating the
+legacy shared app token or a browser header as a user identity would destroy the
+owner-private boundary.
+
+`listMessages` has no cursor, so the durable adapter reads a bounded transcript
+and asks for one message beyond it, so a conversation that has outgrown the
+bound is refused rather than served as a silently truncated canonical memory.
+Raising the bound is not the fix; a cursor on the repository interface is.
