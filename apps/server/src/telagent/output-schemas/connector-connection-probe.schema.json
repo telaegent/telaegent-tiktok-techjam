@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "const": "TELAEGENT IS CONNECTED"
+    }
+  },
+  "required": ["message"],
+  "additionalProperties": false
+}

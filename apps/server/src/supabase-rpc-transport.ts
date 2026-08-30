@@ -15,6 +15,8 @@
  * but belongs to whoever owns the authorization client.
  */
 
+import { isSafeSupabaseOrigin } from "./supabase-origin.js";
+
 const defaultMaximumResponseBytes = 1_048_576;
 const secretKeyPattern = /^sb_secret_[A-Za-z0-9_-]{20,480}$/;
 const functionNamePattern = /^[a-z][a-z0-9_]{0,62}$/;
@@ -110,14 +112,7 @@ function validateSupabaseUrl(value: string): URL {
   } catch {
     throw configurationError();
   }
-  if (
-    url.protocol !== "https:" ||
-    url.username.length > 0 ||
-    url.password.length > 0 ||
-    url.search.length > 0 ||
-    url.hash.length > 0 ||
-    (url.pathname !== "/" && url.pathname !== "")
-  ) {
+  if (!isSafeSupabaseOrigin(url)) {
     throw configurationError();
   }
   return url;

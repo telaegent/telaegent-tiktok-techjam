@@ -11,6 +11,7 @@ import type {
   RepositoryProofRepository,
 } from "./repository.js";
 import { RepositoryProofError } from "./service.js";
+import { isSafeSupabaseOrigin } from "../supabase-origin.js";
 
 const responseLimitBytes = 16_384;
 const secretKeyPattern = /^sb_secret_[A-Za-z0-9_-]{20,480}$/;
@@ -153,15 +154,7 @@ function validateConfig(urlValue: string, secretKey: string): string {
   } catch {
     throw configurationError();
   }
-  if (
-    url.protocol !== "https:" ||
-    url.username.length > 0 ||
-    url.password.length > 0 ||
-    url.search.length > 0 ||
-    url.hash.length > 0 ||
-    (url.pathname !== "/" && url.pathname !== "") ||
-    !secretKeyPattern.test(secretKey)
-  ) {
+  if (!isSafeSupabaseOrigin(url) || !secretKeyPattern.test(secretKey)) {
     throw configurationError();
   }
   return url.origin + "/rest/v1/rpc/";

@@ -16,6 +16,7 @@
     "demo:connections": "npm run demo:connections -w @launchpad/server",
     "demo:session-recovery": "npm run demo:session-recovery -w @launchpad/server",
     "smoke:authorization:supabase": "npm run smoke:authorization:supabase -w @launchpad/server",
+    "connector:connect": "npm run connector:connect -w @launchpad/server --",
     "build": "npm run build -w @launchpad/web && npm run build -w @launchpad/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test -w @launchpad/server",

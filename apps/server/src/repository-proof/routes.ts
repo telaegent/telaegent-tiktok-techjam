@@ -23,6 +23,11 @@ export type ConnectorPrincipalResolver = (
 export interface RepositoryProofRouteDependencies {
   service: RepositoryProofService;
   resolveConnectorPrincipal: ConnectorPrincipalResolver;
+  onBindingRegistered?: (
+    principal: Readonly<ConnectorPrincipal>,
+    connectorBindingId: string,
+    githubRepositoryId: string,
+  ) => void;
 }
 
 export const connectorAuthenticatedRepositoryProofRoutes = new Set([
@@ -37,6 +42,11 @@ export function registerRepositoryProofRoutes(
   app.post("/api/connectors/repository-proofs", async (request, reply) => {
     const principal = await dependencies.resolveConnectorPrincipal(request);
     const result = await dependencies.service.register(principal, request.body);
+    dependencies.onBindingRegistered?.(
+      principal,
+      result.connectorBindingId,
+      result.githubRepositoryId,
+    );
     return reply.code(result.replayed ? 200 : 201).send({ binding: result });
   });
 
@@ -55,4 +65,3 @@ export function registerRepositoryProofRoutes(
     },
   );
 }
-
