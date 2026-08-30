@@ -69,6 +69,14 @@ export {
   SupabaseAuthorizationRepositoryError,
   SupabasePrivateRuntimeAuthorizationRepository,
 } from "./supabase-authorization-repository.js";
+export { SupabaseAuthorizationRpcClient } from "./supabase-authorization-client.js";
+export type {
+  SupabaseAuthorizationRpcClientOptions,
+} from "./supabase-authorization-client.js";
+export { createConfiguredAuthorizationRepository } from "./authorization-repository-factory.js";
+export type {
+  AuthorizationRepositoryFactoryOptions,
+} from "./authorization-repository-factory.js";
 export type {
   SupabaseAuthorizationRepositoryErrorCode,
   SupabaseAuthorizationSnapshotClient,

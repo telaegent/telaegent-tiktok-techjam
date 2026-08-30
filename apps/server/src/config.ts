@@ -49,6 +49,9 @@ const envSchema = z.object({
     .max(128)
     .regex(/^[A-Za-z0-9._~-]*$/, "APP_AUTH_TOKEN must use URL-safe characters")
     .optional(),
+  AUTHORIZATION_PERSISTENCE: z.enum(["memory", "supabase"]).default("memory"),
+  SUPABASE_URL: z.string().optional(),
+  SUPABASE_SECRET_KEY: z.string().optional(),
   ARK_API_KEY: z.string().optional(),
   ARK_MODEL: z.string().optional(),
   ARK_BASE_URL: z
@@ -75,7 +78,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     typeof process.getuid === "function" && typeof process.getgid === "function"
       ? process.getuid() + ":" + process.getgid()
       : "1000:1000";
-  return {
+  const supabase = loadSupabaseAuthorizationConfig(env);
+  const config = {
     host: env.HOST,
     port: env.PORT,
     logLevel: env.LOG_LEVEL,
@@ -104,11 +108,64 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     containerUser: env.CONTAINER_USER?.trim() || defaultContainerUser,
     runtimeInstanceId: env.RUNTIME_INSTANCE_ID,
     authToken,
+    authorizationPersistence: env.AUTHORIZATION_PERSISTENCE,
+    supabaseUrl: supabase.url,
+    supabaseSecretKey: supabase.secretKey,
     arkApiKey: env.ARK_API_KEY?.trim() ?? "",
     arkModel: env.ARK_MODEL?.trim() ?? "",
     arkBaseUrl: env.ARK_BASE_URL.replace(/\/+$/, ""),
     nodeEnv: env.NODE_ENV,
   };
+  // The elevated database key remains readable by the narrow composition
+  // factory but cannot leak through routine object spreading/JSON logging.
+  Object.defineProperty(config, "supabaseSecretKey", {
+    value: supabase.secretKey,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return config;
+}
+
+function loadSupabaseAuthorizationConfig(
+  env: Readonly<{
+    AUTHORIZATION_PERSISTENCE: "memory" | "supabase";
+    SUPABASE_URL?: string | undefined;
+    SUPABASE_SECRET_KEY?: string | undefined;
+  }>,
+): Readonly<{ url: string; secretKey: string }> {
+  // Credentials are inert unless persistence is explicitly switched. This
+  // prevents a copied local .env from silently turning database access on.
+  if (env.AUTHORIZATION_PERSISTENCE !== "supabase") {
+    return { url: "", secretKey: "" };
+  }
+
+  const rawUrl = env.SUPABASE_URL?.trim() ?? "";
+  const secretKey = env.SUPABASE_SECRET_KEY ?? "";
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw invalidSupabaseAuthorizationConfig();
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.search.length > 0 ||
+    url.hash.length > 0 ||
+    (url.pathname !== "/" && url.pathname !== "") ||
+    !/^sb_secret_[A-Za-z0-9_-]{20,480}$/.test(secretKey)
+  ) {
+    throw invalidSupabaseAuthorizationConfig();
+  }
+
+  return { url: url.origin, secretKey };
+}
+
+function invalidSupabaseAuthorizationConfig(): Error {
+  // Never include configuration values: this error can reach startup logs.
+  return new Error("Supabase authorization configuration is invalid");
 }
 
 export function isArkConfigured(config: AppConfig): boolean {
