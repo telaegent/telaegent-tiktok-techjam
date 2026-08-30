@@ -2,7 +2,7 @@
 
 **Owners:** Khoa (authorization mapping/policy), Thai (Supabase schema/RPC)
 
-**Status:** schema/RPC deployed; backend client implemented; live credential smoke pending
+**Status:** schema/RPC deployed; backend client implemented; live credential smoke passed 2026-08-30
 
 This is the persistence boundary for one private Claude Code or Codex turn. It
 does not grant permission by itself. It loads authorization facts, and
@@ -125,3 +125,32 @@ bounds successful response bodies to 1 MiB before strict DTO validation.
 No successful authorization result is cached across turns. The backend reads
 again immediately before execution so GitHub access, membership, project
 connections, and runtime bindings remain revocable.
+
+## Live contract evidence — 2026-08-30
+
+Run from the repository root:
+
+```text
+npm run smoke:authorization:supabase
+```
+
+The smoke uses the production backend client, repository adapter, and strict
+DTO mapper against the deployed Supabase RPC. It supplies random nonexistent
+user and conversation UUIDs plus a non-production repository-ID sentinel, so
+the call is read-only and must return the canonical eight-key empty snapshot.
+It then repeats the RPC request with the browser publishable key and requires a
+non-success response. The script discards response bodies and never prints
+URLs, credentials, identifiers, snapshots, or stack traces.
+
+Observed result:
+
+- the backend secret role could execute the deployed RPC;
+- the payload passed strict DTO validation;
+- the synthetic unknown scope remained fail-closed;
+- the browser publishable role could not execute the RPC.
+
+This smoke verifies the live transport, RPC name, backend grant, browser-role
+denial, and empty-snapshot contract. It does not claim that Telaegent's GitHub
+OAuth/session middleware, seeded successful authorization, workspace existence,
+provider execution, or revocation during a live turn has been proven. Those
+remain separate integration gates.

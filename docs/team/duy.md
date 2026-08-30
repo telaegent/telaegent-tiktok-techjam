@@ -142,7 +142,9 @@ Design the exact first-run experience.
 
 ## Step 1 — Telaegent identity
 
-Telaegent identity is handled through the cloud product, provisionally Supabase Auth.
+Telaegent identity is established through GitHub OAuth and resumed through an
+opaque, HttpOnly Telaegent browser session. Supabase persists hashed session
+records but does not authenticate the browser through Supabase Auth.
 
 Signing into Telaegent is conceptually separate from the developer's local GitHub CLI identity and repository proof.
 

@@ -6,6 +6,7 @@ import claudeLogo from "../../../ui/logo/claude-symbol.webp";
 import codexLogo from "../../../ui/logo/codex-color.svg";
 import ProductApp from "./ProductApp";
 import SandboxPreview from "./SandboxPreview";
+import { api, type TelaegentSession } from "./api";
 
 type Theme = "light" | "dark";
 type Surface = "landing" | "product";
@@ -142,22 +143,77 @@ export default function App() {
       ? "product"
       : "landing",
   );
+  const [session, setSession] = useState<TelaegentSession | null>(null);
+  const [sessionError, setSessionError] = useState(false);
 
   useEffect(() => {
     applyDocumentTheme(theme);
     window.localStorage.setItem("telaegent-theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (surface !== "product") return;
+    let active = true;
+    setSessionError(false);
+    void api.session().then(
+      (nextSession) => {
+        if (active) setSession(nextSession);
+      },
+      () => {
+        if (active) setSessionError(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [surface]);
+
   function toggleTheme() {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   }
 
   if (surface === "product") {
+    if (sessionError) {
+      return (
+        <main className="onboarding-shell">
+          <section className="onboarding-card">
+            <span className="app-eyebrow">Telaegent account</span>
+            <h1>Sign-in is temporarily unavailable.</h1>
+            <p>Check the cloud service and try again. No local GitHub or agent credentials were changed.</p>
+            <button className="app-primary-action" type="button" onClick={() => setSurface("landing")}>Back</button>
+          </section>
+        </main>
+      );
+    }
+    if (session === null) {
+      return <main className="onboarding-shell"><section className="onboarding-card"><p>Loading your Telaegent account…</p></section></main>;
+    }
+    if (session.enabled && !session.authenticated) {
+      return (
+        <main className="onboarding-shell">
+          <section className="onboarding-card">
+            <span className="app-eyebrow">Telaegent account</span>
+            <h1>Sign in with GitHub.</h1>
+            <p>This identifies your Telaegent account only. Repository access is verified separately by your local connector.</p>
+            <a className="app-primary-action" href="/api/auth/github/start?returnTo=%2F%3Fview%3Dplatform">Continue with GitHub</a>
+          </section>
+        </main>
+      );
+    }
     return (
       <ProductApp
         theme={theme}
         onToggleTheme={toggleTheme}
         onExit={() => setSurface("landing")}
+        user={session.enabled && session.authenticated ? session.user : null}
+        onLogout={async () => {
+          if (session.enabled) {
+            await api.logout();
+            setSession({ enabled: true, authenticated: false });
+          } else {
+            setSurface("landing");
+          }
+        }}
       />
     );
   }

@@ -82,6 +82,18 @@ export type SendDraftResult = {
   replayed: boolean;
 };
 
+export type TelaegentWebUser = {
+  userId: string;
+  githubUserId: string;
+  githubLogin: string;
+  avatarUrl: string | null;
+};
+
+export type TelaegentSession =
+  | { enabled: false; authenticated: false }
+  | { enabled: true; authenticated: false }
+  | { enabled: true; authenticated: true; user: TelaegentWebUser };
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -113,6 +125,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     response = await fetch(url, {
       ...options,
       headers,
+      credentials: "same-origin",
     });
   } catch {
     throw new ApiError(
@@ -143,7 +156,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  auth: () => request<{ required: boolean }>("/api/auth"),
+  auth: () => request<{ required: boolean; provider: "github" | "disabled" }>("/api/auth"),
+  session: () => request<TelaegentSession>("/api/auth/session"),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   system: () => request<SystemInfo>("/api/system"),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),
   createAgent: (body: {

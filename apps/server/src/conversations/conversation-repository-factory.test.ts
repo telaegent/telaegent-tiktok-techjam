@@ -56,7 +56,7 @@ describe("createConfiguredConversationRepository", () => {
 
   it("refuses to start when opted in without valid credentials", () => {
     expect(() => loadConfig({ CONVERSATION_PERSISTENCE: "supabase" })).toThrow(
-      "Supabase configuration is invalid",
+      "Supabase backend persistence configuration is invalid",
     );
   });
 

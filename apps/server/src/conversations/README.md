@@ -24,6 +24,13 @@ The authenticated user is injected by trusted server authentication. No route
 accepts a user ID, local workspace path, connector binding, provider session ID,
 sandbox policy, or turn budget from the browser.
 
+`authentication/identity-service.ts` supplies the production resolver seam.
+GitHub OAuth establishes the Telaegent account once; subsequent requests use an
+opaque Telaegent session cookie whose SHA-256 hash is persisted in Supabase.
+Supabase Auth JWTs, browser-provided user IDs, and the local connector's GitHub
+credentials are never accepted as website identity. Missing, expired, revoked,
+malformed, or unavailable sessions fail closed.
+
 `send` requires an idempotency key. Durable repository adapters must commit the
 approval, shared message, and draft state in one transaction. Human-edited
 content is passed through the deterministic protocol guard again immediately
@@ -37,11 +44,11 @@ so approval, message append, and draft state commit together or not at all. A
 Supabase failure never falls back to memory: serving an empty transcript after
 an outage would present canonical project memory as if it never happened.
 
-The module is registered by the production bootstrap, but per-user identity is
-still unresolved, so every route fails closed with 401 until a verified
-Telaegent user-session resolver is composed. Silently treating the legacy shared
-app token or a browser header as a user identity would destroy the owner-private
-boundary.
+The module is registered by the production bootstrap. The resolver seam now has
+an implementation in `authentication/`, but `createConversationApi` does not yet
+compose it, so every route still fails closed with 401. Silently treating the
+legacy shared app token or a browser header as a user identity would destroy the
+owner-private boundary.
 
 `listMessages` has no cursor, so the durable adapter reads a bounded transcript
 and asks for one message beyond it, so a conversation that has outgrown the

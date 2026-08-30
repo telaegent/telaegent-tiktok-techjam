@@ -11,6 +11,10 @@ import {
   RuntimeUnavailableConversationOrchestrator,
 } from "./telagent/conversation-orchestrator.js";
 import { TelagentService } from "./telagent/service.js";
+import { GitHubOAuthClient } from "./authentication/github-oauth-client.js";
+import { TelaegentIdentityService } from "./authentication/identity-service.js";
+import { SupabaseIdentityRepository } from "./authentication/supabase-identity-repository.js";
+import type { IdentityRouteDependencies } from "./authentication/routes.js";
 
 const config = loadConfig();
 // Preserve the inherited Starter Kit only when its legacy Ark credentials are
@@ -42,6 +46,33 @@ const telagentService = new TelagentService(
 );
 await telagentService.reconcileOnStartup();
 
+let identityApi: IdentityRouteDependencies | undefined;
+if (config.telaegentIdentityProvider === "github") {
+  const secureCookies = config.telaegentPublicOrigin.startsWith("https://");
+  const identityRepository = new SupabaseIdentityRepository(
+    config.supabaseUrl,
+    config.supabaseSecretKey,
+    config.githubOAuthTimeoutMs,
+  );
+  const github = new GitHubOAuthClient(
+    config.githubOAuthClientId,
+    config.githubOAuthClientSecret,
+    config.telaegentPublicOrigin + "/api/auth/github/callback",
+    config.githubOAuthTimeoutMs,
+  );
+  const identityService = new TelaegentIdentityService(
+    identityRepository,
+    github,
+    Buffer.from(config.telaegentCookieSecret, "base64url"),
+    config.telaegentSessionTtlSeconds,
+  );
+  identityApi = {
+    service: identityService,
+    publicOrigin: config.telaegentPublicOrigin,
+    secureCookies,
+  };
+}
+
 // The canonical conversation API is what the browser client calls. Leaving it
 // out of the composition made every draft and message route answer 404.
 const app = await createApp(
@@ -49,6 +80,7 @@ const app = await createApp(
   service,
   telagentService,
   createConversationApi(config),
+  identityApi,
 );
 
 const shutdown = async (signal: string) => {
