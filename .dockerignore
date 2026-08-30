@@ -1,13 +1,61 @@
+# Source-control and dependency/build state
 .git
+.github
 node_modules
+**/node_modules
 **/dist
+**/build
+**/*.tsbuildinfo
+
+# Local application/runtime state
 .data
 .local
 data
 workspaces
 codex-home
+claude-home
+runtime-home
+.gh-config
+**/.data
+**/.local
+**/workspaces
+**/codex-home
+**/claude-home
+**/runtime-home
+**/.gh-config
+
+# Credentials and environment files. These patterns are recursive because the
+# Dockerfile copies the entire apps tree into the build stage.
+.env*
+**/.env*
+**/*.pem
+**/*.key
+**/credentials.json
+**/gcloud-service-account*.json
+**/.npmrc
+**/auth.json
+**/hosts.yml
+
+# Coding-assistant/editor state may contain credentials or conversation data.
+.agents
+.codex
+.claude
+.cursor
+.vscode
+**/.agents
+**/.codex
+**/.claude
+**/.cursor
+**/.vscode
+
+# Infrastructure and test/evaluation output
 deploy/volcengine/.terraform
 deploy/volcengine/*.tfstate*
-.env
-.env.production
+**/*.tfstate
+**/*.tfstate.backup
+eval-results
+**/eval/results
+coverage
+test-results
+playwright-report
 *.log

@@ -1,4 +1,6 @@
-ARG NODE_IMAGE=node:22-bookworm-slim
+# Pin the default base image to an immutable manifest. Update the tag and digest
+# together after validating a newer Node 22 Bookworm release.
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
 FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 
