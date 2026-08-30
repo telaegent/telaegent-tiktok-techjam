@@ -2,6 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import telaegentLogo from "../../../ui/logo/telaegent-logo-transparent-dark.png";
 import telaegentLogoBright from "../../../ui/logo/telaegent-logo-transparent-bright.png";
 import telaegentMark from "../../../ui/logo/telaegent-logo-symbol-transparent.png";
+import connectionsIcon from "../../../ui/icon/connections.svg";
+import projectsIcon from "../../../ui/icon/project.svg";
+import settingsIcon from "../../../ui/icon/setting.svg";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -11,7 +14,7 @@ type GithubStage = "idle" | "device" | "connected";
 type WorkspaceTab = "chat" | "people" | "settings";
 type Participant = "phuong" | "justin";
 type PrivateMode = "outgoing" | "recipient";
-type PrivateStage = "closed" | "clarify" | "thinking" | "ready";
+type PrivateStage = "clarify" | "thinking" | "ready";
 type DeliveryStage = "idle" | "waiting" | "recipient-ready" | "complete";
 
 type Collaborator = {
@@ -312,10 +315,10 @@ function ProductNav({
   route: ProductRoute;
   onNavigate: (route: ProductRoute) => void;
 }) {
-  const items: Array<{ route: ProductRoute; label: string; short: string }> = [
-    { route: "projects", label: "Projects", short: "PR" },
-    { route: "connections", label: "Connections", short: "CN" },
-    { route: "settings", label: "Settings", short: "ST" },
+  const items: Array<{ route: ProductRoute; label: string; icon: string }> = [
+    { route: "projects", label: "Projects", icon: projectsIcon },
+    { route: "connections", label: "Connections", icon: connectionsIcon },
+    { route: "settings", label: "Settings", icon: settingsIcon },
   ];
 
   return (
@@ -327,7 +330,7 @@ function ProductNav({
           key={item.route}
           onClick={() => onNavigate(item.route)}
         >
-          <span aria-hidden="true">{item.short}</span>
+          <img src={item.icon} alt="" aria-hidden="true" />
           <strong>{item.label}</strong>
           {item.route === "connections" && <i>1</i>}
         </button>
@@ -661,7 +664,8 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
   const [roughMessage, setRoughMessage] = useState("");
   const [clarification, setClarification] = useState("");
   const [privateMode, setPrivateMode] = useState<PrivateMode>("outgoing");
-  const [privateStage, setPrivateStage] = useState<PrivateStage>("closed");
+  const [privateStage, setPrivateStage] = useState<PrivateStage>("clarify");
+  const [privateRoomOpen, setPrivateRoomOpen] = useState(false);
   const [deliveryStage, setDeliveryStage] = useState<DeliveryStage>("idle");
   const [messages, setMessages] = useState<SharedMessage[]>(initialMessages);
   const sensitive = /\.env|secret|credential|private key|access token/i.test(roughMessage);
@@ -680,7 +684,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
   }, [deliveryStage]);
 
   useEffect(() => {
-    setPrivateStage("closed");
+    setPrivateRoomOpen(false);
     setDeliveryStage("idle");
     setParticipant("phuong");
   }, [selectedId]);
@@ -693,6 +697,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
     setClarification("");
     setPrivateMode("outgoing");
     setPrivateStage("clarify");
+    setPrivateRoomOpen(true);
   }
 
   function clarify(answer: string) {
@@ -715,7 +720,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
         meta: "Approved by Phuong · feat/auth-ui · a184f2c",
       },
     ]);
-    setPrivateStage("closed");
+    setPrivateRoomOpen(false);
     setComposer("");
     setDeliveryStage("waiting");
   }
@@ -724,6 +729,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
     setParticipant("justin");
     setPrivateMode("recipient");
     setPrivateStage("ready");
+    setPrivateRoomOpen(true);
   }
 
   function sendRecipientResponse() {
@@ -739,12 +745,12 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
         code: ["DATABASE_URL", "REDIS_URL", "JWT_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
       },
     ]);
-    setPrivateStage("closed");
+    setPrivateRoomOpen(false);
     setDeliveryStage("complete");
   }
 
   return (
-    <section className={`project-chat${privateStage !== "closed" ? " private-open" : ""}`}>
+    <section className={`project-chat${privateRoomOpen ? " private-open" : ""}`}>
       <header className="project-chat-header">
         <div>
           <span className="app-avatar">{participant === "phuong" ? selected.initial : "P"}</span>
@@ -822,7 +828,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
       </form>
 
       <PrivateAgentRoom
-        open={privateStage !== "closed"}
+        open={privateRoomOpen}
         mode={privateMode}
         stage={privateStage}
         recipient={selected}
@@ -830,7 +836,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
         clarification={clarification}
         sensitive={sensitive}
         onClarify={clarify}
-        onClose={() => setPrivateStage("closed")}
+        onClose={() => setPrivateRoomOpen(false)}
         onEdit={() => setPrivateStage(privateMode === "outgoing" ? "clarify" : "ready")}
         onSend={privateMode === "outgoing" ? sendOutgoing : sendRecipientResponse}
       />
