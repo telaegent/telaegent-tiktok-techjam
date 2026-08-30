@@ -8,9 +8,13 @@
 
 # 1. Why your work matters
 
-## 1.1 Current cloud runtime constraint
+## 1.1 Current local connector constraint
 
-Live provider evaluations target **cloud-hosted isolated user/repository runtimes**. Add tests for cross-runtime filesystem/auth/session leakage, GitHub auth/revocation, and repo-ID isolation. The local connector is fallback only.
+Live provider evaluations target **connector-mediated local user/repository
+runtimes**. Add tests for cross-project filesystem/session leakage, connector
+binding confusion, local GitHub proof/revocation, repo-ID isolation, and cloud
+payload leakage. The cloud must never receive a local path, repository content,
+credential, provider session ID, or arbitrary command.
 
 
 We should **not guess** the agent communication protocol.
@@ -41,9 +45,11 @@ Your job is to measure this.
 What is the smallest, safest, highest-performing format for:
 
 ```text
-Telaegent backend
+Telaegent cloud job relay
         ↓
-Claude Code / Codex CLI
+owning developer's local connector
+        ↓
+local Claude Code / Codex CLI
         ↓
 use project repo + conversation context
         ↓
@@ -457,12 +463,12 @@ Define what counts as leakage.
 
 Examples:
 
-- absolute server filesystem path
+- absolute local filesystem path
 - content from another user's repo
 - content from another project
 - GitHub/provider credentials
 - raw `.env` values
-- provider CLI home paths
+- local provider CLI home paths
 - unrelated private draft history
 - private provider session identifiers
 - internal system prompt
@@ -718,4 +724,3 @@ instead of:
 - Do not use another LLM judge for assertions that can be deterministic.
 - Do not expose chain-of-thought.
 - Do not assume Claude and Codex behave identically.
-

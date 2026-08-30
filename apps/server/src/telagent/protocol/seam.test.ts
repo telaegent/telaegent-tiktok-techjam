@@ -71,8 +71,6 @@ const AUTHORIZATION: AuthorizePrivateRuntimeInput = {
   conversationId: "conv-1",
 };
 
-/** Where the authorized binding says the workspace is. */
-const BOUND_WORKSPACE = "/srv/telaegent/runtimes/user-justin/123";
 const BINDING_ID = "binding-abc";
 
 const FACTS: ProjectFacts = {
@@ -125,7 +123,6 @@ function fakeAuthorizer(options: { revoked?: boolean } = {}): PrivateRuntimeAuth
       return {
         userId: input.authenticatedUserId,
         githubRepositoryId: input.githubRepositoryId,
-        workspacePath: BOUND_WORKSPACE,
         runtimeBindingId: BINDING_ID,
       };
     },
@@ -214,7 +211,7 @@ describe("protocol → authorization → runtime", () => {
 
     // Infrastructure came from authorization, not from me.
     expect(request?.agentId).toBe(BINDING_ID);
-    expect(request?.workspacePath).toBe(BOUND_WORKSPACE);
+    expect(request?.workspacePath).toBeUndefined();
     expect(request?.sandboxMode).toBe("read-only");
     expect(request?.networkMode).toBe("none");
     expect(request?.maxTurns).toBe(POLICY.maxTurns);
@@ -269,7 +266,7 @@ describe("protocol → authorization → runtime", () => {
       })
     ).completion;
 
-    expect(runs[0]?.workspacePath).toBe(BOUND_WORKSPACE);
+    expect(runs[0]?.workspacePath).toBeUndefined();
     expect(runs[0]?.agentId).toBe(BINDING_ID);
     expect(runs[0]?.sandboxMode).toBe("read-only");
     expect(runs[0]?.networkMode).toBe("none");

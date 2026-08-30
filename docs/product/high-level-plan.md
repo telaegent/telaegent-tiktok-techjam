@@ -1,11 +1,19 @@
 # Telaegent — High-Level Product Plan
 
-## Current architecture revision — 2026-08-29
+## Current architecture revision — 2026-08-30
 
-Two teammate proposals were reviewed:
+The runtime-location decision is final:
 
-- **Khoa:** cloud-hosted GitHub CLI + repository checkout + cloud Claude/Codex CLI. This is consistent with the current cloud-only product and is incorporated.
-- **Thai:** cloud control plane + local developer connector using local repo/CLI. This is technically attractive, but it contradicts the current browser-first **everything required is cloud-hosted** decision. It is retained as a fallback architecture, not the canonical judged path.
+- **Local on each developer machine:** selected repository/worktree, Git and
+  GitHub CLI, Claude Code, Codex, provider credentials, provider homes and
+  sessions, file inspection, tools, tests, and a small Telaegent connector.
+- **Telaegent cloud:** browser product, backend/control plane, identity,
+  project permissions, connector presence and job routing, approvals, shared
+  conversations, safe audit, and compact shared project memory.
+
+Browser-first does not mean cloud agent execution. Telaegent cloud is the
+coordination plane and message relay; it does not host provider CLIs or user
+repository checkouts.
 
 
 **Status:** New canonical high-level product direction  
@@ -72,62 +80,38 @@ The important difference from unrestricted agent-to-agent communication is that 
 
 ---
 
-## 3. Major architectural decision: everything is cloud-hosted
+## 3. Major architectural decision: cloud coordination, local execution
 
-The canonical Telaegent product remains **browser-first and cloud-hosted**.
+The canonical Telaegent product remains **browser-first and cloud-hosted**, but
+GitHub and coding-agent execution are local. A small local connector is the
+only new developer-machine component.
 
-There is **no required local connector, LAN worker, exposed local server, peer-to-peer connection, or requirement that the user's own laptop remain online**.
-
-```text
-                                  TELAEGENT CLOUD
-
-Browser / React
-      │
-      ▼
-Telaegent API / control plane
-      │
-      ├──────────────► Supabase: identity, projects, conversations,
-      │                           approvals, audit, runtime metadata
-      │
-      └──────────────► isolated cloud agent runtimes
-                         │
-                         ├─ User A × Repo X
-                         │   ├─ GitHub CLI authenticated as User A
-                         │   ├─ Repo X checkout
-                         │   ├─ Claude Code and/or Codex CLI
-                         │   └─ Telaegent-created provider sessions
-                         │
-                         └─ User B × Repo X
-                             ├─ separate GitHub identity
-                             ├─ separate Repo X checkout
-                             ├─ separate provider identity
-                             └─ no visibility into User A's runtime
-```
-
-A fresh shell is only a **process boundary**, not an identity or filesystem boundary. The cloud runtime must deliberately isolate users/projects and deliberately persist only the auth/session/workspace state that should survive.
-
-### 3.1 Why the local-connector alternative is not canonical
-
-A local connector has real advantages:
-
-- it can reuse the developer's already-authenticated local Claude/Codex CLI
-- the repository does not need to be copied to Telaegent's cloud
-- provider credentials stay on the user's machine
-- multi-tenant agent-runtime isolation becomes much easier
-
-However, it changes the product promise:
+There is no LAN worker, exposed local server, peer-to-peer connection, or
+inbound developer-machine port. The connector opens an outbound secure
+connection to Telaegent, and the owning developer machine must be online for
+local agent work.
 
 ```text
-browser-only cloud product
-        ↓ becomes
-install connector + keep developer machine/runtime available
+Developer A                         Developer B
+LOCAL                               LOCAL
+repo + gh + Claude/Codex            repo + gh + Claude/Codex
+Telaegent connector                 Telaegent connector
+       │                                   │
+       └──────── outbound secure ──────────┘
+                         │
+                         ▼
+                  TELAEGENT CLOUD
+             browser + API + Supabase
+         routing + auth + approvals + audit
 ```
 
-That is a meaningful UX regression and contradicts the current product decision that **everything required for the judged flow lives in the cloud**.
+A fresh shell is only a **process boundary**, not an identity or filesystem
+boundary. The local connector must deliberately bind each job to one registered
+user × repository workspace and the correct local provider identity. The cloud
+stores only an opaque connector binding and safe status/metadata; it never
+stores or chooses a local path.
 
-Therefore the connector architecture is retained only as a **fallback architecture if cloud CLI authentication/isolation proves infeasible during implementation**. It is not the current plan.
-
-### 3.2 Provisional cloud deployment direction
+### 3.1 Provisional deployment direction
 
 The current infrastructure hypothesis to validate is:
 
@@ -136,11 +120,15 @@ The current infrastructure hypothesis to validate is:
 | Frontend | React/Vite on Vercel |
 | Backend/control plane | Node 22 + Fastify 5 behind Caddy on Azure |
 | Database/Auth/Realtime | Supabase Postgres in Southeast Asia/Singapore |
-| Agent execution | isolated cloud runtime per user × repository, provisioned on Azure compute/container infrastructure |
-| Repository access | GitHub CLI authenticated inside the owning cloud environment |
-| Coding providers | Claude Code CLI and/or Codex CLI authenticated inside the owning cloud environment |
+| Connector presence/job relay | Azure backend using outbound WebSocket, long-polling, or equivalent |
+| Agent execution | local connector binding per user × repository |
+| Repository access | developer's local Git/GitHub CLI state |
+| Coding providers | developer's locally authenticated Claude Code CLI and/or Codex CLI |
 
-The exact Azure runtime primitive is **not frozen yet**. A small VM may be sufficient for the two-user hackathon demo, but production-grade multi-tenant execution should not be claimed until isolation is proven.
+The exact connector transport is **not frozen yet**. Azure does not provision
+provider runtimes. Production-grade local path binding, connector
+authentication, revocation, and job delivery should not be claimed until
+proven.
 
 ---
 
@@ -150,7 +138,7 @@ The exact Azure runtime primitive is **not frozen yet**. A small VM may be suffi
 
 Telaegent account identity and repository authorization are separate concepts.
 
-The provisional cloud stack uses **Supabase Auth** for the Telaegent account. The exact sign-in method can be GitHub, email/magic-link, or another simple provider, but signing into Telaegent must not be confused with giving the cloud GitHub CLI permission to clone private repositories.
+The provisional cloud stack uses **Supabase Auth** for the Telaegent account. The exact sign-in method can be GitHub, email/magic-link, or another simple provider, but signing into Telaegent must not be confused with the developer's local GitHub CLI identity and repository access.
 
 The product permission ladder is:
 
@@ -180,15 +168,15 @@ The landing page should remain minimal and visually restrained, similar in spiri
 
 For the hackathon, **a GitHub App is not required**.
 
-The current preferred model is that each user's isolated cloud environment contains the official GitHub CLI authenticated as that user:
+The connector uses the official GitHub CLI already installed and authenticated
+on the developer's machine:
 
 ```text
-User cloud environment
+Developer machine
+├─ selected local repository/worktree
 ├─ GitHub CLI authenticated as this user
-├─ Git credentials configured through GitHub CLI
-├─ selected repository checkout(s)
-├─ Claude Code CLI
-└─ Codex CLI
+├─ Claude Code CLI and/or Codex CLI
+└─ Telaegent connector bound to this user × repository
 ```
 
 Conceptual first connection:
@@ -196,48 +184,51 @@ Conceptual first connection:
 ```text
 Connect GitHub
       ↓
-start GitHub CLI browser/device authentication
+run local Git and GitHub CLI checks
       ↓
-show user the GitHub authorization URL/code in Telaegent
+if unauthenticated, user signs in locally
       ↓
-user authorizes once
+connector proves access to selected local repository
       ↓
-gh auth status succeeds
-      ↓
-gh auth setup-git
-      ↓
-repository discovery + clone
+register stable repository ID + safe branch/commit metadata
 ```
 
 Candidate CLI path:
 
 ```bash
-gh auth login --web --git-protocol https
 gh auth status
-gh auth setup-git
+git remote get-url origin
+git rev-parse HEAD
+git branch --show-current
 ```
 
-Important caveat: `gh auth login --web` is an interactive/browser flow, and GitHub CLI may store the resulting credential in a system credential store or fall back to a plaintext file when no credential store is available. Therefore Telaegent must **test the exact headless/container behavior before freezing the UX** and treat the resulting GitHub credential as sensitive cloud auth state.
+If `gh auth status` fails, Telaegent tells the user to authenticate GitHub CLI
+locally. Telaegent cloud never runs `gh auth login`, receives the resulting
+credential, or clones the repository.
 
 Telaegent should not use `gh repo list` alone as its canonical "all repos I can work on" discovery mechanism. The authenticated-user repository API includes repositories the user owns, collaborates on, and can access through organization membership. Telaegent can invoke that API through `gh api` or another thin authenticated client.
 
 The high-level rule remains:
 
-> **A repository becomes a Telaegent project only when the user deliberately selects it and Telaegent proves the user's cloud GitHub identity can access it.**
+> **A repository becomes a Telaegent project only when the user deliberately
+> selects it locally and their connector proves that the local GitHub identity
+> can access the stable repository ID.**
 
 Clone concept:
 
 ```text
 authenticated GitHub identity
         ↓
-selected repository
+selected local repository
         ↓
-gh repo clone OWNER/REPO <isolated workspace>
+connector registers an opaque user × repository binding
         ↓
-Claude/Codex receives that workspace as cwd
+connector resolves that registered local workspace as the provider cwd
 ```
 
-Claude Code and Codex do not need their own GitHub integration. They need the authorized repository files in their working directory.
+Claude Code and Codex do not need their own GitHub integration. They receive
+the selected local repository as their working directory. The cloud job never
+contains that local path.
 
 ### 4.2 Connect a coding agent
 
@@ -250,16 +241,16 @@ Codex         [ Connect ]
 
 They may connect both.
 
-Telaegent does **not** integrate with the Claude consumer app conversation history or the Codex app as a product surface. Telaegent works directly with the **Claude Code CLI** and **Codex CLI** running in Telaegent's cloud environment.
+Telaegent does **not** integrate with the Claude consumer app conversation history or the Codex app as a product surface. The local connector works directly with the developer's locally installed **Claude Code CLI** and **Codex CLI**.
 
 Conceptually, connecting a provider means:
 
 ```text
-Create/provision user's private cloud CLI environment
+Start connector for the selected local repository
         ↓
-Ensure CLI exists
+Detect the local CLI
         ↓
-Authenticate the CLI for that user if needed
+Use the developer's existing local authentication
         ↓
 Run a simple live probe
         ↓
@@ -282,7 +273,9 @@ The correct product statement is:
 
 > **The user connects the CLI once. Telaegent does not require a new provider authorization for every message.**
 
-After the user's cloud CLI environment is successfully connected, Telaegent can continue spawning CLI processes using that persisted provider identity until the provider requires re-authentication.
+After the local CLI passes the probe, the connector can continue spawning local
+CLI processes using that local provider identity until the provider requires
+the developer to re-authenticate locally.
 
 ---
 
@@ -301,7 +294,8 @@ User's personal Claude/Codex conversations
 Telaegent-created CLI sessions
 ```
 
-Telaegent starts its own Claude Code/Codex sessions inside the user's cloud project environment.
+The connector starts Telaegent-specific Claude Code/Codex sessions inside the
+user's local project environment.
 
 Claude Code explicitly supports resumable CLI sessions, including sessions created through non-interactive `claude -p` calls. Codex CLI also supports resumable CLI/thread sessions.
 
@@ -514,7 +508,11 @@ It is **not visible to the collaborator**.
 
 Important terminology:
 
-> “Private” means private from the collaborator and other project participants. Because the product is cloud-hosted, it should not claim that this data is cryptographically inaccessible to the Telaegent service itself unless such a guarantee is actually implemented later.
+> “Private” means private from the collaborator and other project participants.
+> A draft may transit Telaegent cloud to support the browser UI, so the product
+> should not claim zero knowledge or end-to-end encryption unless implemented.
+> Repository contents, credentials, raw provider context, and provider sessions
+> remain local and are not part of that transit.
 
 ---
 
@@ -833,7 +831,7 @@ rather than receiving an ambiguous answer about an unspecified repository state.
 
 ---
 
-## 17. High-level cloud isolation requirement
+## 17. High-level local execution isolation requirement
 
 The minimum conceptual execution boundary is:
 
@@ -846,23 +844,25 @@ Example:
 ```text
 User A × Repo X
 ┌────────────────────────────────────┐
-│ isolated workspace                 │
-│ Repo X checkout                    │
-│ provider session state for Repo X  │
-│ temporary agent/tool output        │
+│ registered local workspace         │
+│ local Repo X checkout/worktree     │
+│ local provider session for Repo X  │
+│ local temporary agent/tool output  │
 └────────────────────────────────────┘
 
 User B × Repo X
 ┌────────────────────────────────────┐
-│ separate workspace                 │
-│ separate provider runtime          │
+│ separate registered workspace      │
+│ separate local provider binding    │
 │ no visibility into User A          │
 └────────────────────────────────────┘
 ```
 
-User-level credentials such as GitHub/Claude/Codex authorization may be stored in a protected user credential layer and mounted/injected only into that user's runtimes. The exact implementation is an infrastructure decision; the trust requirement is not.
+GitHub/Claude/Codex authorization stays in the developer's local credential
+stores and is never mounted into or injected by Telaegent cloud. The connector
+uses it only on the owning developer's machine.
 
-A new shell does not isolate `$HOME`. Telaegent must deliberately control:
+A new shell does not isolate `$HOME`. The local connector must deliberately control:
 
 - GitHub CLI auth state
 - Git credential-helper state
@@ -878,10 +878,10 @@ A new shell does not isolate `$HOME`. Telaegent must deliberately control:
 For the hackathon:
 
 - controlled demo accounts and repositories are acceptable
-- one cloud host may physically run multiple isolated containers if necessary
-- we must not claim production-grade multi-tenant security until proven
-- no remote user may supply another user's absolute workspace path
-- no cross-user filesystem mount is allowed
+- each developer runs their own local connector
+- the cloud job contains an opaque connector binding, never an absolute path
+- connector registration and job dispatch reject cross-project bindings
+- no inbound public port or peer-to-peer connection is required
 - secret-bearing blocked output should not be persisted
 
 ---
@@ -936,17 +936,17 @@ Store durable product state such as:
 - audit events
 - conversation memory/summary needed for provider rehydration
 
-### 19.2 Protected cloud credential/runtime storage
+### 19.2 Local-only connector/runtime state
 
-Store only what is required for the owning user's runtime, with a stronger security posture than ordinary product rows:
+Keep on the owning developer machine:
 
-- GitHub CLI authorization state or equivalent secret
-- Claude/Codex CLI authorization state
-- provider session references/state when required
-- repository checkout/cache
-- runtime configuration
+- GitHub CLI authorization state
+- Claude/Codex authorization and provider home directories
+- provider session references/state
+- repository checkout/worktree and local caches
+- connector mapping from opaque binding ID to local workspace/provider
 
-These must never be exposed through normal product APIs.
+These must never be uploaded to Telaegent cloud or exposed through product APIs.
 
 ### 19.3 Ephemeral by default
 
@@ -1042,7 +1042,7 @@ User grants Telaegent access to the repository or repositories they want to use.
 
 User connects Claude Code, Codex, or both.
 
-Telaegent verifies the cloud CLI can make a real request.
+The local connector verifies the local CLI can make a real request.
 
 ### Step 4 — Choose project
 
@@ -1186,24 +1186,26 @@ The core product is much smaller:
 
 These are intentionally left unresolved until the implementation plan is written.
 
-### 24.1 GitHub cloud-auth mechanics
+### 24.1 Local GitHub proof mechanics
 
-Current direction: authenticate the GitHub CLI inside the user's cloud environment and reuse that credential for Git operations.
+Current direction: use the developer's existing local Git/GitHub CLI state and
+register only safe repository metadata.
 
 Still to validate:
 
-- whether `gh auth login --web` can be bridged cleanly from a headless runtime into the Telaegent browser
-- whether parsing the CLI's browser/device-code output is robust enough
-- whether an app-owned OAuth/device-flow implementation with `GH_TOKEN` would be cleaner later
-- secure credential persistence when no OS keychain exists
+- exact stable repository-ID proof from a selected local remote
 - organization SSO / restricted-organization behavior
-- repository discovery through authenticated-user API rather than `gh repo list` alone
+- handling repositories without a GitHub remote
+- revalidation and revocation while the connector is offline
+- safe repository registration without uploading local paths
 
 A GitHub App is **not required for the P0 architecture**, though it remains a possible future production authorization model.
 
 ### 24.2 Provider connection mechanics
 
-The product behavior is clear — connect once, verify with a live CLI call, persist provider connection state — but the exact cloud credential/session provisioning mechanism should be designed separately.
+The product behavior is clear — connect once, verify with a live local CLI call,
+and publish safe availability state — but connector packaging and local
+provider/session binding should be designed separately.
 
 ### 24.3 Private-agent transcript retention
 
@@ -1217,7 +1219,7 @@ The shared project conversation should remain the durable collaboration record r
 
 ### 24.4 Repository synchronization
 
-Decide when Telaegent refreshes a connected project workspace from GitHub and how branch selection works.
+Decide when the connector refreshes safe branch/commit metadata and how local worktree selection works. Telaegent cloud does not fetch or modify the repository.
 
 ### 24.5 Message attachments / source snippets
 
@@ -1231,13 +1233,16 @@ The hackathon should keep explicit human approval for outbound cross-user messag
 
 ## 25. Main risks and flaws to watch
 
-### 25.1 Cloud hosting transfers security responsibility to Telaegent
+### 25.1 The connector is a privileged local boundary
 
-The old local architecture kept repositories and provider identities on users' own machines. The new product is dramatically easier to use, but Telaegent now becomes responsible for isolating cloud repository copies and provider credentials.
+Keeping repositories and provider identities local avoids cloud custody, but the
+connector can inspect code and launch powerful local CLIs. It must accept only
+bounded signed job types, resolve only its registered workspace/provider, and
+never treat cloud or collaborator text as a path, executable, or command.
 
-This is the largest technical/security tradeoff in the redesign.
-
-For the hackathon, use controlled demo repositories/accounts and be honest that production would require hardened multi-tenant isolation and credential storage.
+For the hackathon, use controlled repositories/accounts and be honest that
+production requires hardened connector authentication, update, revocation,
+local isolation, and job validation.
 
 ### 25.2 A new shell is not automatically a new agent identity or conversation
 
@@ -1267,13 +1272,14 @@ Deterministic blocks for raw secrets are still worthwhile even in a human-gated 
 
 A collaborator should be able to ask a question. They should not gain a hidden remote filesystem API into another user's repo.
 
-The recipient's own agent performs local-in-that-user's-cloud-workspace inspection and the owner approves the outbound answer.
+The recipient's own agent performs inspection in that user's registered local workspace and the owner approves the outbound answer.
 
-### 25.7 Provider terms and cloud automation need production review
+### 25.7 Provider terms and connector automation need production review
 
-Running per-user Claude Code/Codex CLI environments as a hosted product is different from a developer personally running the CLI on a laptop. Before production, Telaegent must verify provider terms, subscription/automation policies, rate limits, and supported authentication patterns.
-
-This does not invalidate the hackathon prototype, but it should be treated as a real commercialization question.
+The developer runs the provider CLI locally, but Telaegent still automates
+non-interactive turns through a connector. Before production, verify provider
+terms, subscription/automation policies, rate limits, and supported local
+authentication patterns.
 
 ### 25.8 Repo collaborator discovery can be messy
 
@@ -1281,24 +1287,27 @@ Do not assume `gh repo list` or a repository-collaborator endpoint solves this u
 
 P0 should match Telaegent users by **independent proof that each connected the same GitHub repository ID**, then allow a project-scoped connection request.
 
-### 25.9 `gh auth login` inside a cloud container is still sensitive authorization
+### 25.9 Local credentials never cross into cloud custody
 
-Using the GitHub CLI avoids building a GitHub App for P0, but it does not remove authorization. The cloud environment will possess a credential capable of reading the user's selected/private repositories.
+Using local GitHub CLI avoids a Telaegent-held GitHub credential. The connector
+may call `gh` locally, but it returns only safe identity/repository proof and
+never credential files, token-bearing output, or local paths.
 
-GitHub CLI can store credentials in the system credential store, but if that is unavailable it may fall back to plaintext-file storage. Production must not casually persist that file in an ordinary shared volume.
+### 25.10 Connector authentication and local binding are major gates
 
-### 25.10 Cloud CLI authentication remains the largest unresolved implementation gate
-
-The product requires each user's Claude Code/Codex identity to work inside an isolated cloud runtime and survive new processes without leaking to other users.
+The product requires each user's local Claude Code/Codex identity and selected
+repository to be bound to the correct opaque connector registration without
+leaking local state or accepting arbitrary work.
 
 Before broad implementation, prove:
 
 ```text
-authenticate once
-→ new process still works
-→ provider session can resume
-→ credential/session is isolated
-→ runtime can be destroyed/recreated or recovered safely
+register connector once
+→ outbound reconnect preserves the correct binding
+→ new local process still uses the owning identity
+→ provider session can resume locally
+→ Repo A jobs cannot resolve Repo B paths
+→ credentials/session never enter cloud payloads or logs
 ```
 
 ---
@@ -1359,11 +1368,11 @@ That makes the idea both more general and easier to explain.
 
 If implementation details change later, these principles should survive:
 
-1. **Telaegent is cloud-first.** No local worker or LAN dependency is required for the product experience.
+1. **Telaegent is cloud-first for coordination and local-first for execution.** A local connector is required; no LAN or peer-to-peer dependency is required.
 2. **GitHub repository is the project boundary.**
 3. **A collaborator relationship is project-scoped, never global by default.**
 4. **Users bring Claude Code, Codex, or both.**
-5. **Telaegent runs provider CLIs rather than pretending to be the coding model itself.**
+5. **The local connector runs provider CLIs; Telaegent cloud never does.**
 6. **Personal Claude/Codex app histories are not part of Telaegent.**
 7. **Telaegent-created project conversations are the durable collaboration memory.**
 8. **Provider sessions are resumable working context, not the source of truth.**
@@ -1382,7 +1391,7 @@ If implementation details change later, these principles should survive:
 This repository also contains five self-contained next-phase briefs under [`docs/team/`](../team/):
 
 - [`khoa.md`](../team/khoa.md) — backend, GitHub, repository/collaborator access, user authorization and trust
-- [`thai.md`](../team/thai.md) — cloud deployment, runtime isolation, database/storage, cost and latency
+- [`thai.md`](../team/thai.md) — cloud deployment, connector networking, database/storage, cost and latency
 - [`duy.md`](../team/duy.md) — complete frontend/product UX from landing through private/shared conversations
 - [`hien.md`](../team/hien.md) — agent protocol experiments, API/prompt format evaluation, security/leakage tests and test architecture
 - [`phuong.md`](../team/phuong.md) — backend co-ownership, Claude Code/Codex CLI runtimes, provider sessions, Telaegent memory and integration
@@ -1459,24 +1468,28 @@ The happy path is very buildable:
 - two users
 - one GitHub repo
 - one connected provider per user
-- cloud workspace
+- one local connector per user
 - project invite/acceptance
 - shared conversation
 - private draft popup
 - CLI invocation
 - human approval
 
-The difficult parts are not the messaging UI. They are provider authentication in hosted environments, multi-user workspace isolation, safe credential handling, and making live CLI execution reliable during a demo.
+The difficult parts are not the messaging UI. They are connector installation
+and authentication, safe user × repository binding, reliable outbound job
+delivery, and making local CLI execution dependable during a demo.
 
 The hackathon should optimize for one extremely polished vertical slice rather than production-grade infrastructure.
 
 ## Security/product-risk rating — **6.5 / 10 today, potentially 9 / 10 with production hardening**
 
-The cloud-first redesign improves UX but makes Telaegent the custodian of sensitive things: source code and provider authorization state.
+The cloud/local split reduces Telaegent's custody of source code and provider
+authorization state, but makes the connector a privileged local component.
 
-That is the biggest cost of the new architecture.
-
-For a hackathon this is manageable with controlled demo accounts and repositories. For a real product, isolation, encrypted credential storage, access control, logging discipline, retention, revocation, and provider-policy review become first-class work.
+For a hackathon this is manageable with controlled demo accounts and
+repositories. For a real product, connector authentication, signed/bounded
+jobs, local path isolation, update security, access control, logging discipline,
+retention, revocation, and provider-policy review become first-class work.
 
 ## Long-term product potential — **8.8 / 10**
 

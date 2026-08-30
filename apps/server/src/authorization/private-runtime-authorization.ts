@@ -8,7 +8,6 @@ import type {
   ProjectConnection,
   UserId,
 } from "./types.js";
-import type { WorkspaceBoundary } from "./workspace-boundary.js";
 import { isGitHubRepositoryId } from "./github-repository-id.js";
 
 export type PrivateRuntimeAuthorizationErrorCode =
@@ -26,8 +25,6 @@ export type PrivateRuntimeAuthorizationDenialReason =
   | "conversation_unavailable"
   | "project_connection_unavailable"
   | "runtime_binding_unavailable"
-  | "workspace_outside_boundary"
-  | "workspace_boundary_failed"
   | "inconsistent_scope"
   | "repository_read_failed";
 
@@ -91,7 +88,6 @@ export class PrivateRuntimeAuthorizationService
 
   constructor(
     private readonly repository: PrivateRuntimeAuthorizationRepository,
-    private readonly workspaceBoundary: WorkspaceBoundary,
     private readonly policy: Readonly<PrivateRuntimeAuthorizationPolicy>,
     private readonly now: () => Date = () => new Date(),
   ) {
@@ -123,22 +119,9 @@ export class PrivateRuntimeAuthorizationService
     if (!binding || binding.status !== "ready") {
       throw forbidden("runtime_binding_unavailable");
     }
-    let workspaceAllowed: boolean;
-    try {
-      workspaceAllowed = await this.workspaceBoundary.contains({
-        workspacePath: binding.workspacePath,
-      });
-    } catch {
-      throw unavailable("workspace_boundary_failed");
-    }
-    if (!workspaceAllowed) {
-      throw forbidden("workspace_outside_boundary");
-    }
-
     return {
       userId: input.authenticatedUserId,
       githubRepositoryId: input.githubRepositoryId,
-      workspacePath: binding.workspacePath,
       runtimeBindingId: binding.runtimeBindingId,
     };
   }

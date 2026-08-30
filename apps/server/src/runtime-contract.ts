@@ -32,9 +32,12 @@ export type JsonSchemaDocument = Record<string, unknown>;
 
 export interface MiddlewareRunRequest {
   agentId: string;
+  /** Opaque cloud binding. A local connector resolves this to its registered workspace. */
+  connectorBindingId?: string | undefined;
   provider: AgentProvider;
   purpose: RunPurpose;
-  workspacePath: string;
+  /** Local-adapter field only. It is forbidden in cloud connector jobs/state. */
+  workspacePath?: string | undefined;
   runtimePrompt: string;
   persistedSummary: string;
   sessionId?: string | undefined;
@@ -45,6 +48,15 @@ export interface MiddlewareRunRequest {
   correlationId: string;
   maxTurns: number;
 }
+
+/**
+ * Connector-side request after an opaque binding has been resolved locally.
+ * This type must never be serialized as a cloud job because it contains a
+ * developer-machine path.
+ */
+export type LocalMiddlewareRunRequest = MiddlewareRunRequest & {
+  workspacePath: string;
+};
 
 export interface NormalizedRunResult<T = unknown> {
   provider: AgentProvider;
@@ -141,7 +153,7 @@ export type RuntimeCapabilities = Record<
 export interface MiddlewareProviderRunner {
   readonly provider: AgentProvider;
   runStructured(
-    request: MiddlewareRunRequest,
+    request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
     onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult>;

@@ -5,7 +5,13 @@ export interface WorkspaceBoundaryCheck {
   workspacePath: string;
 }
 
-/** Resolves and checks a server-controlled workspace path before execution. */
+/**
+ * Resolves and checks a workspace path before execution.
+ *
+ * This runs connector-side. The cloud never sends or stores a local path; the
+ * connector resolves its own binding and checks the result against this
+ * boundary before invoking a local runner.
+ */
 export interface WorkspaceBoundary {
   contains(check: Readonly<WorkspaceBoundaryCheck>): Promise<boolean>;
 }

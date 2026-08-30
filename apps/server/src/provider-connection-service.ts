@@ -3,7 +3,6 @@ import type {
   RuntimeCapabilityReason,
   RuntimeProgressSink,
   RuntimeProviderCapability,
-  RuntimeProviderProbeRequest,
   RuntimeProviderProbeResult,
 } from "./runtime-contract.js";
 import {
@@ -35,14 +34,19 @@ export interface ProviderConnectionStatus {
   lastProbeLatencyMs?: number;
 }
 
-export interface ProviderConnectionTarget extends RuntimeProviderProbeRequest {
+export interface ProviderConnectionTarget {
   bindingId: string;
+  provider: AgentProvider;
+  correlationId: string;
 }
 
 export interface ProviderConnectionRuntime {
-  capability(provider: AgentProvider): Promise<RuntimeProviderCapability>;
+  capability(
+    bindingId: string,
+    provider: AgentProvider,
+  ): Promise<RuntimeProviderCapability>;
   probe(
-    request: RuntimeProviderProbeRequest,
+    request: ProviderConnectionTarget,
     onProgress?: RuntimeProgressSink,
   ): Promise<RuntimeProviderProbeResult>;
 }
@@ -75,7 +79,7 @@ export class ProviderConnectionService {
     }
 
     const previous = this.statuses.get(key);
-    const capability = await this.runtime.capability(provider);
+    const capability = await this.runtime.capability(bindingId, provider);
     const state: ProviderConnectionState = !capability.installed
       ? "unavailable"
       : !capability.authenticated
@@ -141,7 +145,10 @@ export class ProviderConnectionService {
         : {}),
     });
 
-    const capability = await this.runtime.capability(target.provider);
+    const capability = await this.runtime.capability(
+      target.bindingId,
+      target.provider,
+    );
     if (!capability.installed) {
       return this.store({
         bindingId: target.bindingId,
@@ -167,15 +174,7 @@ export class ProviderConnectionService {
 
     const probeAt = this.now().toISOString();
     try {
-      const result = await this.runtime.probe(
-        {
-          agentId: target.agentId,
-          provider: target.provider,
-          workspacePath: target.workspacePath,
-          correlationId: target.correlationId,
-        },
-        onProgress,
-      );
+      const result = await this.runtime.probe(target, onProgress);
       return this.store({
         bindingId: target.bindingId,
         provider: target.provider,

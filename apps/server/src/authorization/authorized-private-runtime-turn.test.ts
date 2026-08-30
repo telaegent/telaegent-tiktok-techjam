@@ -90,7 +90,6 @@ function authorizationData(
       projectId: "project-1",
       githubRepositoryId: "1345851083",
       status: "ready",
-      workspacePath: "/srv/telaegent/workspaces/user-1/1345851083",
     }],
   };
 }
@@ -118,7 +117,6 @@ function createHarness(
   );
   const authorizer = new PrivateRuntimeAuthorizationService(
     repository,
-    { async contains() { return true; } },
     {
       repositoryAccessMaxAgeMs: 5 * 60_000,
       repositoryReadTimeoutMs: 100,
@@ -188,7 +186,7 @@ describe("AuthorizedPrivateRuntimeTurnStarter", () => {
       agentId: "runtime-binding-1",
       provider: "codex",
       purpose: "sender_draft",
-      workspacePath: "/srv/telaegent/workspaces/user-1/1345851083",
+      connectorBindingId: "runtime-binding-1",
       runtimePrompt: turn.runtimePrompt,
       persistedSummary: turn.persistedSummary,
       sessionMode: "fresh",

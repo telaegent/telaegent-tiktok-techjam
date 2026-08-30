@@ -9,6 +9,9 @@ import {
 } from "./runtime-provider-registry.js";
 import type { AgentRunner } from "./types.js";
 
+// Local connector / explicitly enabled legacy Playground composition only.
+// The cloud bootstrap must not call these factories.
+
 export function createRunner(config: AppConfig): AgentRunner {
   return config.runtimeProvider === "container"
     ? new ContainerCodexRunner(config)

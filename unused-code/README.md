@@ -8,7 +8,7 @@ Nothing in this directory is part of the canonical Telaegent product direction d
 
 Superseded fixed-workflow and LAN-worker plans, including the former Phoenix conflict, dual approval, ContextPack, dependency-change, and replanning design.
 
-The conflict workflow may later return as an application built on top of project-scoped messaging. The LAN worker remains a documented fallback if cloud CLI authentication/isolation proves infeasible.
+The conflict workflow may later return as an application built on top of project-scoped messaging. The LAN-worker plans remain historical: the canonical local connector uses outbound cloud transport and does not require LAN discovery, peer-to-peer links, or inbound ports.
 
 ### `legacy-docs/`
 

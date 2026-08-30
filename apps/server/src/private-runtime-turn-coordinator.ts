@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type {
   ManagedAgentTurnRequest,
   ManagedAgentTurnResult,
-  ProviderSessionManager,
   ProviderSessionScope,
 } from "./provider-session-manager.js";
 import type {
@@ -45,6 +44,21 @@ export interface PrivateRuntimeTurnCanceller {
   cancelMiddlewareTurn(agentId: string): Promise<boolean>;
 }
 
+/**
+ * Execution seam used by the cloud coordinator. The canonical implementation
+ * dispatches to an outbound local connector; ProviderSessionManager remains a
+ * connector-side/local adapter for tests and live CLI experiments.
+ */
+export interface PrivateTurnExecutor {
+  run<T = unknown>(
+    scope: ProviderSessionScope,
+    request: ManagedAgentTurnRequest,
+    onProgress?: (event: RuntimeProgressEvent) => void,
+    onExecutionStarted?: () => void,
+    beforeExecution?: () => void | Promise<void>,
+  ): Promise<ManagedAgentTurnResult<T>>;
+}
+
 export interface PrivateRuntimeTurnCoordinatorOptions {
   canceller?: PrivateRuntimeTurnCanceller | undefined;
   terminalRetentionMs?: number | undefined;
@@ -77,7 +91,7 @@ export class PrivateRuntimeTurnCoordinator {
   private readonly scheduleCleanup: (cleanup: () => void, delayMs: number) => void;
 
   constructor(
-    private readonly sessions: ProviderSessionManager,
+    private readonly sessions: PrivateTurnExecutor,
     private readonly progress: RuntimeProgressChannel = new RuntimeProgressChannel(),
     private readonly options: PrivateRuntimeTurnCoordinatorOptions = {},
   ) {

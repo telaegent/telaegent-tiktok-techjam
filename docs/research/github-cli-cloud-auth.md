@@ -1,9 +1,16 @@
 # GitHub CLI Cloud Authentication Experiment
 
-**Status:** Completed local Linux proof; validated Azure handoff package awaits an authorized live run  
+**Status:** Completed historical experiment; architecture conclusion superseded
 **Date:** 2026-08-30  
 **Owner:** Khoa  
 **Branch:** `khoa.dao`
+
+> [!IMPORTANT]
+> This document preserves experiment evidence only. As of 2026-08-30, the
+> canonical product uses the developer's existing **local** GitHub CLI through
+> an outbound connector. Telaegent cloud does not run `gh`, clone repositories,
+> or store GitHub credentials. Do not use this experiment as an implementation
+> plan.
 
 ## Goal
 
@@ -17,7 +24,7 @@ This experiment does not claim production-grade isolation. It is a local WSL2
 Linux proof used to discover the exact CLI behavior before an Azure runtime is
 selected.
 
-## Azure reproduction handoff
+## Superseded Azure reproduction handoff
 
 The NUS Azure account available to Khoa authenticated successfully but was
 denied resource access by tenant Conditional Access. That policy must not be

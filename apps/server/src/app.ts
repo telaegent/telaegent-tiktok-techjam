@@ -41,7 +41,7 @@ const messageBody = z.object({
 
 export async function createApp(
   config: AppConfig,
-  service: AgentService,
+  service: AgentService | undefined,
   telagentService?: TelagentService,
   conversationApi?: ConversationRouteDependencies,
 ): Promise<FastifyInstance> {
@@ -83,84 +83,14 @@ export async function createApp(
 
   app.get("/api/health", async () => ({
     ok: true,
-    service: "volc-agent-launchpad",
+    service: "telaegent-control-plane",
   }));
 
   app.get("/api/auth", async () => ({ required: config.authToken.length > 0 }));
 
-  app.get("/api/system", async () => service.systemInfo());
-
-  app.get("/api/agents", async () => ({ agents: service.listAgents() }));
-
-  app.post("/api/agents", async (request, reply) => {
-    const body = createAgentBody.parse(request.body);
-    const agent = await service.createAgent(body);
-    return reply.code(201).send({ agent });
-  });
-
-  app.get("/api/agents/:id", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    return { agent: service.getAgent(id) };
-  });
-
-  app.patch("/api/agents/:id", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    const body = updateAgentBody.parse(request.body);
-    return { agent: await service.updateAgent(id, body) };
-  });
-
-  app.delete("/api/agents/:id", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    return service.deleteAgent(id);
-  });
-
-  app.post("/api/agents/:id/start", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    return { agent: await service.startAgent(id) };
-  });
-
-  app.post("/api/agents/:id/stop", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    return { agent: await service.stopAgent(id) };
-  });
-
-  app.get("/api/agents/:id/messages", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    return { messages: service.getMessages(id) };
-  });
-
-  app.get("/api/agents/:id/runs", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    return { runs: service.getRuns(id) };
-  });
-
-  app.get("/api/agents/:id/providers", async (request) => {
-    const { id } = agentIdParams.parse(request.params);
-    return { connections: await service.providerConnectionStatuses(id) };
-  });
-
-  app.post("/api/agents/:id/providers/:provider/probe", async (request) => {
-    const { id, provider } = providerParams.parse(request.params);
-    return {
-      connection: await service.probeProviderConnection(
-        id,
-        provider,
-        request.id,
-      ),
-    };
-  });
-
-  app.post("/api/agents/:id/messages", async (request, reply) => {
-    const { id } = agentIdParams.parse(request.params);
-    const body = messageBody.parse(request.body);
-    const result = await service.sendMessage(id, body.content);
-    return reply.code(202).send(result);
-  });
-
-  app.get("/api/runs/:id", async (request) => {
-    const { id } = runIdParams.parse(request.params);
-    return { run: service.getRun(id) };
-  });
+  if (service) {
+    registerLegacyPlaygroundRoutes(app, service);
+  }
 
   if (telagentService) {
     registerTelagentRoutes(app, telagentService);
@@ -236,4 +166,86 @@ export async function createApp(
   });
 
   return app;
+}
+
+// Inherited Starter Kit Playground. It drives a provider runner and a local
+// workspace, so it is only mounted when ENABLE_LEGACY_LOCAL_PLAYGROUND is set;
+// the canonical control plane runs without it.
+function registerLegacyPlaygroundRoutes(
+  app: FastifyInstance,
+  service: AgentService,
+): void {
+  app.get("/api/system", async () => service.systemInfo());
+
+  app.get("/api/agents", async () => ({ agents: service.listAgents() }));
+
+  app.post("/api/agents", async (request, reply) => {
+    const body = createAgentBody.parse(request.body);
+    const agent = await service.createAgent(body);
+    return reply.code(201).send({ agent });
+  });
+
+  app.get("/api/agents/:id", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return { agent: service.getAgent(id) };
+  });
+
+  app.patch("/api/agents/:id", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    const body = updateAgentBody.parse(request.body);
+    return { agent: await service.updateAgent(id, body) };
+  });
+
+  app.delete("/api/agents/:id", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return service.deleteAgent(id);
+  });
+
+  app.post("/api/agents/:id/start", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return { agent: await service.startAgent(id) };
+  });
+
+  app.post("/api/agents/:id/stop", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return { agent: await service.stopAgent(id) };
+  });
+
+  app.get("/api/agents/:id/messages", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return { messages: service.getMessages(id) };
+  });
+
+  app.get("/api/agents/:id/runs", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return { runs: service.getRuns(id) };
+  });
+
+  app.get("/api/agents/:id/providers", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return { connections: await service.providerConnectionStatuses(id) };
+  });
+
+  app.post("/api/agents/:id/providers/:provider/probe", async (request) => {
+    const { id, provider } = providerParams.parse(request.params);
+    return {
+      connection: await service.probeProviderConnection(
+        id,
+        provider,
+        request.id,
+      ),
+    };
+  });
+
+  app.post("/api/agents/:id/messages", async (request, reply) => {
+    const { id } = agentIdParams.parse(request.params);
+    const body = messageBody.parse(request.body);
+    const result = await service.sendMessage(id, body.content);
+    return reply.code(202).send(result);
+  });
+
+  app.get("/api/runs/:id", async (request) => {
+    const { id } = runIdParams.parse(request.params);
+    return { run: service.getRun(id) };
+  });
 }

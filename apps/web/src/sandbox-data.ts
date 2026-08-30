@@ -545,8 +545,8 @@ export const sandboxRepositories: SandboxRepository[] = [
           "Should I ask about filesystem reuse or provider credential reuse?",
           "Cross-repository workspace or credential leakage is forbidden.",
           [
-            { label: "Filesystem reuse", answer: "No. Each user and repository pair receives a separate workspace and persistent runtime scope." },
-            { label: "Credential reuse", answer: "Provider identity may belong to one user, but its runtime storage is mounted only inside that user's repository scope." },
+            { label: "Filesystem reuse", answer: "No. Each cloud binding resolves only to its user and repository mapping inside that user's local connector." },
+            { label: "Credential reuse", answer: "Provider identity stays in the developer's local CLI home; Telaegent cloud never mounts or stores it." },
           ],
         ),
         side(
@@ -570,7 +570,7 @@ export const sandboxRepositories: SandboxRepository[] = [
           "Do you need the privacy guarantee or the fields that replace raw stderr?",
           "Provider output and repository content must not enter shared telemetry.",
           [
-            { label: "Privacy guarantee", answer: "Raw stderr stays in the isolated runtime diagnostic boundary and is never attached to product telemetry." },
+            { label: "Privacy guarantee", answer: "Raw stderr stays on the local connector and is never attached to cloud product telemetry." },
             { label: "Safe fields", answer: "Telemetry records normalized code, retryable, provider, operation, duration bucket, and runtime revision." },
           ],
         ),
