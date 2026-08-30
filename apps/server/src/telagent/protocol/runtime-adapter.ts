@@ -141,6 +141,73 @@ export type DurableContextLoader = (
   scope: ProviderSessionScope,
 ) => Promise<DurableConversationContext | null>;
 
+export type ProtocolContextRejectionReporter = (
+  scope: ProviderSessionScope,
+  code: ProtocolHydrationCode,
+) => void;
+
+/**
+ * Loads and validates Telaegent-owned context before it is rendered.
+ *
+ * This is shared by initial turn orchestration and provider-session recovery so
+ * a valid cached session, an explicit fresh turn, or an ephemeral turn cannot
+ * bypass the same repository and role checks that recovery applies.
+ */
+export async function loadValidatedDurableContext(options: {
+  load: DurableContextLoader;
+  scope: ProviderSessionScope;
+  purpose: RunPurpose;
+  onRejected?: ProtocolContextRejectionReporter;
+}): Promise<DurableConversationContext> {
+  let context: DurableConversationContext | null;
+  try {
+    context = await options.load(options.scope);
+  } catch {
+    return rejectProtocolContext(
+      options.scope,
+      "DURABLE_CONTEXT_UNAVAILABLE",
+      true,
+      options.onRejected,
+    );
+  }
+
+  if (context === null) {
+    return rejectProtocolContext(
+      options.scope,
+      "DURABLE_CONTEXT_UNAVAILABLE",
+      true,
+      options.onRejected,
+    );
+  }
+  if (context.facts.githubRepositoryId !== options.scope.githubRepositoryId) {
+    return rejectProtocolContext(
+      options.scope,
+      "DURABLE_CONTEXT_SCOPE_MISMATCH",
+      false,
+      options.onRejected,
+    );
+  }
+  if (PROTOCOL_PURPOSES[context.role] !== options.purpose) {
+    return rejectProtocolContext(
+      options.scope,
+      "DURABLE_CONTEXT_PURPOSE_MISMATCH",
+      false,
+      options.onRejected,
+    );
+  }
+  return context;
+}
+
+function rejectProtocolContext(
+  scope: ProviderSessionScope,
+  code: ProtocolHydrationCode,
+  retryable: boolean,
+  onRejected?: ProtocolContextRejectionReporter,
+): never {
+  onRejected?.(scope, code);
+  throw new ProtocolHydrationError(code, retryable);
+}
+
 /* ========================================================================== *
  * Turn input assembly
  * ========================================================================== */
@@ -259,10 +326,7 @@ export interface ProtocolHydratorOptions {
    * is the natural consumer: the error itself is value-free by design, so this
    * is where the scope reaches anyone entitled to see it.
    */
-  onHydrationRejected?: (
-    scope: ProviderSessionScope,
-    code: ProtocolHydrationCode,
-  ) => void;
+  onHydrationRejected?: ProtocolContextRejectionReporter;
 }
 
 /**
@@ -300,46 +364,18 @@ export function createProtocolHydrator(
 ): ProviderSessionHydrator {
   const formatId = options.format ?? "P5";
 
-  const reject = (
-    scope: ProviderSessionScope,
-    code: ProtocolHydrationCode,
-    retryable: boolean,
-  ): never => {
-    options.onHydrationRejected?.(scope, code);
-    throw new ProtocolHydrationError(code, retryable);
-  };
-
   return async (
     scope: ProviderSessionScope,
     request: ManagedAgentTurnRequest,
   ): Promise<ManagedAgentTurnRequest> => {
-    const context = await options.load(scope);
-    if (context === null) {
-      // Transient by assumption: the store was unreachable, or the conversation
-      // has not been written yet. Retrying the same turn can succeed.
-      return reject(scope, "DURABLE_CONTEXT_UNAVAILABLE", true);
-    }
-
-    // The scope and the context it loaded must agree on which repository this
-    // is. They arrive from different places — the scope from the session
-    // manager, the facts from the backend's own store — and a mismatch means
-    // one conversation is about to be hydrated with another project's history.
-    // Nothing downstream could detect that, so it stops here.
-    //
-    // Only checkable because the scope key is `githubRepositoryId` on both
-    // sides; against a free-form repository id there was no common identifier.
-    if (context.facts.githubRepositoryId !== scope.githubRepositoryId) {
-      return reject(scope, "DURABLE_CONTEXT_SCOPE_MISMATCH", false);
-    }
-
-    // And on which agent job this is. A recipient's context rendered into a
-    // sender turn would put the collaborator's message where the owner's rough
-    // input belongs — the two roles have different trust properties, and
-    // swapping them is exactly the confusion the separate templates exist to
-    // prevent.
-    if (PROTOCOL_PURPOSES[context.role] !== request.purpose) {
-      return reject(scope, "DURABLE_CONTEXT_PURPOSE_MISMATCH", false);
-    }
+    const context = await loadValidatedDurableContext({
+      load: options.load,
+      scope,
+      purpose: request.purpose,
+      ...(options.onHydrationRejected
+        ? { onRejected: options.onHydrationRejected }
+        : {}),
+    });
 
     const { runtimePrompt, persistedSummary } = renderTurn(context, formatId);
 
