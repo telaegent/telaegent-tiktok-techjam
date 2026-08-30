@@ -58,6 +58,10 @@ claim.
   local paths are resolved and enforced by the connector.
 - Obvious secrets, credentials, cross-project paths, and another user's private
   state remain backend-enforced denials even if an agent or human requests them.
+- An agent may consume or narrow authority a human already delegated. It may
+  never autonomously broaden that authority. A task-scoped capability lets an
+  agent reuse an existing grant without asking again; obtaining new authority
+  needs a human, and a cross-user message still needs `Send`.
 
 ## Superseded material
 
