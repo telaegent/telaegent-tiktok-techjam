@@ -19,6 +19,10 @@ Current scope:
    stable external repository boundary.
 8. `supabase-authorization-repository.ts` defines the strict RPC DTO, validates
    untrusted persistence JSON, and adapts a narrow Supabase client port.
+9. `supabase-authorization-client.ts` is the backend-only, bounded HTTP client
+   for Thai's deployed RPC.
+10. `authorization-repository-factory.ts` explicitly selects fail-closed local
+    memory or Supabase persistence without outage fallback.
 
 The implemented internal flow is:
 
@@ -51,8 +55,10 @@ provider session manager / owner-scoped private progress stream
   security tests.
 - Khoa owns the authorization DTO validation, database-to-domain mapping, and
   repository adapter behavior.
-- Thai owns Supabase infrastructure, the transactional RPC/schema, and the
-  small client implementation that calls it.
+- Thai owns Supabase infrastructure, migrations, SQL tests, and the
+  transactional RPC/schema.
+- Khoa owns the backend RPC client configuration, transport safety, strict DTO
+  mapping, and authorization policy above that RPC.
 - Phuong consumes only a successful `AuthorizedPrivateRuntime` result.
 - Duy consumes later HTTP/realtime APIs and never receives a workspace path.
 
@@ -125,10 +131,16 @@ production Supabase adapter must preserve the same logical-snapshot behavior.
 
 `SupabasePrivateRuntimeAuthorizationRepository` and its strict mapper are
 implemented without depending on physical table names or the Supabase SDK.
-Thai's `SupabaseAuthorizationSnapshotClient` implementation must call one SQL
-statement/transactional RPC, honor the supplied abort signal and connection
-limit, and return the canonical DTO. See
+`SupabaseAuthorizationRpcClient` calls the single deployed RPC, honors the
+supplied abort signal and connection limit, bounds the response, and returns
+the untrusted canonical DTO for strict mapping. See
 [`supabase-authorization-snapshot-contract.md`](../../../../docs/architecture/supabase-authorization-snapshot-contract.md).
+
+Persistence is selected only through `AUTHORIZATION_PERSISTENCE`. It defaults
+to an empty memory repository that denies every request. Supabase requires an
+HTTPS `SUPABASE_URL` and backend-only `SUPABASE_SECRET_KEY`. The factory never
+falls back to memory after a Supabase error because doing so could reuse facts
+from before a revocation.
 
 The RPC must project `github_repository_id` as decimal text even when the
 database stores it as `BIGINT`. It must select only the fields in the DTO and

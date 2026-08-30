@@ -40,3 +40,47 @@ describe("runtime timeout configuration", () => {
     expect(config.claudeTimeoutMs).toBe(480_000);
   });
 });
+
+describe("authorization persistence configuration", () => {
+  const secretKey = "sb_secret_" + "a".repeat(32);
+
+  it("keeps supplied Supabase credentials inert unless explicitly selected", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example-project.supabase.co",
+      SUPABASE_SECRET_KEY: secretKey,
+    });
+
+    expect(config.authorizationPersistence).toBe("memory");
+    expect(config.supabaseUrl).toBe("");
+    expect(config.supabaseSecretKey).toBe("");
+  });
+
+  it("normalizes a valid backend-only Supabase configuration", () => {
+    const config = loadConfig({
+      AUTHORIZATION_PERSISTENCE: "supabase",
+      SUPABASE_URL: "https://example-project.supabase.co/",
+      SUPABASE_SECRET_KEY: secretKey,
+    });
+
+    expect(config.authorizationPersistence).toBe("supabase");
+    expect(config.supabaseUrl).toBe("https://example-project.supabase.co");
+    expect(config.supabaseSecretKey).toBe(secretKey);
+    expect(JSON.stringify(config)).not.toContain(secretKey);
+  });
+
+  it.each([
+    {},
+    { SUPABASE_URL: "http://example-project.supabase.co", SUPABASE_SECRET_KEY: secretKey },
+    {
+      SUPABASE_URL: "https://example-project.supabase.co",
+      SUPABASE_SECRET_KEY: "sb_publishable_" + "a".repeat(32),
+    },
+  ])("rejects missing or unsafe selected Supabase configuration", (candidate) => {
+    expect(() =>
+      loadConfig({
+        AUTHORIZATION_PERSISTENCE: "supabase",
+        ...candidate,
+      }),
+    ).toThrow("Supabase authorization configuration is invalid");
+  });
+});

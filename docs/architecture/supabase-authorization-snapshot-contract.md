@@ -2,7 +2,7 @@
 
 **Owners:** Khoa (authorization mapping/policy), Thai (Supabase schema/RPC)
 
-**Status:** backend contract ready; physical schema and deployed RPC pending
+**Status:** schema/RPC deployed; backend client implemented; live credential smoke pending
 
 This is the persistence boundary for one private Claude Code or Codex turn. It
 does not grant permission by itself. It loads authorization facts, and
@@ -27,9 +27,14 @@ fetchPrivateRuntimeAuthorizationSnapshot(
 `authenticatedUserId` must come from verified server authentication context.
 It must never come from a user-editable request-body field.
 
-Thai may implement this client with a Supabase RPC. The suggested RPC name is
-`load_private_runtime_authorization_snapshot`, but the TypeScript adapter does
-not depend on that name or on physical table names.
+The concrete backend client calls Thai's deployed
+`load_private_runtime_authorization_snapshot` RPC. The strict TypeScript
+repository remains independent of physical table names.
+
+The deployment chooses persistence explicitly with
+`AUTHORIZATION_PERSISTENCE=memory|supabase`. `memory` is the fail-closed local
+default. A Supabase outage must never fall back to memory because cached local
+facts could resurrect a revoked permission.
 
 ## Database execution requirements
 
@@ -100,6 +105,12 @@ If the RPC uses `SECURITY DEFINER`:
 The Supabase service-role credential belongs only in backend secret storage. It
 must never appear in Vite variables, browser bundles, logs, repository files,
 or ordinary application rows.
+
+The deployed backend uses a modern `sb_secret_...` API key in the `apikey`
+header. It does not put that opaque API key in an `Authorization: Bearer`
+header; that header is for a Supabase Auth user JWT. Transport rejects redirects,
+requires HTTPS, omits ambient browser credentials, forwards cancellation, and
+bounds successful response bodies to 1 MiB before strict DTO validation.
 
 ## Failure behavior
 
