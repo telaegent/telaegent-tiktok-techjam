@@ -2,6 +2,7 @@ import path from "node:path";
 import { AgentService } from "./agent-service.js";
 import { createApp } from "./app.js";
 import { isArkConfigured, loadConfig, writeCodexConfig } from "./config.js";
+import { createConversationApi } from "./conversations/conversation-api-factory.js";
 import { createRunner } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
@@ -20,6 +21,10 @@ if (isArkConfigured(config)) {
 }
 
 const store = new JsonStore(path.join(config.dataDirectory, "launchpad.json"));
+// The data directory must exist before anything mutates the store. Legacy
+// Playground startup used to be the only caller, so the canonical control
+// plane crashed on its first write once the Playground stopped being mounted.
+await store.initialize();
 // The inherited Playground can still be enabled for local legacy maintenance,
 // but the cloud server must never construct a provider runner or workspace.
 // Canonical provider execution belongs to the outbound local connector.
@@ -37,7 +42,14 @@ const telagentService = new TelagentService(
 );
 await telagentService.reconcileOnStartup();
 
-const app = await createApp(config, service, telagentService);
+// The canonical conversation API is what the browser client calls. Leaving it
+// out of the composition made every draft and message route answer 404.
+const app = await createApp(
+  config,
+  service,
+  telagentService,
+  createConversationApi(config),
+);
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");
