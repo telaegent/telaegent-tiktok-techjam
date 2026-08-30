@@ -335,8 +335,21 @@ describe("the fixture fits the canonical demo scope", () => {
       nodeFileSystemPort,
     );
 
-    expect(enumerated.ok).toBe(true);
-    if (!enumerated.ok) return;
+    // Report the denial rather than asserting a bare boolean. This failed on a
+    // Windows checkout as "expected false to be true", which says nothing about
+    // which limit or rule rejected the scope - the reason has to be read out of
+    // the result to be actionable on a machine the author cannot reproduce on.
+    if (!enumerated.ok) {
+      throw new Error(
+        "approved scope was denied: " +
+          enumerated.code +
+          " - " +
+          enumerated.safeReason +
+          " (input: " +
+          enumerated.input +
+          ")",
+      );
+    }
     expect(enumerated.value.files).toHaveLength(CONTEXT_LIMITS.maxSourceFiles);
     expect(enumerated.value.totalBytes).toBeLessThan(CONTEXT_LIMITS.maxTotalSourceBytes);
     // And none of them is forbidden material.
