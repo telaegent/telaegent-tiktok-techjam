@@ -1,4 +1,4 @@
-# Phuong — Backend Co-Owner, Local Connector, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, and Integration Architecture
+# Phuong — Backend Co-Owner, Local Connector, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, Capability Loop, and Integration Architecture
 
 **Status:** Architecture/research brief before implementation  
 **Product:** Telaegent  
@@ -55,6 +55,7 @@ You currently own the broadest integration seam:
 - shared-message orchestration
 - recovery when provider session disappears
 - overall integration architecture
+- bounded agentic-loop integration, local policy engine, and file broker
 
 You are not expected to personally implement every component immediately. First freeze the correct seams with Khoa/Thai/Hien/Duy.
 
@@ -661,6 +662,52 @@ Runtime prompts should tell the agent to provide safe alternatives.
 
 Never persist blocked secret-bearing output if avoidable.
 
+## 17.1 Local policy engine and file broker
+
+[Canonical build plan section 8](../product/canonical-build-plan.md) adds a
+bounded follow-up loop: a private turn may finish by asking for resources it
+does not hold, and the loop runs again once those are resolved. You own the
+integration; Khoa owns the policy content.
+
+Two components, both connector-side, both outside the model:
+
+**Resource registry.** Maps an opaque resource ID to a canonical local path,
+plus the task, peer, mode, and expiry it was issued under. The cloud stores the
+ID and safe metadata; it never stores the path. This is the same shape as the
+`connectorBindingId` mapping you already own - one more opaque handle resolved
+only on the machine that owns it.
+
+**File broker.** The only thing that reads a file on behalf of a remote request.
+It takes a resource ID, asks the policy engine, and either returns bounded
+content or returns a scope-expansion request. It never takes a path, and no
+runner or adapter gets to bypass it.
+
+```text
+recipient turn result
+→ requested resource IDs
+→ policy engine (deterministic)
+   ├─ inside existing grant → file broker serves it
+   └─ outside              → scope-expansion request to the owner
+→ owner answers, or the grant already covered it
+→ next loop round with the resolved resources
+```
+
+The loop must be bounded before it is useful: cap rounds per task, requests per
+round, and total bytes served. A run that hits a limit ends as a normal turn
+result with an honest reason, not a retry.
+
+Sequencing note: this is a design commitment with no code behind it. Do not
+build it before the connector transport, binding, and provider adapters work.
+Its natural seam is the connector job envelope - see
+[`apps/server/src/connectors/README.md`](../../apps/server/src/connectors/README.md).
+
+Three things that must stay true no matter how the loop is implemented:
+
+1. The model asks; the policy engine decides.
+2. A resource crosses as an ID, never as a path.
+3. An automatic round consumes existing authority. Obtaining new authority is a
+   human decision, and the final cross-user message still needs `Send`.
+
 ---
 
 # 18. Audit / observability
@@ -677,6 +724,11 @@ agent run started
 agent run completed
 human sent candidate
 policy blocked candidate
+resource request received
+resource served from an existing grant
+scope expansion requested / granted / denied
+capability grant expired or revoked
+bounded loop limit reached
 shared message delivered
 provider reconnect required
 ```
@@ -689,8 +741,11 @@ Do not log:
 - hidden reasoning
 - giant CLI streams
 - another user's private draft
+- resolved local paths behind a resource ID
+- served file contents
 
-Include correlation IDs for debugging.
+Include correlation IDs for debugging. Audit a resource by its opaque ID; the
+path it resolved to stays on the machine that owns it.
 
 ---
 
@@ -813,6 +868,15 @@ You then implement the runtime adapter around evidence.
 - Repo A connection cannot message Repo B
 - blocked candidate never becomes shared message
 
+## Capability loop
+
+- an in-scope resource request is served with no human prompt
+- an out-of-scope request produces a scope-expansion request, not a read
+- a denied request ends the turn honestly instead of retrying
+- round, per-round, and byte limits each stop the loop
+- a resource ID never appears in a cloud payload alongside its path
+- revoking mid-task stops the next automatic service
+
 ---
 
 # 23. Concrete research you should do immediately
@@ -889,5 +953,11 @@ You are done with the architecture phase when we can answer:
 - Do not upload or share CLI home directories, credentials, repositories, or local paths.
 - Do not accept arbitrary workspace paths, executables, or commands from cloud jobs or remote messages.
 - Do not start coding a huge generic agent framework.
+- Do not build the capability loop before the connector transport, binding, and
+  provider adapters work.
+- Do not let a runner or adapter read a remotely requested file without going
+  through the broker.
+- Do not let the model's output decide whether a resource may be served.
+- Do not run an unbounded follow-up loop.
 - Do not freeze prompt schema before Hien's tests.
 - Do not put all private CLI output into the product database.
