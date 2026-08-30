@@ -1,4 +1,4 @@
-# Khoa — Backend Co-Owner: Local GitHub Proof, Repository Access, Collaborator Trust, and Authorization
+# Khoa — Backend Co-Owner: Local GitHub Proof, Repository Access, Collaborator Trust, Authorization, and Capability Policy
 
 **Status:** research/design before full implementation  
 **Product:** Telaegent  
@@ -141,6 +141,10 @@ Per-message human gate:
 
 is different from collaborator connection.
 
+A task-scoped capability grant sits under layer 4, never beside it. It can only
+reuse authority the owner already gave for that task, and it never covers the
+outbound message itself.
+
 ## 8. File/source access
 
 Remote collaborator asks; recipient's own agent inspects the recipient's registered local repo.
@@ -156,6 +160,40 @@ shared request
 
 No remote filesystem API.
 
+## 8.1 Task-scoped capability grants
+
+[Canonical build plan section 8](../product/canonical-build-plan.md) adds a
+narrowing of that rule, and the policy is yours to specify.
+
+A remote agent still never names a file. It names an **opaque resource ID** the
+owning connector issued earlier in the same task. The owner's side resolves the
+ID, and a deterministic policy engine - not the model - decides.
+
+Automatic service requires all six of:
+
+```text
+same task
+same peer
+same exact resource ID
+read-only
+grant not expired or revoked
+canonical path resolves inside the registered project
+```
+
+Miss any one and the request becomes a scope-expansion prompt with
+`Deny` / `Allow once` / `Allow for this task`. **Allow for this task** adds that
+one resource to the task's read-only scope; it never adds a directory, a glob,
+a sibling file, or write access.
+
+The governing rule:
+
+> An agent may consume or narrow authority a human already delegated. It may
+> never autonomously broaden that authority.
+
+What you own here: the grant record and its lifetime, how revocation and expiry
+reach a connector that was offline when the owner revoked, whether a resource ID
+survives a rename or delete, and the authorization checks below.
+
 ## 9. Hard policy
 
 Hard-deny obvious raw secret classes:
@@ -167,6 +205,9 @@ Hard-deny obvious raw secret classes:
 - SSH credential material
 - paths outside selected project
 - another user's runtime/private drafts
+- a resource ID from a different task, a different peer, or a different project
+- any write, execute, or delete against a capability grant
+- a resource ID whose canonical path leaves the registered project by traversal or symlink
 
 The request "send me your .env" may enter the conversation, but raw `.env` values should not cross the trust boundary. Offer safe alternatives.
 
@@ -211,6 +252,7 @@ project connection
 private-state ownership
 target user
 revocation state
+capability grant: task, peer, resource, mode, expiry
 ```
 
 Frontend button visibility is not authorization.
@@ -225,6 +267,8 @@ Frontend button visibility is not authorization.
 6. Test private, organization, and collaborator-not-owner repositories.
 7. Revoke local GitHub access and verify project suspension.
 8. Prove Repo A never authorizes or resolves Repo B.
+9. Replay a resource ID under a different task and peer and confirm both fail.
+10. Revoke a task grant mid-task and confirm the next request stops being served.
 
 ## 14. Known flaws
 
@@ -255,6 +299,7 @@ Freeze branch/clone/fetch/dirty-worktree behavior with Phuong.
 - mutual-proof collaborator model
 - once-per-project connection state machine
 - file permission matrix
+- capability grant model: issue, scope, expire, revoke, audit
 - logical backend data model
 - route authorization matrix
 - revocation behavior
@@ -268,6 +313,8 @@ Freeze branch/clone/fetch/dirty-worktree behavior with Phuong.
 - no collaborator approval every message
 - no GitHub collaborator enumeration as sole discovery
 - no Repo A → Repo B permission reuse
+- no capability reuse across tasks or peers, and no write grants in P0
+- no LLM output treated as an authorization decision
 - no frontend-only authorization
 - no cloud-hosted GitHub CLI, repository clone, or GitHub credential custody
 - no cloud or collaborator supplied local path/command
