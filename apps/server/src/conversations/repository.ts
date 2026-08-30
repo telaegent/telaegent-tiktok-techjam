@@ -1,6 +1,7 @@
 import type {
   OutboundApproval,
   PrivateDraft,
+  PrivateDraftFailure,
   PrivateDraftState,
   SendDraftResult,
   SharedMessage,
@@ -54,6 +55,7 @@ export interface ConversationRepository {
     draftId: string;
     expectedTurnId: string;
     privateMessage: string;
+    failure: PrivateDraftFailure;
     updatedAt: string;
   }): Promise<PrivateDraft | null>;
   cancelDraft(input: {

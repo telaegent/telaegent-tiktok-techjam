@@ -1531,6 +1531,113 @@ html[data-theme="dark"] .app-rail button > img {
   font-size: 12px;
 }
 
+.api-state {
+  max-width: 560px;
+  margin: auto;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.api-state.error,
+.private-runtime-error {
+  border-color: color-mix(in srgb, var(--caution) 42%, var(--line));
+}
+
+.api-state strong,
+.private-runtime-error strong {
+  display: block;
+  font-size: 13px;
+}
+
+.api-state p,
+.private-runtime-error p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.private-runtime-error > small {
+  display: block;
+  margin-top: 10px;
+  color: var(--quiet);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.api-state button {
+  margin-top: 13px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.private-clarification-form,
+.private-runtime-error {
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.private-clarification-form label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--quiet);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.private-clarification-form textarea,
+.private-candidate textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  resize: vertical;
+  color: var(--text);
+  background: var(--private-surface);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.private-clarification-form button {
+  display: block;
+  margin: 10px 0 0 auto;
+  padding: 7px 12px;
+  border: 1px solid var(--button);
+  border-radius: 999px;
+  color: var(--button-text);
+  background: var(--button);
+  font: inherit;
+  cursor: pointer;
+}
+
+.private-clarification-form button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.private-candidate {
+  margin-top: 20px;
+}
+
+.api-state ul,
+.private-runtime-error ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .incoming-context {
   padding: 12px;
   border: 1px solid var(--line);
@@ -1601,6 +1708,11 @@ html[data-theme="dark"] .app-rail button > img {
   border-color: var(--button);
   color: var(--button-text);
   background: var(--button);
+}
+
+.private-approval-bar button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
 }
 
 /* Project secondary pages */
