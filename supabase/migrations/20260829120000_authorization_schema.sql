@@ -157,13 +157,20 @@ create table public.runtime_bindings (
   github_repository_id bigint not null check (github_repository_id > 0),
   status               text not null check (status in
                          ('provisioning', 'ready', 'stopped', 'unavailable', 'revoked')),
-  -- Opaque cloud binding only. The local connector owns the private mapping
-  -- to a workspace/provider; paths and credentials never enter Postgres.
+  workspace_path       text,
+  -- One durable binding per user x project; status is updated in place.
   constraint runtime_bindings_one_per_user_project unique (user_id, project_id),
   -- The binding's repository must be the project's repository.
   constraint runtime_bindings_project_repository_fk
     foreign key (project_id, github_repository_id)
-    references public.repository_projects (project_id, github_repository_id) on delete restrict
+    references public.repository_projects (project_id, github_repository_id) on delete restrict,
+  -- ready exposes a non-empty workspace path; every other state exposes none.
+  constraint runtime_bindings_workspace_path_state check (
+    case
+      when status = 'ready' then workspace_path is not null and length(btrim(workspace_path)) > 0
+      else workspace_path is null
+    end
+  )
 );
 
 -- ---------------------------------------------------------------------------
@@ -320,6 +327,13 @@ as $$
         'githubRepositoryId', rb.github_repository_id::text,
         'status',             rb.status
       )
+      -- workspacePath is present only for ready bindings; the domain type
+      -- forbids the key entirely in every other state.
+      || case
+           when rb.status = 'ready'
+             then jsonb_build_object('workspacePath', rb.workspace_path)
+           else '{}'::jsonb
+         end
       from public.runtime_bindings rb
       join project p on p.project_id = rb.project_id
       where rb.user_id = p_user_id

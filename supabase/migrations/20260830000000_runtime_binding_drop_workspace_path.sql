@@ -1,69 +1,25 @@
--- Corrective migration for the private-runtime authorization snapshot.
+-- Removes the connector's local workspace path from cloud runtime bindings.
 --
--- Applied on top of 20260829120000_authorization_schema.sql, which is left
--- untouched because it is already applied.
+-- Applied on top of 20260829120000_authorization_schema.sql and
+-- 20260829180000_authorization_snapshot_corrections.sql, which are left
+-- untouched because they are already applied.
 --
--- Review findings addressed, from Khoa:
---   1. projectConnections was scoped only by project and caller, so an
---      unrelated third collaborator in the same project could exhaust the
---      cardinality bound and fail a valid two-person conversation. Connections
---      are now scoped to the requested conversation's participants. Status is
---      still not filtered; pending and revoked rows reach the policy layer.
---   2. participantUserIds is bounded in SQL to p_max_project_connections + 2,
---      aggregated from a deterministically ordered subquery, so malformed data
---      cannot produce an unbounded response.
---   3. runtime_bindings now requires project membership via a composite FK.
---   4. conversation_participants carries project_id and references both the
---      conversation and the membership, so a participant cannot belong to a
---      different project than the conversation.
---
--- All three stricter constraints from the first migration are retained.
+-- Telaegent's cloud is a control plane. It stores an opaque runtime binding
+-- only; the local connector owns the private mapping from that binding to a
+-- workspace and a provider. A filesystem path must therefore never reach
+-- Postgres or a snapshot payload.
 
 -- ---------------------------------------------------------------------------
--- 4. Conversation participants must belong to the conversation's project
--- ---------------------------------------------------------------------------
--- FK target for (conversation_id, project_id).
-alter table public.project_conversations
-  add constraint project_conversations_conversation_project
-  unique (conversation_id, project_id);
-
-alter table public.conversation_participants
-  add column project_id uuid;
-
--- Backfill before the NOT NULL. The table is expected to be empty at this
--- point; the update keeps the migration correct if it is not.
-update public.conversation_participants cp
-set project_id = pc.project_id
-from public.project_conversations pc
-where pc.conversation_id = cp.conversation_id
-  and cp.project_id is null;
-
-alter table public.conversation_participants
-  alter column project_id set not null;
-
-alter table public.conversation_participants
-  add constraint conversation_participants_conversation_project_fk
-  foreign key (conversation_id, project_id)
-  references public.project_conversations (conversation_id, project_id)
-  on delete restrict;
-
-alter table public.conversation_participants
-  add constraint conversation_participants_membership_fk
-  foreign key (project_id, user_id)
-  references public.project_memberships (project_id, user_id)
-  on delete restrict;
-
--- ---------------------------------------------------------------------------
--- 3. A runtime binding requires project membership
+-- 1. Drop the column and the state constraint that required it
 -- ---------------------------------------------------------------------------
 alter table public.runtime_bindings
-  add constraint runtime_bindings_membership_fk
-  foreign key (project_id, user_id)
-  references public.project_memberships (project_id, user_id)
-  on delete restrict;
+  drop constraint if exists runtime_bindings_workspace_path_state;
+
+alter table public.runtime_bindings
+  drop column if exists workspace_path;
 
 -- ---------------------------------------------------------------------------
--- 1 and 2. Snapshot RPC replacement
+-- 2. Snapshot RPC replacement without workspacePath
 -- ---------------------------------------------------------------------------
 -- CREATE OR REPLACE preserves the existing ownership and ACL, so the earlier
 -- revoke from PUBLIC/anon/authenticated and grant to service_role still hold.
@@ -217,13 +173,6 @@ as $$
         'githubRepositoryId', rb.github_repository_id::text,
         'status',             rb.status
       )
-      -- workspacePath is present only for ready bindings; the domain type
-      -- forbids the key entirely in every other state.
-      || case
-           when rb.status = 'ready'
-             then jsonb_build_object('workspacePath', rb.workspace_path)
-           else '{}'::jsonb
-         end
       from public.runtime_bindings rb
       join project p on p.project_id = rb.project_id
       where rb.user_id = p_user_id
