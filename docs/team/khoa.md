@@ -64,7 +64,7 @@ Suggested DTO:
 
 ```ts
 RepositorySummary {
-  githubRepositoryId
+  githubRepositoryId: string // canonical positive PostgreSQL BIGINT decimal
   fullName
   owner
   name
@@ -281,4 +281,3 @@ Freeze branch/clone/fetch/dirty-worktree behavior with Phuong.
 - no Repo A → Repo B permission reuse
 - no frontend-only authorization
 - no local connector as canonical architecture
-

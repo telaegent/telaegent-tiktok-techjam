@@ -9,6 +9,7 @@ import type {
   UserId,
 } from "./types.js";
 import type { WorkspaceBoundary } from "./workspace-boundary.js";
+import { isGitHubRepositoryId } from "./github-repository-id.js";
 
 export type PrivateRuntimeAuthorizationErrorCode =
   | "PRIVATE_RUNTIME_FORBIDDEN"
@@ -73,7 +74,6 @@ export interface PrivateRuntimeAuthorizer {
 }
 
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-const githubRepositoryIdPattern = /^[1-9][0-9]{0,19}$/;
 const defaultMaximumClockSkewMs = 60_000;
 const defaultMaximumConversationParticipants = 16;
 
@@ -177,7 +177,7 @@ export class PrivateRuntimeAuthorizationService
     if (
       !identifierPattern.test(input.authenticatedUserId) ||
       !identifierPattern.test(input.conversationId) ||
-      !githubRepositoryIdPattern.test(input.githubRepositoryId)
+      !isGitHubRepositoryId(input.githubRepositoryId)
     ) {
       throw forbidden("invalid_request");
     }
