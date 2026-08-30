@@ -72,6 +72,7 @@ export class ProviderSessionManager {
     request: ManagedAgentTurnRequest,
     onProgress?: RuntimeProgressSink,
     onExecutionStarted?: () => void,
+    beforeExecution?: () => void | Promise<void>,
   ): Promise<ManagedAgentTurnResult<T>> {
     this.validateScope(scope);
     const key = sessionKey(scope);
@@ -85,6 +86,9 @@ export class ProviderSessionManager {
 
     await previous;
     try {
+      // Authorization-sensitive callers use this after queueing so revocation
+      // cannot take effect while a turn waits and still permit execution.
+      await beforeExecution?.();
       try {
         onExecutionStarted?.();
       } catch {
