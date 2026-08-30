@@ -6,6 +6,7 @@ import type {
 import type {
   OutboundApproval,
   PrivateDraft,
+  PrivateDraftFailure,
   SendDraftResult,
   SharedMessage,
 } from "./types.js";
@@ -43,6 +44,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     }
     draft.state = "agent_working";
     draft.turnId = input.turnId;
+    draft.failure = null;
     draft.updatedAt = input.updatedAt;
     return cloneDraft(draft);
   }
@@ -61,6 +63,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     draft.sendCandidate = input.sendCandidate;
     draft.riskFlags = [...input.riskFlags];
     draft.guardFindings = structuredClone(input.guardFindings);
+    draft.failure = null;
     if (input.state === "needs_clarification") {
       draft.privateTurns.push({ speaker: "agent", text: input.privateMessage });
     }
@@ -89,6 +92,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     draft.sendCandidate = null;
     draft.riskFlags = [];
     draft.guardFindings = [];
+    draft.failure = null;
     draft.updatedAt = input.updatedAt;
     return cloneDraft(draft);
   }
@@ -97,6 +101,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     draftId: string;
     expectedTurnId: string;
     privateMessage: string;
+    failure: PrivateDraftFailure;
     updatedAt: string;
   }): Promise<PrivateDraft | null> {
     const draft = this.drafts.get(input.draftId);
@@ -109,6 +114,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     }
     draft.state = "runtime_failed";
     draft.privateMessage = input.privateMessage;
+    draft.failure = { ...input.failure };
     draft.sendCandidate = null;
     draft.updatedAt = input.updatedAt;
     return cloneDraft(draft);

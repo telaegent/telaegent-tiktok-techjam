@@ -556,6 +556,68 @@ What this does not allow
 
 That card itself explains the product.
 
+## 12.1 Scope-expansion approval
+
+The connection card is the once-per-project decision. This is the smaller,
+in-task one, and it is a screen only you can make safe.
+
+[Canonical build plan section 8](../product/canonical-build-plan.md): when a
+collaborator's agent needs a file the owner has not granted for this task, the
+owner is asked. When the owner has already granted it, nothing is shown - the
+request is served silently, which is the point.
+
+```text
+B's agent needs:
+src/settings.ts
+
+Reason:
+"LandingPage.tsx imports configuration from this file."
+
+Permission:
+READ ONLY
+
+[Deny] [Allow once] [Allow for this task]
+```
+
+Requirements:
+
+- Name the exact file. Never a directory, a glob, or "some related files".
+- Show the access level literally. P0 is read-only; there is no write option.
+- The reason line comes from the requesting agent. Present it as a **claim**,
+  not as a finding. Do not style it like a Telaegent statement of fact.
+- **Allow once** serves this request only. **Allow for this task** adds that one
+  file to the task's read-only scope, so later requests for it resolve without
+  asking again. Say which one is which in the UI, not only in a tooltip.
+- Say plainly that "for this task" covers later versions of that file until the
+  task ends or the owner revokes.
+- `Deny` must be a real answer, not a dead end. Show what the agent does next.
+
+The three failure modes to design against:
+
+1. **Approval fatigue.** If a task shows six of these, the owner stops reading.
+   Batch related requests in one round rather than one prompt per file.
+2. **Persuasion.** The reason text is agent-authored. A well-written reason must
+   not make a broad grant feel routine.
+3. **Invisible accumulation.** The owner needs a place to see what this task has
+   been served and to revoke mid-task - see 12.2.
+
+## 12.2 Granted-scope panel
+
+Somewhere in the task or conversation view, the owner must be able to answer
+"what has my side handed over for this?" without reading the transcript.
+
+```text
+Shared for this task
+
+src/LandingPage.tsx   read-only   granted 2m ago     [Revoke]
+src/settings.ts       read-only   granted just now   [Revoke]
+
+Ends when this task ends.
+```
+
+Revoking must visibly stop future automatic service, and the copy should be
+honest that it does not un-send what was already served.
+
 ---
 
 # 13. Connected tools/settings
@@ -774,6 +836,9 @@ Create at least:
 15. provider reconnect error
 16. project settings / revoke collaborator
 17. mobile chat + bottom-sheet private room
+18. scope-expansion approval prompt (`Deny` / `Allow once` / `Allow for this task`)
+19. granted-scope panel with per-resource revoke
+20. bounded-loop limit reached, and what the owner is offered next
 
 ---
 
@@ -795,6 +860,8 @@ conversations
 shared messages
 private draft/session state
 pending human action
+pending scope-expansion request
+granted task scope, per resource, with revoke
 runtime status
 audit/security events
 ```
@@ -838,6 +905,10 @@ Press Send.
 ### 1:40–2:15
 
 Justin's Claude inspects repo privately and prepares safe answer.
+
+It asks for one file it does not own. Phuong chooses **Allow for this task**.
+A second request for the same file resolves with no prompt - say out loud that
+the absence of a second prompt is the feature.
 
 Justin presses Send.
 
@@ -903,6 +974,10 @@ You are done when a person who has never heard of Telaegent can look at the prod
 
 without someone explaining the backend.
 
+And, on the scope prompt specifically: an owner who has never read the trust
+model can tell the difference between **Allow once** and **Allow for this task**
+without being told, and can find what they have already granted.
+
 ---
 
 # 26. Do not do yet
@@ -912,6 +987,11 @@ without someone explaining the backend.
 - Do not show raw agent chain-of-thought.
 - Do not send rough composer text directly to collaborator.
 - Do not ask connection permission on every message.
+- Do not let an agent name a file path in an approval prompt that the owner
+  never granted a resource ID for; the owner approves a resource, not a string.
+- Do not offer a directory, glob, or "and related files" grant.
+- Do not offer a write grant in P0.
+- Do not present an agent-written justification as a Telaegent finding.
 - Do not hide which repository the conversation belongs to.
 - Do not make "connected" look like direct filesystem access.
 - Do not copy x.ai/bot branding.

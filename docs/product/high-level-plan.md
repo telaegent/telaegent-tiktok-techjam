@@ -18,7 +18,7 @@ repository checkouts.
 
 **Status:** New canonical high-level product direction  
 **Scope:** Product idea, user experience, trust model, and high-level architecture only  
-**Implementation plan:** Intentionally deferred  
+**Implementation plan:** [`canonical-build-plan.md`](canonical-build-plan.md)  
 **Product name:** **Telaegent**
 
 > **Current team note:** This document freezes the product direction, not the implementation.  
@@ -888,7 +888,8 @@ For the hackathon:
 
 ## 18. High-level trust model
 
-Telaegent has three major permission boundaries.
+Telaegent has three major permission boundaries, plus a task-scoped narrowing
+of the third.
 
 ### Boundary 1 — Repository access
 
@@ -907,6 +908,26 @@ A collaborator request must be accepted for the specific project.
 > What am I actually willing to send this collaborator right now?
 
 The user's private agent prepares the response. The human approves the outbound candidate. Hard secret/project rules remain enforceable underneath that approval.
+
+### Narrowing Boundary 3 — task-scoped capability
+
+> What did I already agree to share for this specific piece of work?
+
+Boundary 3 may be narrowed and reused inside one task, never widened. When an
+owner approves a set of files for a task, their agent may serve later requests
+for those exact files, from that same peer, read-only, without interrupting the
+owner again. Anything outside that set returns to the human.
+
+Full specification in [canonical build plan section 8](canonical-build-plan.md).
+It is a design commitment; no code implements it yet.
+
+The rule underneath it:
+
+> An agent may consume or narrow authority a human already delegated. It may
+> never autonomously broaden that authority.
+
+Two things this never relaxes: the LLM is not the authorization authority, and
+a final cross-user message still crosses only on the owner's `Send`.
 
 This can be explained very simply in a pitch:
 
@@ -935,6 +956,8 @@ Store durable product state such as:
 - send/approval events
 - audit events
 - conversation memory/summary needed for provider rehydration
+- task IDs, opaque resource IDs, and safe resource metadata
+- capability grant, expiry, revocation, and scope-decision events
 
 ### 19.2 Local-only connector/runtime state
 
@@ -945,6 +968,7 @@ Keep on the owning developer machine:
 - provider session references/state
 - repository checkout/worktree and local caches
 - connector mapping from opaque binding ID to local workspace/provider
+- connector mapping from opaque resource ID to canonical local path
 
 These must never be uploaded to Telaegent cloud or exposed through product APIs.
 
@@ -1026,6 +1050,30 @@ Normal messaging interface, but messages are project-scoped and agent-assisted.
 
 The signature interaction where the user's own agent clarifies, investigates, and prepares an outbound message before the user approves it.
 
+### 20.7 Scope-expansion approval
+
+Shown when a collaborator's agent needs a file the owner has not yet granted
+for this task. It must state the file, the reason, and the access level, and
+offer three answers:
+
+```text
+B's agent needs:
+src/settings.ts
+
+Reason:
+"LandingPage.tsx imports configuration from this file."
+
+Permission:
+READ ONLY
+
+[Deny] [Allow once] [Allow for this task]
+```
+
+**Allow for this task** adds that one file to the task's read-only scope, so
+later requests for it resolve without interrupting the owner again. The UI must
+say plainly that this covers later versions of that file for the life of the
+task, and that the grant ends with the task or on revocation.
+
 ---
 
 ## 21. Canonical end-to-end user flow
@@ -1088,17 +1136,29 @@ Only now does Justin see it.
 
 Justin's agent can inspect Justin's connected repository and reason about the answer.
 
-### Step 13 — Justin approves the response
+### Step 13 — Justin's agent asks for a file it does not own
+
+Justin's agent needs `LandingPage.tsx` from Phuong's side. Nothing is granted
+yet, so Phuong is asked and chooses **Allow for this task**. The agent then
+needs `settings.ts`; that is a second question, and Phuong answers it the same
+way. When the agent comes back to `LandingPage.tsx` later in the same task, it
+resolves with no prompt.
+
+How the first grant of a task is made - attached at send time, or asked for on
+first request as shown here - is [24.7](#247-capability-scope-mechanics).
+
+### Step 14 — Justin approves the response
 
 Justin sees the proposed outbound response and chooses Send/Edit/No.
 
-### Step 14 — Response enters shared conversation
+### Step 15 — Response enters shared conversation
 
 Phuong now receives the repository-grounded response.
 
-### Step 15 — Conversation continues
+### Step 16 — Conversation continues
 
-Each additional cross-user message follows the same trust boundary.
+Each additional cross-user message follows the same trust boundary. Capability
+grants do not: they end with the task or on revocation.
 
 ---
 
@@ -1175,10 +1235,13 @@ The first hackathon version should not try to become:
 - automatic code merge infrastructure
 - a full enterprise access-control platform
 - a system that allows one collaborator to remotely control another person's coding agent without review
+- arbitrary remote filesystem browsing of a collaborator's machine
+- a system where the LLM decides that a new file is related enough to access
+- automatic write access to another developer's files
 
 The core product is much smaller:
 
-> **Project-scoped, human-gated messaging between coding agents that can privately inspect their owner's repository.**
+> **Project-scoped, human-gated messaging between coding agents that can privately inspect their owner's repository, and that may collaborate autonomously only inside capabilities a human already granted.**
 
 ---
 
@@ -1228,6 +1291,29 @@ The MVP may begin with text-only approved messages. File excerpts and structured
 ### 24.6 Low-risk auto-send in the future
 
 The hackathon should keep explicit human approval for outbound cross-user messages. A later product could allow users to pre-authorize low-risk categories or a bounded conversation window, but this should not complicate the first demo.
+
+This is a separate question from capability scope. Section 8 automates *internal
+resource access* inside granted authority; it never automates *sending*. Do not
+let one become an argument for the other.
+
+### 24.7 Capability-scope mechanics
+
+The policy is settled in [canonical build plan section 8](canonical-build-plan.md):
+automatic access requires same task, same peer, same exact resource, read-only,
+an unexpired grant, and safe resolution inside the registered project. What the
+implementation plan still has to decide:
+
+- where a task's initial grant comes from: whether the sender attaches files
+  when sending, or the first request is always a prompt
+- where capability grants live, and how expiry and revocation propagate to a
+  connector that was offline when the owner revoked
+- whether a resource ID stays stable when the file is renamed or deleted, not
+  only when its contents change
+- the actual follow-up round, per-round request, and total-byte limits, and how
+  the UI explains hitting one
+- how a task ends, since task-scoped grants expire with it
+- whether the owner gets a running view of what has been auto-served, and how
+  they revoke mid-task
 
 ---
 
@@ -1309,6 +1395,21 @@ register connector once
 → Repo A jobs cannot resolve Repo B paths
 → credentials/session never enter cloud payloads or logs
 ```
+
+### 25.11 Capability scope is the easiest place to quietly over-grant
+
+Task-scoped grants exist so a collaboration can finish without ten approval
+prompts. That convenience is exactly what makes them dangerous: **Allow for
+this task** is the one click in the product that turns off future clicks.
+
+The failure modes to watch are a task that never ends, a grant that survives
+after the peer stops needing it, an LLM-authored justification that persuades
+an owner to grant something broad, and a resource ID that quietly starts
+resolving to a different file.
+
+Enforcement must stay outside the model. The local policy engine and file
+broker decide; the agent only asks. If the agent's request text is what
+determines the answer, the boundary is already gone.
 
 ---
 
