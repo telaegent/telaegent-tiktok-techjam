@@ -2,6 +2,18 @@ import type { Agent } from "./types.js";
 
 export type AgentProvider = "codex" | "claude";
 
+export type RuntimeErrorCode =
+  | "RUNTIME_UNAVAILABLE"
+  | "RUNTIME_AUTHENTICATION_FAILED"
+  | "RUNTIME_SESSION_NOT_FOUND"
+  | "RUNTIME_TIMEOUT"
+  | "RUNTIME_OUTPUT_LIMIT"
+  | "INVALID_AGENT_OUTPUT"
+  | "UNSUPPORTED_RUNTIME_POLICY"
+  | "RUNTIME_FAILED";
+
+export type PublicRuntimeErrorCode = RuntimeErrorCode | "RUNTIME_CANCELLED";
+
 export type RunPurpose =
   | "sender_draft"
   | "recipient_answer"
@@ -56,6 +68,18 @@ export type RuntimeActivity =
   | "web_search"
   | "tool";
 
+export type RuntimeAllowedAction =
+  | "retry"
+  | "reconnect_provider"
+  | "edit_request"
+  | "dismiss";
+
+export interface RuntimeProgressFailure {
+  code: PublicRuntimeErrorCode;
+  error: string;
+  retryable: boolean;
+}
+
 export type RuntimeProgressEvent =
   | {
       type: "session_started";
@@ -75,9 +99,12 @@ export type RuntimeProgressEvent =
       maxRetries: number;
       retryDelayMs: number;
     }
-  | { type: "turn_cancelled"; provider: AgentProvider }
-  | { type: "turn_timed_out"; provider: AgentProvider }
-  | { type: "turn_failed"; provider: AgentProvider }
+  | {
+      type: "turn_cancelled" | "turn_timed_out" | "turn_failed";
+      provider: AgentProvider;
+      failure: RuntimeProgressFailure;
+      allowedActions: RuntimeAllowedAction[];
+    }
   | { type: "turn_completed"; provider: AgentProvider };
 
 export type RuntimeProgressSink = (event: RuntimeProgressEvent) => void;

@@ -1,11 +1,16 @@
-import { RunCancelledError } from "./errors.js";
+import { randomUUID } from "node:crypto";
 import type {
   ManagedAgentTurnRequest,
   ManagedAgentTurnResult,
   ProviderSessionManager,
   ProviderSessionScope,
 } from "./provider-session-manager.js";
-import { RuntimeProviderError } from "./runtime-errors.js";
+import type {
+  RuntimeAllowedAction,
+  RuntimeProgressEvent,
+  RuntimeProgressFailure,
+} from "./runtime-contract.js";
+import { normalizeRuntimeFailure } from "./runtime-errors.js";
 import {
   RuntimeProgressChannel,
   type RuntimeProgressEnvelope,
@@ -14,8 +19,26 @@ import {
 } from "./runtime-progress-channel.js";
 
 export interface StartedPrivateRuntimeTurn<T = unknown> {
+  turnId: string;
   streamId: string;
+  initialState: "queued";
   completion: Promise<ManagedAgentTurnResult<T>>;
+}
+
+export type PrivateRuntimeTurnState =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "timed_out"
+  | "cancelled";
+
+export interface PrivateRuntimeTurnStatus {
+  turnId: string;
+  streamId: string;
+  state: PrivateRuntimeTurnState;
+  failure?: RuntimeProgressFailure | undefined;
+  allowedActions: RuntimeAllowedAction[];
 }
 
 export interface PrivateRuntimeTurnCanceller {
@@ -29,9 +52,13 @@ export interface PrivateRuntimeTurnCoordinatorOptions {
 }
 
 interface TrackedPrivateRuntimeTurn {
+  turnId: string;
+  streamId: string;
   owner: RuntimeProgressOwner;
   agentId: string;
-  active: boolean;
+  state: PrivateRuntimeTurnState;
+  failure?: RuntimeProgressFailure | undefined;
+  allowedActions: RuntimeAllowedAction[];
 }
 
 const defaultTerminalRetentionMs = 60_000;
@@ -45,6 +72,7 @@ const defaultTerminalRetentionMs = 60_000;
  */
 export class PrivateRuntimeTurnCoordinator {
   private readonly turns = new Map<string, TrackedPrivateRuntimeTurn>();
+  private readonly turnIdsByStream = new Map<string, string>();
   private readonly terminalRetentionMs: number;
   private readonly scheduleCleanup: (cleanup: () => void, delayMs: number) => void;
 
@@ -69,47 +97,80 @@ export class PrivateRuntimeTurnCoordinator {
     request: ManagedAgentTurnRequest,
   ): StartedPrivateRuntimeTurn<T> {
     const owner = progressOwner(scope);
+    const turnId = randomUUID();
     const streamId = this.progress.open(owner);
-    this.turns.set(streamId, {
+    this.turns.set(turnId, {
+      turnId,
+      streamId,
       owner,
       agentId: request.agentId,
-      active: false,
+      state: "queued",
+      allowedActions: [],
     });
+    this.turnIdsByStream.set(streamId, turnId);
     const completion = this.sessions
       .run<T>(
         scope,
         request,
         (event) => {
+          if (isTerminalProgress(event)) return;
           this.progress.publish(streamId, event);
         },
         () => {
-          const tracked = this.turns.get(streamId);
-          if (tracked) tracked.active = true;
+          const tracked = this.turns.get(turnId);
+          if (tracked) tracked.state = "running";
         },
       )
-      .catch((error: unknown) => {
+      .then((result) => {
+        const tracked = this.turns.get(turnId);
+        if (tracked) tracked.state = "completed";
         this.progress.publish(streamId, {
-          type: terminalFailureEvent(error),
+          type: "turn_completed",
           provider: scope.provider,
         });
+        return result;
+      })
+      .catch((error: unknown) => {
+        const event = terminalFailureEvent(error, scope.provider);
+        const tracked = this.turns.get(turnId);
+        if (tracked) {
+          tracked.state = terminalState(event.type);
+          tracked.failure = event.failure;
+          tracked.allowedActions = event.allowedActions;
+        }
+        this.progress.publish(streamId, event);
         throw error;
       })
       .finally(() => {
-        const tracked = this.turns.get(streamId);
-        if (tracked) tracked.active = false;
         this.scheduleCleanup(() => {
           this.progress.close(streamId, owner);
-          this.turns.delete(streamId);
+          this.turnIdsByStream.delete(streamId);
+          this.turns.delete(turnId);
         }, this.terminalRetentionMs);
       });
-    return { streamId, completion };
+    return { turnId, streamId, initialState: "queued", completion };
   }
 
-  async cancel(streamId: string, owner: RuntimeProgressOwner): Promise<boolean> {
-    const tracked = this.turns.get(streamId);
+  status(
+    turnId: string,
+    owner: RuntimeProgressOwner,
+  ): PrivateRuntimeTurnStatus | null {
+    const tracked = this.turns.get(turnId);
+    if (!tracked || !sameOwner(tracked.owner, owner)) return null;
+    return {
+      turnId: tracked.turnId,
+      streamId: tracked.streamId,
+      state: tracked.state,
+      failure: tracked.failure ? structuredClone(tracked.failure) : undefined,
+      allowedActions: [...tracked.allowedActions],
+    };
+  }
+
+  async cancel(turnId: string, owner: RuntimeProgressOwner): Promise<boolean> {
+    const tracked = this.turns.get(turnId);
     if (
       !tracked ||
-      !tracked.active ||
+      tracked.state !== "running" ||
       !sameOwner(tracked.owner, owner) ||
       !this.options.canceller
     ) {
@@ -128,22 +189,76 @@ export class PrivateRuntimeTurnCoordinator {
 
   close(streamId: string, owner: RuntimeProgressOwner): boolean {
     const closed = this.progress.close(streamId, owner);
-    if (closed) this.turns.delete(streamId);
+    if (closed) {
+      const turnId = this.turnIdsByStream.get(streamId);
+      this.turnIdsByStream.delete(streamId);
+      if (turnId) this.turns.delete(turnId);
+    }
     return closed;
   }
 }
 
+function isTerminalProgress(event: RuntimeProgressEvent): boolean {
+  return (
+    event.type === "turn_completed" ||
+    event.type === "turn_failed" ||
+    event.type === "turn_timed_out" ||
+    event.type === "turn_cancelled"
+  );
+}
+
 function terminalFailureEvent(
   error: unknown,
-): "turn_cancelled" | "turn_timed_out" | "turn_failed" {
-  if (error instanceof RunCancelledError) return "turn_cancelled";
-  if (
-    error instanceof RuntimeProviderError &&
-    error.code === "RUNTIME_TIMEOUT"
-  ) {
-    return "turn_timed_out";
+  provider: ProviderSessionScope["provider"],
+): Extract<
+  RuntimeProgressEvent,
+  { type: "turn_cancelled" | "turn_timed_out" | "turn_failed" }
+> {
+  const normalized = normalizeRuntimeFailure(error);
+  const failure: RuntimeProgressFailure = {
+    code: normalized.code,
+    error: normalized.message,
+    retryable: normalized.retryable,
+  };
+  const type =
+    normalized.code === "RUNTIME_CANCELLED"
+      ? "turn_cancelled"
+      : normalized.code === "RUNTIME_TIMEOUT"
+        ? "turn_timed_out"
+        : "turn_failed";
+  return {
+    type,
+    provider,
+    failure,
+    allowedActions: allowedActions(normalized.code),
+  };
+}
+
+function terminalState(
+  type: "turn_cancelled" | "turn_timed_out" | "turn_failed",
+): PrivateRuntimeTurnState {
+  if (type === "turn_cancelled") return "cancelled";
+  if (type === "turn_timed_out") return "timed_out";
+  return "failed";
+}
+
+function allowedActions(
+  code: RuntimeProgressFailure["code"],
+): RuntimeAllowedAction[] {
+  switch (code) {
+    case "RUNTIME_AUTHENTICATION_FAILED":
+      return ["reconnect_provider", "dismiss"];
+    case "RUNTIME_TIMEOUT":
+    case "INVALID_AGENT_OUTPUT":
+      return ["retry", "edit_request", "dismiss"];
+    case "RUNTIME_OUTPUT_LIMIT":
+    case "UNSUPPORTED_RUNTIME_POLICY":
+      return ["edit_request", "dismiss"];
+    case "RUNTIME_CANCELLED":
+      return ["dismiss"];
+    default:
+      return ["retry", "dismiss"];
   }
-  return "turn_failed";
 }
 
 function scheduleCleanup(cleanup: () => void, delayMs: number): void {
@@ -154,7 +269,7 @@ function scheduleCleanup(cleanup: () => void, delayMs: number): void {
 function progressOwner(scope: ProviderSessionScope): RuntimeProgressOwner {
   return {
     userId: scope.userId,
-    repositoryId: scope.repositoryId,
+    githubRepositoryId: scope.githubRepositoryId,
     conversationId: scope.conversationId,
   };
 }
@@ -165,7 +280,7 @@ function sameOwner(
 ): boolean {
   return (
     left.userId === right.userId &&
-    left.repositoryId === right.repositoryId &&
+    left.githubRepositoryId === right.githubRepositoryId &&
     left.conversationId === right.conversationId
   );
 }

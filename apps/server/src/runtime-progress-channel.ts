@@ -3,7 +3,7 @@ import type { RuntimeProgressEvent } from "./runtime-contract.js";
 
 export interface RuntimeProgressOwner {
   userId: string;
-  repositoryId: string;
+  githubRepositoryId: number;
   conversationId: string;
 }
 
@@ -110,10 +110,16 @@ export class RuntimeProgressChannel {
   }
 
   private validateOwner(owner: RuntimeProgressOwner): void {
-    for (const value of [owner.userId, owner.repositoryId, owner.conversationId]) {
+    for (const value of [owner.userId, owner.conversationId]) {
       if (!validOwnerPart.test(value)) {
         throw new Error("Runtime progress owner is invalid");
       }
+    }
+    if (
+      !Number.isSafeInteger(owner.githubRepositoryId) ||
+      owner.githubRepositoryId <= 0
+    ) {
+      throw new Error("Runtime progress owner is invalid");
     }
   }
 }
@@ -124,7 +130,7 @@ function sameOwner(
 ): boolean {
   return (
     left.userId === right.userId &&
-    left.repositoryId === right.repositoryId &&
+    left.githubRepositoryId === right.githubRepositoryId &&
     left.conversationId === right.conversationId
   );
 }
