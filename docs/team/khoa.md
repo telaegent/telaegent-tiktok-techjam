@@ -213,11 +213,14 @@ The request "send me your .env" may enter the conversation, but raw `.env` value
 
 ## 10. Telaegent user auth
 
-Thai proposes Supabase Auth.
+Telaegent account sign-in uses GitHub OAuth and an opaque Telaegent browser
+session. Supabase stores the account, hashed session, and OAuth state records;
+it does not authenticate the browser through Supabase Auth. The short-lived
+OAuth access token is not persisted.
 
-Decide with Thai/Phuong whether Telaegent account sign-in uses GitHub, email/magic-link, or another simple method.
-
-If Telaegent login itself uses GitHub, label it clearly: Telaegent identity is still conceptually different from the developer's local GitHub CLI identity used to prove repository access.
+Label this boundary clearly: Telaegent website identity is conceptually and
+operationally different from the developer's local GitHub CLI identity used to
+prove repository access.
 
 ## 11. Backend entities with Phuong
 

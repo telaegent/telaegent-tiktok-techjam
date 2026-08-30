@@ -85,7 +85,8 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 | --- | --- |
 | Browser product | React 19 + Vite, provisionally on Vercel |
 | Control plane | Node 22 + Fastify 5 + Zod behind Caddy, provisionally on Azure |
-| Product data | Supabase Auth, Postgres, and Realtime in Singapore |
+| Website identity | GitHub OAuth + opaque Telaegent sessions |
+| Product data | Supabase Postgres and Realtime in Singapore |
 | Repository access | Owner's local Git/GitHub CLI state |
 | Agent execution | Local connector binding per user × repository |
 | Coding providers | Locally authenticated Claude Code CLI and/or Codex CLI |

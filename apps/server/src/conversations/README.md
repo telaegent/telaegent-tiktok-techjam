@@ -24,6 +24,13 @@ The authenticated user is injected by trusted server authentication. No route
 accepts a user ID, local workspace path, connector binding, provider session ID,
 sandbox policy, or turn budget from the browser.
 
+`authentication/identity-service.ts` supplies the production resolver seam.
+GitHub OAuth establishes the Telaegent account once; subsequent requests use an
+opaque Telaegent session cookie whose SHA-256 hash is persisted in Supabase.
+Supabase Auth JWTs, browser-provided user IDs, and the local connector's GitHub
+credentials are never accepted as website identity. Missing, expired, revoked,
+malformed, or unavailable sessions fail closed.
+
 `send` requires an idempotency key. Durable repository adapters must commit the
 approval, shared message, and draft state in one transaction. Human-edited
 content is passed through the deterministic protocol guard again immediately

@@ -6,6 +6,7 @@ import { PrivateRuntimeAuthorizationError } from "../authorization/private-runti
 import { loadConfig } from "../config.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
 import type { SenderTurnOutput } from "../telagent/protocol/contract.js";
+import { UserAuthenticationError } from "../authentication/types.js";
 import { InMemoryConversationRepository } from "./in-memory-repository.js";
 import {
   ConversationService,
@@ -111,6 +112,46 @@ async function createDraft(
 }
 
 describe("canonical conversation API", () => {
+  it("uses route-level user identity instead of the legacy shared demo token", async () => {
+    const test = harness();
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test", APP_AUTH_TOKEN: "a-strong-test-token" }),
+      agentService,
+      undefined,
+      { service: test.service, authenticatedUserId: test.authenticatedUserId },
+    );
+
+    const canonical = await createDraft(app);
+    expect(canonical.statusCode).toBe(201);
+
+    const legacy = await app.inject({ method: "GET", url: "/api/agents" });
+    expect(legacy.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("returns a safe retryable error when verified identity is unavailable", async () => {
+    const test = harness();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: async () => {
+        throw new UserAuthenticationError(
+          "AUTHENTICATION_UNAVAILABLE",
+          "Telaegent sign-in is temporarily unavailable",
+          503,
+        );
+      },
+    });
+
+    const response = await createDraft(app);
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      error: "Telaegent sign-in is temporarily unavailable",
+      code: "AUTHENTICATION_UNAVAILABLE",
+      retryable: true,
+    });
+    await app.close();
+  });
+
   it("runs a private draft, requires explicit Send, and appends exactly once", async () => {
     const test = harness();
     const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {

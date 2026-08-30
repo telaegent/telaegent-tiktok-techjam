@@ -138,7 +138,12 @@ proven.
 
 Telaegent account identity and repository authorization are separate concepts.
 
-The provisional cloud stack uses **Supabase Auth** for the Telaegent account. The exact sign-in method can be GitHub, email/magic-link, or another simple provider, but signing into Telaegent must not be confused with the developer's local GitHub CLI identity and repository access.
+The cloud product uses **GitHub OAuth** to establish the Telaegent account, then
+issues its own opaque, revocable browser session. Supabase is persistence only;
+Supabase Auth JWTs are not a Telaegent identity credential. The OAuth token is
+used only to fetch the stable GitHub user identity and is not persisted.
+Signing into Telaegent must not be confused with the developer's local GitHub
+CLI identity and repository-access proof.
 
 The product permission ladder is:
 

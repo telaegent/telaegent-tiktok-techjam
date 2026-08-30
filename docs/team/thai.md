@@ -25,7 +25,7 @@ Outbound local connectors
 | Frontend | React 19 + Vite | Vercel |
 | Backend/control plane | Node 22 + Fastify 5 + Zod | Azure behind Caddy/HTTPS |
 | Database | Supabase Postgres | Southeast Asia/Singapore |
-| Telaegent auth | Supabase Auth | Supabase |
+| Telaegent identity persistence | GitHub OAuth account + hashed Telaegent sessions | Supabase Postgres |
 | Realtime | Supabase Realtime or simpler SSE/polling | cloud |
 | Connector relay/presence | bounded jobs over WebSocket/long-poll | Azure |
 | Agent execution | connector binding per user × repo | local developer machine |
