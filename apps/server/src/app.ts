@@ -7,12 +7,18 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { HttpError, RunCancelledError } from "./errors.js";
 import type { AgentService } from "./agent-service.js";
+import { PrivateRuntimeAuthorizationError } from "./authorization/private-runtime-authorization.js";
 import {
   RuntimeProviderError,
   normalizeRuntimeFailure,
 } from "./runtime-errors.js";
 import { registerTelagentRoutes } from "./telagent/routes.js";
 import type { TelagentService } from "./telagent/service.js";
+import {
+  registerConversationRoutes,
+  type ConversationRouteDependencies,
+} from "./conversations/routes.js";
+import { MessagePolicyError } from "./conversations/service.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
@@ -37,6 +43,7 @@ export async function createApp(
   config: AppConfig,
   service: AgentService,
   telagentService?: TelagentService,
+  conversationApi?: ConversationRouteDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -158,6 +165,9 @@ export async function createApp(
   if (telagentService) {
     registerTelagentRoutes(app, telagentService);
   }
+  if (conversationApi) {
+    registerConversationRoutes(app, conversationApi);
+  }
 
   if (config.nodeEnv === "production") {
     const webRoot = fileURLToPath(new URL("../../web/dist", import.meta.url));
@@ -180,6 +190,9 @@ export async function createApp(
       error instanceof RuntimeProviderError || error instanceof RunCancelledError
         ? normalizeRuntimeFailure(error)
         : null;
+    const policyError = error instanceof MessagePolicyError ? error : null;
+    const authorizationError =
+      error instanceof PrivateRuntimeAuthorizationError ? error : null;
     const frameworkStatus =
       typeof (error as { statusCode?: unknown }).statusCode === "number"
         ? (error as { statusCode: number }).statusCode
@@ -187,13 +200,19 @@ export async function createApp(
     const statusCode =
       runtimeError
         ? runtimeError.statusCode
-        : error instanceof HttpError
-        ? error.statusCode
-        : validationError
-          ? 400
-          : frameworkStatus && frameworkStatus >= 400 && frameworkStatus <= 599
-            ? frameworkStatus
-            : 500;
+        : policyError
+          ? 422
+          : authorizationError
+            ? authorizationError.code === "PRIVATE_RUNTIME_FORBIDDEN"
+              ? 403
+              : 503
+            : error instanceof HttpError
+              ? error.statusCode
+              : validationError
+                ? 400
+                : frameworkStatus && frameworkStatus >= 400 && frameworkStatus <= 599
+                  ? frameworkStatus
+                  : 500;
     if (statusCode >= 500) {
       request.log.error(
         {
@@ -206,10 +225,12 @@ export async function createApp(
     return reply.code(statusCode).send({
       error:
         runtimeError?.message ??
+        authorizationError?.message ??
         (statusCode >= 500 ? "Internal server error" : appError.message),
       ...(runtimeError
         ? { code: runtimeError.code, retryable: runtimeError.retryable }
         : {}),
+      ...(policyError ? { findings: policyError.findings } : {}),
       ...(validationError ? { details: error.issues } : {}),
     });
   });
