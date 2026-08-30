@@ -1,6 +1,7 @@
 # Khoa — Backend Co-Owner: Local GitHub Proof, Repository Access, Collaborator Trust, and Authorization
 
-**Status:** research/design before full implementation  
+**Status:** implementation in progress; cloud repository-proof boundary exists;
+local connector collection/transport remains an open shared gate
 **Product:** Telaegent  
 **Backend co-owner:** Phuong
 
