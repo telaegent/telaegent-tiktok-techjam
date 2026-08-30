@@ -47,3 +47,19 @@ export type {
   WorkspaceBoundary,
   WorkspaceBoundaryCheck,
 } from "./workspace-boundary.js";
+export {
+  InMemoryPrivateRuntimeAuthorizationRepository,
+} from "./in-memory-authorization-repository.js";
+export type {
+  InMemoryPrivateRuntimeAuthorizationData,
+} from "./in-memory-authorization-repository.js";
+export {
+  AuthorizedPrivateRuntimeTurnStarter,
+  InvalidPrivateRuntimeTurnError,
+} from "./authorized-private-runtime-turn.js";
+export type {
+  AuthorizedPrivateRuntimeTurnInput,
+  AuthorizedPrivateRuntimeTurnPolicy,
+  BackendPreparedPrivateTurn,
+  PrivateConversationTurnPurpose,
+} from "./authorized-private-runtime-turn.js";

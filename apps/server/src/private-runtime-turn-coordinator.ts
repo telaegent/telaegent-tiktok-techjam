@@ -67,6 +67,7 @@ export class PrivateRuntimeTurnCoordinator {
   start<T = unknown>(
     scope: ProviderSessionScope,
     request: ManagedAgentTurnRequest,
+    beforeExecution?: () => void | Promise<void>,
   ): StartedPrivateRuntimeTurn<T> {
     const owner = progressOwner(scope);
     const streamId = this.progress.open(owner);
@@ -86,6 +87,7 @@ export class PrivateRuntimeTurnCoordinator {
           const tracked = this.turns.get(streamId);
           if (tracked) tracked.active = true;
         },
+        beforeExecution,
       )
       .catch((error: unknown) => {
         this.progress.publish(streamId, {
