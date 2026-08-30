@@ -39,6 +39,11 @@ Each unit requires:
 
 A new process is not automatically a new identity. GitHub, Claude, and Codex home/config/session state must be explicitly isolated and persisted only where required.
 
+The concrete infrastructure handoff and acceptance checks are defined in
+[Private runtime isolation requirements](./runtime-isolation-requirements.md).
+Normalized provider states and recovery behavior are defined in
+[Provider failure and reconnect behavior](./provider-failure-reconnect.md).
+
 ## Control-plane responsibilities
 
 - Telaegent identity and sessions
