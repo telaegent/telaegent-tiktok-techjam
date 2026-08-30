@@ -1,4 +1,4 @@
-# Phuong — Backend Co-Owner, Local Connector, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, Capability Loop, and Integration Architecture
+# Phuong — Backend Co-Owner, Local Connector, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, and Integration Architecture
 
 **Status:** Architecture/research brief before implementation  
 **Product:** Telaegent  

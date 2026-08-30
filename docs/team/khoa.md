@@ -1,4 +1,4 @@
-# Khoa — Backend Co-Owner: Local GitHub Proof, Repository Access, Collaborator Trust, Authorization, and Capability Policy
+# Khoa — Backend Co-Owner: Local GitHub Proof, Repository Access, Collaborator Trust, and Authorization
 
 **Status:** research/design before full implementation  
 **Product:** Telaegent  

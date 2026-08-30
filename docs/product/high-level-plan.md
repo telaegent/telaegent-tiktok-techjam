@@ -1486,11 +1486,11 @@ If implementation details change later, these principles should survive:
 
 This repository also contains five self-contained next-phase briefs under [`docs/team/`](../team/):
 
-- [`khoa.md`](../team/khoa.md) — backend, GitHub, repository/collaborator access, user authorization and trust, capability/file-access policy
+- [`khoa.md`](../team/khoa.md) — backend, GitHub, repository/collaborator access, user authorization and trust
 - [`thai.md`](../team/thai.md) — cloud deployment, connector networking, database/storage, cost and latency
-- [`duy.md`](../team/duy.md) — complete frontend/product UX from landing through private/shared conversations and scope-expansion approval
-- [`hien.md`](../team/hien.md) — agent protocol experiments, API/prompt format evaluation, security/leakage tests, capability-policy tests, and test architecture
-- [`phuong.md`](../team/phuong.md) — backend co-ownership, Claude Code/Codex CLI runtimes, provider sessions, Telaegent memory, the bounded capability loop, and integration
+- [`duy.md`](../team/duy.md) — complete frontend/product UX from landing through private/shared conversations
+- [`hien.md`](../team/hien.md) — agent protocol experiments, API/prompt format evaluation, security/leakage tests and test architecture
+- [`phuong.md`](../team/phuong.md) — backend co-ownership, Claude Code/Codex CLI runtimes, provider sessions, Telaegent memory and integration
 
 These are investigation/design responsibilities, not irreversible implementation boundaries.
 

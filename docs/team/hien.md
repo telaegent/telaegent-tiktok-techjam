@@ -1,4 +1,4 @@
-# Hien — Agent-to-Agent Protocol R&D, Prompt/API Format Experiments, Security and Capability Evaluation, and Test Architecture
+# Hien — Agent-to-Agent Protocol R&D, Prompt/API Format Experiments, Security Evaluation, and Test Architecture
 
 **Status:** Experimental research brief before implementation  
 **Product:** Telaegent  

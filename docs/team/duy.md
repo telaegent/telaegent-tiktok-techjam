@@ -1,4 +1,4 @@
-# Duy — Complete Telaegent Frontend, Conversation UX, Private Agent Room, Scope Approval, and Visual Product Design
+# Duy — Complete Telaegent Frontend, Conversation UX, Private Agent Room, and Visual Product Design
 
 **Status:** Product/UX design brief before implementation  
 **Product:** Telaegent  

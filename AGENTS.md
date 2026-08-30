@@ -81,7 +81,5 @@ Khoa and Phuong co-own the backend. Khoa owns local GitHub authentication,
 repository discovery and proof of access, project-scoped collaborator trust,
 authorization, and revocation. Phuong owns provider runtimes, sessions,
 the local connector, conversation orchestration, and durable Telaegent memory.
-Khoa also owns capability/file-access policy; Phuong owns its runtime
-integration (the bounded loop, resource registry, and file broker).
 Their shared connector/cloud data and API contracts must be agreed before broad
 implementation.
