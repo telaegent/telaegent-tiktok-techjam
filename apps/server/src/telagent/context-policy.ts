@@ -67,6 +67,33 @@ const DENIED_SEGMENTS = new Set([
   ".telagent-context",
 ]);
 
+/**
+ * Environment files that exist to be shared.
+ *
+ * Found by live evaluation, not by review: the corpus case asserting that
+ * `.env.example` is shareable came back `blocked`, because `.startsWith(".env.")`
+ * catches the documentation variants along with the real ones.
+ *
+ * That is over-blocking with a real cost. These files contain variable NAMES
+ * and no values — they are the canonical safe answer to "what configuration
+ * does this need?", which is the exact question the product demo turns on. A
+ * policy that refuses them teaches users the product is broken, and pushes them
+ * toward asking for the real file instead.
+ *
+ * Deliberately an exact-match set rather than a pattern. `.env.example.local`
+ * is a real environment file that happens to start with a safe prefix, and a
+ * `startsWith` allowlist would hand it over. Content inspection still runs on
+ * anything drafted from these, so a project that puts real secrets in its
+ * example file is still caught one layer down.
+ */
+const ENV_DOCUMENTATION = new Set([
+  ".env.example",
+  ".env.template",
+  ".env.sample",
+  ".env.defaults",
+  ".env.dist",
+]);
+
 /** Substrings that make any segment a secret by convention. */
 const SECRET_SUBSTRINGS = [
   "credential",
@@ -192,7 +219,7 @@ export function checkAlwaysDenied(normalized: string): PolicyDenial | null {
   for (const segment of segments) {
     const lower = segment.toLowerCase();
 
-    if (lower === ".env" || lower.startsWith(".env.")) {
+    if (lower === ".env" || (lower.startsWith(".env.") && !ENV_DOCUMENTATION.has(lower))) {
       return deny("FORBID_ENV_FILES", "Environment files are never shareable.", normalized);
     }
     if (DENIED_SEGMENTS.has(lower)) {

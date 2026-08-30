@@ -1,20 +1,83 @@
+# ---------------------------------------------------------------------------
+# Dependencies and build output
+# ---------------------------------------------------------------------------
 node_modules/
 dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Secrets and environment
+# ---------------------------------------------------------------------------
+# Never commit a real environment file. `.env.example` and the fixture
+# `env.template` files ARE tracked on purpose: they carry variable names only.
 .env
-.env.production
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+!**/fixtures/**/*.key.template
+id_rsa
+id_ed25519
+credentials.json
+gcloud-service-account*.json
+.npmrc
+
+# ---------------------------------------------------------------------------
+# Runtime state — agent workspaces, provider homes, credential stores
+# ---------------------------------------------------------------------------
+# Cloned repositories, per user x repo agent workspaces and anything a
+# provider CLI writes into its home. None of this is source; all of it can
+# contain repository content or provider authorisation state.
 .data/
 .local/
 data/
 workspaces/
 codex-home/
+claude-home/
+.gh-config/
+runtime-home/
+
+# ---------------------------------------------------------------------------
+# Agent protocol evaluation (Hien / workstream: agent protocol R&D)
+# ---------------------------------------------------------------------------
+# Live provider evaluation writes raw transcripts, timings and model output
+# here. Raw runs may echo fixture file contents and provider session ids, so
+# they stay local. The committed artefact is the summarised report under
+# docs/, never the raw run directory.
+apps/server/src/telagent/protocol/eval/results/
+apps/server/src/telagent/protocol/eval/.cache/
+eval-results/
+*.eval.jsonl
+
+# Materialised fixture repositories. These are generated from templates by
+# `buildFixtureRepo()` at test time — generating them keeps literal secret
+# strings and nested `.git` directories out of the repository.
+apps/server/fixtures/.generated/
+apps/server/src/telagent/protocol/fixtures/.generated/
+
+# ---------------------------------------------------------------------------
+# Test and tooling output
+# ---------------------------------------------------------------------------
 coverage/
+.nyc_output/
 *.log
-*.tsbuildinfo
-.DS_Store
+npm-debug.log*
+.vitest-cache/
+test-results/
+playwright-report/
+
+# ---------------------------------------------------------------------------
+# Infrastructure state (Thai)
+# ---------------------------------------------------------------------------
 deploy/volcengine/.terraform/
 deploy/volcengine/*.tfstate*
 deploy/volcengine/terraform.tfvars
-my-harness/
+*.tfstate
+*.tfstate.backup
+.terraform/
 
 # Local AI coding-assistant state stays on each developer's machine. The
 # repository-level AGENTS.md is intentionally tracked as canonical project
@@ -23,3 +86,24 @@ CLAUDE.md
 .agents/
 .codex/
 .claude/
+.cursor/
+my-harness/
+
+# ---------------------------------------------------------------------------
+# Editor and OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*~
+
+# ---------------------------------------------------------------------------
+# Local git housekeeping (see .gitattributes note)
+# ---------------------------------------------------------------------------
+.git/telaegent-trash/
+
+# Transient sync bundles used while developing on this machine.
+*.tgz

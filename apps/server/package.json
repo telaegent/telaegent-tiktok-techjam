@@ -12,7 +12,11 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "eval": "tsx src/telagent/protocol/eval/cli.ts",
+    "eval:fake": "tsx src/telagent/protocol/eval/cli.ts --runner fake",
+    "eval:claude": "tsx src/telagent/protocol/eval/cli.ts --runner claude",
+    "eval:codex": "tsx src/telagent/protocol/eval/cli.ts --runner codex"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
