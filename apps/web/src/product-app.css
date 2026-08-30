@@ -1005,15 +1005,10 @@ html[data-theme="dark"] .app-rail button > img {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 0;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--surface-raised);
-  transition: grid-template-columns 280ms cubic-bezier(.22, 1, .36, 1);
-}
-
-.project-chat.private-open {
-  grid-template-columns: minmax(0, 1fr) 420px;
 }
 
 .project-chat-header,
@@ -1314,12 +1309,12 @@ html[data-theme="dark"] .app-rail button > img {
 
 /* Private trust boundary */
 .workspace-private-room {
+  position: absolute;
   z-index: 5;
+  inset: 0 0 0 auto;
   width: 420px;
   min-width: 420px;
   min-height: 0;
-  grid-column: 2;
-  grid-row: 1 / 5;
   border-left: 1px solid var(--line-strong);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -1327,7 +1322,8 @@ html[data-theme="dark"] .app-rail button > img {
   background: var(--private-surface);
   visibility: hidden;
   transform: translateX(100%);
-  transition: transform 280ms cubic-bezier(.22, 1, .36, 1), visibility 0s linear 280ms;
+  transition: transform var(--motion-drawer) var(--motion-ease-drawer),
+    visibility 0s linear var(--motion-drawer);
 }
 
 .workspace-private-room.open {
@@ -1722,14 +1718,6 @@ html[data-theme="dark"] .app-rail button > img {
     gap: 30px;
   }
 
-  .project-chat.private-open {
-    grid-template-columns: minmax(0, 1fr) 0;
-  }
-
-  .workspace-private-room {
-    position: absolute;
-    inset: 0 0 0 auto;
-  }
 }
 
 @media (max-width: 900px) {
@@ -2021,8 +2009,24 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .project-chat,
-  .workspace-private-room {
-    transition: none;
+  .app-typing-dots i {
+    transform: none;
+    animation: app-reduced-opacity-pulse 1.2s linear infinite;
   }
+
+  .app-rail button:hover > img {
+    transform: none;
+  }
+
+  .workspace-private-room,
+  .workspace-private-room.open {
+    transform: none;
+    transition: visibility 0s;
+  }
+}
+
+@keyframes app-reduced-opacity-pulse {
+  0%,
+  100% { opacity: .35; }
+  50% { opacity: 1; }
 }

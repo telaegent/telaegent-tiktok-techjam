@@ -107,3 +107,6 @@ Thumbs.db
 
 # Transient sync bundles used while developing on this machine.
 *.tgz
+
+# Duy
+frontend-plans
