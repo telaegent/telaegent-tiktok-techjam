@@ -77,6 +77,6 @@
     <path d="M1280 418 l5 5 10-12" fill="none" stroke="#FFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <path d="M420 331 H527" fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)"/>
-  <path d="M902 331 H1005" fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M433 331 H514" fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M915 331 H992" fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)"/>
 </svg>

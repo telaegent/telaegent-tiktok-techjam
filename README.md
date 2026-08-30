@@ -58,18 +58,9 @@ That means a connection enables communication, not direct filesystem access, aut
 
 ### Four boundaries, not one permission
 
-```mermaid
-flowchart LR
-    I["Telaegent identity"] --> G["GitHub repository authorization"]
-    G --> C["Project-scoped collaborator connection"]
-    C --> A["Approval of exact outbound content"]
-    A --> S["Durable shared project conversation"]
-
-    classDef boundary fill:#E9F8FF,stroke:#18C8F4,color:#102747
-    classDef shared fill:#F1EDFF,stroke:#6F57FF,color:#241A56
-    class I,G,C,A boundary
-    class S shared
-```
+<p align="center">
+  <img src="docs/assets/trust-boundaries.svg" alt="Telaegent's five sequential trust boundaries" width="100%">
+</p>
 
 Passing one boundary never grants the next. A stable GitHub repository ID defines the project boundary; approval is always for the exact content that is about to leave its owner's private side.
 
@@ -84,27 +75,9 @@ Each developer runs a small connector that uses the repository, GitHub CLI,
 Claude Code/Codex, credentials, tools, and provider sessions already on that
 developer's machine. The connector makes only outbound connections.
 
-```mermaid
-flowchart TB
-    Browser["Browser product\nReact / Vite"] --> API["Control plane\nCaddy + Fastify"]
-    API --> Data["Supabase\nidentity · project data · shared conversation"]
-    API --> Relay["Connector presence and job relay"]
-
-    Relay <--> ConnectorA["User A local connector"]
-    Relay <--> ConnectorB["User B local connector"]
-
-    ConnectorA --> GitHubA["Local GitHub CLI as User A"]
-    ConnectorA --> RepoA["A's local repository"]
-    ConnectorA --> ProviderA["Local Claude Code and/or Codex CLI"]
-    ConnectorB --> GitHubB["Local GitHub CLI as User B"]
-    ConnectorB --> RepoB["B's local repository"]
-    ConnectorB --> ProviderB["Local Claude Code and/or Codex CLI"]
-
-    classDef plane fill:#E9F8FF,stroke:#18C8F4,color:#102747
-    classDef local fill:#F1EDFF,stroke:#6F57FF,color:#241A56
-    class Browser,API,Data,Relay plane
-    class ConnectorA,ConnectorB,GitHubA,RepoA,ProviderA,GitHubB,RepoB,ProviderB local
-```
+<p align="center">
+  <img src="docs/assets/cloud-architecture.svg" alt="Telaegent's cloud control plane relaying approved jobs to two local connectors" width="100%">
+</p>
 
 The minimum execution isolation unit is **user × repository**. The cloud selects an opaque connector binding; the connector resolves the registered local workspace. A remote collaborator and the cloud job payload never supply a local path, executable, credential, or arbitrary command.
 

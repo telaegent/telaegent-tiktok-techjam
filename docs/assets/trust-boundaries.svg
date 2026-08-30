@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="390" viewBox="0 0 1440 390" role="img" aria-labelledby="title desc">
+  <title id="title">Telaegent's five trust boundaries</title>
+  <desc id="desc">Telaegent identity, GitHub authorization, project connection, human approval, and the shared project conversation are separate sequential boundaries.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07152F"/><stop offset="1" stop-color="#10234B"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#16C8F3"/><stop offset="1" stop-color="#6F57FF"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-25%" width="140%" height="170%"><feDropShadow dx="0" dy="11" stdDeviation="13" flood-color="#010817" flood-opacity=".35"/></filter>
+    <marker id="arrow" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto"><path d="M0 0 L11 5.5 L0 11 Z" fill="#44D8FF"/></marker>
+  </defs>
+  <rect width="1440" height="390" rx="28" fill="url(#background)"/>
+  <g opacity=".18" fill="none" stroke="#5EBAF6"><circle cx="55" cy="90" r="135"/><circle cx="1380" cy="334" r="185"/><path d="M80 360 C355 250 555 450 825 345 S1185 232 1400 316"/></g>
+  <text x="720" y="67" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="31" font-weight="700">Trust is built one boundary at a time.</text>
+  <text x="720" y="99" text-anchor="middle" fill="#A9CBE2" font-family="Arial, Helvetica, sans-serif" font-size="17">Passing one never grants the next.</text>
+
+  <g fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)">
+    <path d="M285 229 H323"/><path d="M555 229 H593"/><path d="M825 229 H863"/><path d="M1095 229 H1133"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="75" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
+    <circle cx="105" cy="188" r="15" fill="#16C8F3"/><text x="105" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">1</text>
+    <text x="180" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Telaegent</text><text x="180" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">identity</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="345" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
+    <circle cx="375" cy="188" r="15" fill="#16C8F3"/><text x="375" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">2</text>
+    <text x="450" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">GitHub repository</text><text x="450" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">authorization</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="615" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
+    <circle cx="645" cy="188" r="15" fill="#16C8F3"/><text x="645" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">3</text>
+    <text x="720" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Project collaborator</text><text x="720" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">connection</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="885" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
+    <circle cx="915" cy="188" r="15" fill="#16C8F3"/><text x="915" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">4</text>
+    <text x="990" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Human approval</text><text x="990" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">of exact content</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="1155" y="154" width="210" height="150" rx="20" fill="#1B2854" stroke="#8B72FF" stroke-width="2"/>
+    <circle cx="1185" cy="188" r="15" fill="url(#accent)"/><text x="1185" y="194" text-anchor="middle" fill="#FFF" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">5</text>
+    <text x="1260" y="238" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Durable shared</text><text x="1260" y="264" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">project conversation</text>
+  </g>
+</svg>
