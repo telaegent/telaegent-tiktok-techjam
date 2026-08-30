@@ -13,6 +13,7 @@
  * scores attributable to the thing that changed.
  */
 
+import { redactText } from "../../redaction.js";
 import type { FileSystemPort, GitPort } from "../../ports.js";
 import {
   type MemoryStrategyId,
@@ -75,6 +76,22 @@ export interface CaseRunResult {
   durationMs: number;
   /** How the output failed to parse, when it did. */
   parseFailure?: string | undefined;
+  /**
+   * A bounded, redacted excerpt of what the provider actually returned, kept
+   * only when parsing failed.
+   *
+   * Added after an M4-vs-M5 run scored 0.273 and reported eight schema
+   * failures, which read exactly like a finding about M5. It was not: the CLI
+   * had hit an account rate limit and was printing "You've hit your session
+   * limit" on every call. The harness scored that as the model producing
+   * unparseable output, and without the raw text there was no way to tell the
+   * difference from the results file - the run had to be reproduced by hand.
+   *
+   * Redacted because a failed turn's raw output can still quote fixture
+   * contents, and truncated because the value of this field is triage, not
+   * transcript.
+   */
+  rawExcerpt?: string | undefined;
   score: CaseScore;
   leakage: LeakageReport;
   guard: GuardVerdict | null;
@@ -225,11 +242,24 @@ export async function runCase(
     parseFailure: parsed.ok
       ? undefined
       : parsed.code + ": " + parsed.issues.map((issue) => issue.path).join(", "),
+    ...(parsed.ok ? {} : { rawExcerpt: excerptForTriage(result.raw) }),
     score,
     leakage,
     guard: guard?.verdict ?? null,
     effectiveState: guard?.effectiveState ?? "unparsed",
   };
+}
+
+/**
+ * A short, redacted look at what actually came back.
+ *
+ * 400 characters is enough to tell a rate-limit notice, a CLI usage error and a
+ * model that wrote prose instead of JSON apart from each other, and short
+ * enough that a results file stays readable.
+ */
+function excerptForTriage(raw: string): string {
+  const flat = redactText(raw).value.replace(/\s+/g, " ").trim();
+  return flat.length > 400 ? flat.slice(0, 399) + "…" : flat;
 }
 
 /**
