@@ -36,7 +36,8 @@ import { PROJECT_CONSTANT } from "./corpus/memory-cases.js";
 import type { ProjectFacts, SharedTurn } from "./contract.js";
 import { compactSummary, rehydrationContext } from "./memory.js";
 import {
-  buildTurnRequest,
+  ProtocolHydrationError,
+  buildPreparedPrivateTurn,
   createProtocolHydrator,
   toTurnInput,
   type DurableConversationContext,
@@ -326,52 +327,108 @@ describe("Q12: what happens when provider memory is lost", () => {
     expect(await store.get(SCOPE)).not.toBeNull();
   });
 
-  it("a hydrator that cannot load context returns the request unchanged", async () => {
-    // Failure of last resort. Throwing here would convert "we lost the session"
-    // into "the turn failed" — exactly the degradation the design exists to
-    // avoid — so the turn proceeds with whatever context it already had.
+  it("fails closed when durable context cannot be loaded", async () => {
+    // This assertion used to say the opposite. I had the hydrator return the
+    // request unchanged, reasoning that throwing turns recoverable session loss
+    // into a failed turn. Khoa pushed back and was right.
+    //
+    // On the recovery path the request passed through is the ORIGINAL one, and
+    // for a continue turn its context lived in the session that just vanished -
+    // so runtimePrompt is empty. Returning it unchanged does not degrade
+    // gracefully: it runs the agent with no context at all and produces a
+    // confident, ungrounded answer that a human may well approve. A visible,
+    // retryable failure is strictly better than a plausible answer built on
+    // nothing. The starter's own validator agrees - it rejects an empty
+    // runtimePrompt outright.
     const { runtime, runs } = recordingRuntime();
     const store = new InMemoryProviderSessionStore();
+    const rejected: string[] = [];
+
     const manager = new ProviderSessionManager(
       runtime,
       store,
-      createProtocolHydrator({ load: async () => null }),
+      createProtocolHydrator({
+        load: async () => null,
+        onHydrationRejected: (_scope, code) => rejected.push(code),
+      }),
     );
 
-    const result = await manager.run(SCOPE, baseRequest());
+    await expect(manager.run(SCOPE, baseRequest())).rejects.toBeInstanceOf(
+      ProtocolHydrationError,
+    );
+    expect(rejected).toEqual(["DURABLE_CONTEXT_UNAVAILABLE"]);
+    // The provider was never reached with an empty prompt.
+    expect(runs).toHaveLength(0);
+  });
 
-    expect(result.exitCode).toBe(0);
-    expect(runs[0]?.runtimePrompt).toBe("");
+  it("marks a missing-context failure retryable and a mismatch not", async () => {
+    // The distinction the caller acts on: an unreachable store is worth
+    // retrying, context belonging to another project never will be.
+    const transient = await createProtocolHydrator({ load: async () => null })(
+      SCOPE,
+      baseRequest(),
+    ).catch((error: unknown) => error);
+    expect(transient).toBeInstanceOf(ProtocolHydrationError);
+    expect((transient as ProtocolHydrationError).retryable).toBe(true);
+
+    const mismatch = await createProtocolHydrator({
+      load: async () =>
+        durableContext({ facts: { ...FACTS, githubRepositoryId: "999" } }),
+    })(SCOPE, baseRequest()).catch((error: unknown) => error);
+    expect(mismatch).toBeInstanceOf(ProtocolHydrationError);
+    expect((mismatch as ProtocolHydrationError).retryable).toBe(false);
   });
 
   it("refuses to hydrate a conversation with another project's history", async () => {
     // A plumbing bug, not an attack: the scope says repository 123, the store
     // hands back context for 999. Nothing downstream could detect that the
-    // wrong project's conversation had been injected, so the hydrator declines
-    // and the turn proceeds with less context rather than wrong context.
+    // wrong project's conversation had been injected, so it stops here.
     const { runtime, runs } = recordingRuntime();
     const store = new InMemoryProviderSessionStore();
-    const mismatches: string[] = [];
+    const rejected: string[] = [];
 
     const manager = new ProviderSessionManager(
       runtime,
       store,
       createProtocolHydrator({
         load: async () =>
-          durableContext({
-            facts: { ...FACTS, githubRepositoryId: "999" },
-          }),
-        onScopeMismatch: (scope) => mismatches.push(scope.githubRepositoryId),
+          durableContext({ facts: { ...FACTS, githubRepositoryId: "999" } }),
+        onHydrationRejected: (_scope, code) => rejected.push(code),
       }),
     );
 
-    const result = await manager.run(SCOPE, baseRequest());
+    await expect(manager.run(SCOPE, baseRequest())).rejects.toBeInstanceOf(
+      ProtocolHydrationError,
+    );
+    expect(rejected).toEqual(["DURABLE_CONTEXT_SCOPE_MISMATCH"]);
+    expect(runs).toHaveLength(0);
+  });
 
-    expect(mismatches).toEqual(["123"]);
-    expect(runs[0]?.runtimePrompt).toBe("");
-    expect(runs[0]?.runtimePrompt).not.toContain(PROJECT_CONSTANT);
-    // Reported, not thrown: the turn still completes.
-    expect(result.exitCode).toBe(0);
+  it("refuses context prepared for the other agent job", async () => {
+    // A recipient's context rendered into a sender turn would put the
+    // collaborator's message where the owner's rough input belongs. The two
+    // roles have different trust properties, and swapping them is exactly the
+    // confusion the separate templates exist to prevent.
+    const { runtime, runs } = recordingRuntime();
+    const store = new InMemoryProviderSessionStore();
+    const rejected: string[] = [];
+
+    const manager = new ProviderSessionManager(
+      runtime,
+      store,
+      createProtocolHydrator({
+        load: async () =>
+          durableContext({ role: "sender", ownerInput: "ask about auth" }),
+        onHydrationRejected: (_scope, code) => rejected.push(code),
+      }),
+    );
+
+    // baseRequest() is a recipient_answer turn.
+    await expect(manager.run(SCOPE, baseRequest())).rejects.toBeInstanceOf(
+      ProtocolHydrationError,
+    );
+    expect(rejected).toEqual(["DURABLE_CONTEXT_PURPOSE_MISMATCH"]);
+    expect(runs).toHaveLength(0);
   });
 
   it("recovery never fabricates a session id", async () => {
@@ -436,51 +493,87 @@ describe("session scope isolation", () => {
  * ========================================================================== */
 
 describe("runtime adapter", () => {
-  it("builds a read-only, network-less turn request", async () => {
-    // Not parameters by design: both agent jobs read and draft, neither writes
-    // and neither needs the network. A prompt-injection case that persuades the
-    // agent to modify the repository should fail at the OS boundary.
-    const request = buildTurnRequest({
+  it("produces content only - no workspace, no runtime, no execution policy", () => {
+    // The heart of the boundary Khoa asked for. An earlier version of this
+    // builder returned a whole ManagedAgentTurnRequest including workspacePath
+    // and sandboxMode. The values were safe, but the safety was a property of
+    // my care rather than of the type: the protocol layer had no business
+    // knowing where a workspace lives, and nothing stopped a future edit from
+    // pointing it somewhere else.
+    //
+    // BackendPreparedPrivateTurn omits those fields, so the builder now cannot
+    // express them at all. The starter supplies them after re-authorizing.
+    const turn = buildPreparedPrivateTurn({
       context: durableContext(),
-      workspacePath: "/workspaces/justin/repo-123",
-      agentId: "agent-1",
       correlationId: "corr-1",
     });
 
-    expect(request.sandboxMode).toBe("read-only");
-    expect(request.networkMode).toBe("none");
-    expect(request.purpose).toBe("recipient_answer");
-    expect(request.outputSchemaName).toBe("recipient-turn.schema.json");
+    for (const forbidden of [
+      "agentId",
+      "workspacePath",
+      "sandboxMode",
+      "networkMode",
+      "maxTurns",
+      "sessionId",
+      "provider",
+    ]) {
+      expect(forbidden in turn, forbidden + " belongs to authorization").toBe(false);
+    }
+
+    expect(Object.keys(turn).sort()).toEqual([
+      "correlationId",
+      "outputSchemaName",
+      "persistedSummary",
+      "purpose",
+      "runtimePrompt",
+    ]);
   });
 
-  it("uses the sender purpose and schema for a sender turn", () => {
-    const request = buildTurnRequest({
-      context: durableContext({
-        role: "sender",
-        ownerInput: "ask about the rotation window",
-      }),
-      workspacePath: "/workspaces/justin/repo-123",
-      agentId: "agent-1",
+  it("uses the right purpose and schema for each role", () => {
+    const recipient = buildPreparedPrivateTurn({
+      context: durableContext(),
       correlationId: "corr-1",
     });
+    expect(recipient.purpose).toBe("recipient_answer");
+    expect(recipient.outputSchemaName).toBe("recipient-turn.schema.json");
 
-    expect(request.purpose).toBe("sender_draft");
-    expect(request.outputSchemaName).toBe("sender-turn.schema.json");
+    const sender = buildPreparedPrivateTurn({
+      context: durableContext({ role: "sender", ownerInput: "ask about auth" }),
+      correlationId: "corr-1",
+    });
+    expect(sender.purpose).toBe("sender_draft");
+    expect(sender.outputSchemaName).toBe("sender-turn.schema.json");
   });
 
-  it("never sets provider, sessionId or sessionMode implicitly", () => {
-    // The session manager owns those three. A hydrator or builder that forced
-    // `sessionMode: "fresh"` would defeat the manager's recovery sequence.
-    const request = buildTurnRequest({
+  it("passes the starter's own validation rules", () => {
+    // Asserted here rather than only in Khoa's suite because these are the
+    // constraints this builder has to satisfy, and a drift would otherwise
+    // surface as an opaque InvalidPrivateRuntimeTurnError at runtime.
+    const turn = buildPreparedPrivateTurn({
       context: durableContext(),
-      workspacePath: "/workspaces/justin/repo-123",
-      agentId: "agent-1",
       correlationId: "corr-1",
     });
 
-    expect("provider" in request).toBe(false);
-    expect("sessionId" in request).toBe(false);
-    expect(request.sessionMode).toBeUndefined();
+    expect(/^[a-z0-9]+(?:-[a-z0-9]+)*\.schema\.json$/.test(turn.outputSchemaName)).toBe(true);
+    expect(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(turn.correlationId)).toBe(true);
+    // runtimePrompt must be non-empty: the starter rejects a blank one.
+    expect(turn.runtimePrompt.trim().length).toBeGreaterThan(0);
+    expect(turn.runtimePrompt.includes("\u0000")).toBe(false);
+  });
+
+  it("leaves sessionMode to the caller, defaulting to the manager's choice", () => {
+    const implicit = buildPreparedPrivateTurn({
+      context: durableContext(),
+      correlationId: "corr-1",
+    });
+    expect(implicit.sessionMode).toBeUndefined();
+
+    const explicit = buildPreparedPrivateTurn({
+      context: durableContext(),
+      correlationId: "corr-1",
+      sessionMode: "fresh",
+    });
+    expect(explicit.sessionMode).toBe("fresh");
   });
 
   it("takes project facts from durable context, never from the request", () => {
@@ -492,13 +585,11 @@ describe("runtime adapter", () => {
   });
 
   it("bounds the persisted summary", () => {
-    const request = buildTurnRequest({
+    const turn = buildPreparedPrivateTurn({
       context: durableContext({ sharedHistory: historyWithAgreedConstant(300) }),
-      workspacePath: "/workspaces/justin/repo-123",
-      agentId: "agent-1",
       correlationId: "corr-1",
     });
-    expect(request.persistedSummary.length).toBeLessThanOrEqual(1_000);
+    expect(turn.persistedSummary.length).toBeLessThanOrEqual(1_000);
   });
 
   it("rehydration remains a pure function of durable rows", () => {
