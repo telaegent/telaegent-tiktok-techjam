@@ -4,13 +4,19 @@ import type { AppConfig } from "./config.js";
 import { isArkConfigured } from "./config.js";
 import { HttpError, RunCancelledError } from "./errors.js";
 import type {
+  AgentProvider,
   AgentServiceRuntimeOptions,
   MiddlewareLifecycleEvent,
   MiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeCapabilities,
+  RuntimeProgressSink,
 } from "./runtime-contract.js";
-import { safeRuntimeError } from "./runtime-errors.js";
+import {
+  ProviderConnectionService,
+  type ProviderConnectionStatus,
+} from "./provider-connection-service.js";
+import { RuntimeProviderError, safeRuntimeError } from "./runtime-errors.js";
 import { RuntimeProviderRegistry } from "./runtime-provider-registry.js";
 import { createRuntimeProviderRegistry } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
@@ -27,6 +33,8 @@ import { WorkspaceManager } from "./workspace.js";
 const now = () => new Date().toISOString();
 const middlewareProviders = new Set(["codex", "claude"]);
 const middlewarePurposes = new Set([
+  "sender_draft",
+  "recipient_answer",
   "plan_intent",
   "implement",
   "status",
@@ -43,6 +51,7 @@ export class AgentService {
   private readonly activeExecutions = new Map<string, Promise<void>>();
   private readonly cancellationRequests = new Set<string>();
   private readonly runtimeProviders: RuntimeProviderRegistry;
+  private readonly providerConnections: ProviderConnectionService;
   private readonly runtimeOptions: AgentServiceRuntimeOptions;
 
   constructor(
@@ -55,6 +64,9 @@ export class AgentService {
   ) {
     this.runtimeProviders =
       runtimeProviders ?? createRuntimeProviderRegistry(config);
+    this.providerConnections = new ProviderConnectionService(
+      this.runtimeProviders,
+    );
     this.runtimeOptions = runtimeOptions;
   }
 
@@ -268,8 +280,39 @@ export class AgentService {
     return this.runtimeProviders.capabilities();
   }
 
+  async providerConnectionStatuses(
+    agentId: string,
+  ): Promise<ProviderConnectionStatus[]> {
+    this.getAgent(agentId);
+    return Promise.all(
+      (["codex", "claude"] as const).map((provider) =>
+        this.providerConnections.inspect(agentId, provider),
+      ),
+    );
+  }
+
+  async probeProviderConnection(
+    agentId: string,
+    provider: AgentProvider,
+    correlationId: string = randomUUID(),
+    onProgress?: RuntimeProgressSink,
+  ): Promise<ProviderConnectionStatus> {
+    const agent = this.getAgent(agentId);
+    return this.providerConnections.probe(
+      {
+        bindingId: agent.id,
+        agentId: agent.id,
+        provider,
+        workspacePath: agent.workspacePath,
+        correlationId,
+      },
+      onProgress,
+    );
+  }
+
   async runMiddlewareTurn<T = unknown>(
     request: MiddlewareRunRequest,
+    onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult<T>> {
     const agent = this.getAgent(request.agentId);
     await this.validateMiddlewareRequest(request, agent);
@@ -305,7 +348,12 @@ export class AgentService {
       return snapshot;
     });
 
-    const execution = this.executeMiddlewareRun<T>(agentAtStart, run, request);
+    const execution = this.executeMiddlewareRun<T>(
+      agentAtStart,
+      run,
+      request,
+      onProgress,
+    );
     const settled = execution.then(
       () => undefined,
       () => undefined,
@@ -317,6 +365,26 @@ export class AgentService {
       if (this.activeExecutions.get(request.agentId) === settled) {
         this.activeExecutions.delete(request.agentId);
       }
+    }
+  }
+
+  /**
+   * Cancels an active managed provider turn without stopping the Agent.
+   * Authorization belongs at the owner-scoped coordinator/transport boundary;
+   * this runtime primitive accepts only the already-bound Agent ID.
+   */
+  async cancelMiddlewareTurn(agentId: string): Promise<boolean> {
+    this.getAgent(agentId);
+    if (!this.activeExecutions.has(agentId)) return false;
+    this.cancellationRequests.add(agentId);
+    try {
+      const cancelled = await this.runtimeProviders.cancel(agentId);
+      if (!cancelled) return false;
+      const execution = this.activeExecutions.get(agentId);
+      if (execution) await execution;
+      return true;
+    } finally {
+      this.cancellationRequests.delete(agentId);
     }
   }
 
@@ -363,6 +431,8 @@ export class AgentService {
     } catch (error) {
       const completedAt = now();
       const cancelled = error instanceof RunCancelledError;
+      const timedOut =
+        error instanceof RuntimeProviderError && error.code === "RUNTIME_TIMEOUT";
       const message = safeRuntimeError(error).message;
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
@@ -374,7 +444,7 @@ export class AgentService {
         }
         if (agent) {
           if (agent.status !== "stopped") {
-            agent.status = cancelled ? "ready" : "error";
+            agent.status = cancelled || timedOut ? "ready" : "error";
           }
           agent.lastError = cancelled ? null : message;
           agent.updatedAt = completedAt;
@@ -387,6 +457,7 @@ export class AgentService {
     agentAtStart: Agent,
     run: AgentRun,
     request: MiddlewareRunRequest,
+    onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult<T>> {
     const lifecycleEvent: MiddlewareLifecycleEvent = {
       agentId: request.agentId,
@@ -407,7 +478,21 @@ export class AgentService {
         throw new RunCancelledError();
       }
       await this.runtimeOptions.lifecycle?.onRunStarted?.(lifecycleEvent);
-      const result = await this.runtimeProviders.run(request);
+      const result = await this.runtimeProviders.run(request, (progress) => {
+        try {
+          this.runtimeOptions.lifecycle?.onRuntimeProgress?.({
+            ...lifecycleEvent,
+            progress,
+          });
+        } catch {
+          // Realtime observers are best-effort and cannot fail the CLI turn.
+        }
+        try {
+          onProgress?.(progress);
+        } catch {
+          // A disconnected caller cannot fail or cancel the CLI turn.
+        }
+      });
       const completedAt = now();
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
@@ -420,7 +505,7 @@ export class AgentService {
           agent.status = "ready";
           if (
             request.provider === "codex" &&
-            request.sessionMode === "continue" &&
+            request.sessionMode !== "ephemeral" &&
             result.sessionId
           ) {
             agent.codexThreadId = result.sessionId;
@@ -429,7 +514,7 @@ export class AgentService {
           agent.updatedAt = completedAt;
         }
       });
-      if (request.sessionMode === "continue" && result.sessionId) {
+      if (request.sessionMode !== "ephemeral" && result.sessionId) {
         await this.runtimeOptions.lifecycle?.onSessionUpdated?.({
           ...lifecycleEvent,
           sessionId: result.sessionId,
@@ -440,6 +525,8 @@ export class AgentService {
     } catch (error) {
       const completedAt = now();
       const cancelled = error instanceof RunCancelledError;
+      const timedOut =
+        error instanceof RuntimeProviderError && error.code === "RUNTIME_TIMEOUT";
       const safeError = safeRuntimeError(error);
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
@@ -451,7 +538,7 @@ export class AgentService {
         }
         if (agent) {
           if (agent.status !== "stopped") {
-            agent.status = cancelled ? "ready" : "error";
+            agent.status = cancelled || timedOut ? "ready" : "error";
           }
           agent.lastError = cancelled ? null : safeError.message;
           agent.updatedAt = completedAt;

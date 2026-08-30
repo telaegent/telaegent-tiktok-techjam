@@ -6,7 +6,10 @@ import {
   parseClaudeStreamLine,
   type ParsedClaudeEvents,
 } from "./claude-code-runner.js";
-import type { MiddlewareRunRequest } from "./runtime-contract.js";
+import type {
+  MiddlewareRunRequest,
+  RuntimeProgressEvent,
+} from "./runtime-contract.js";
 
 const request = (
   overrides: Partial<MiddlewareRunRequest> = {},
@@ -42,9 +45,19 @@ describe("Claude Code runner protocol", () => {
     expect(args).toContain("2");
     expect(args).toContain("plan");
     expect(args).toContain("Read,Glob,Grep");
-    expect(args).toContain("--no-session-persistence");
+    expect(args).toContain("--verbose");
+    expect(args).toContain("--include-partial-messages");
+    expect(args).not.toContain("--no-session-persistence");
     expect(args).not.toContain("--dangerously-skip-permissions");
     expect(args).not.toContain("Return status");
+  });
+
+  it("disables persistence only for an explicitly ephemeral session", () => {
+    const args = buildClaudeArgs(
+      request({ sessionMode: "ephemeral" }),
+      { type: "object" },
+    );
+    expect(args).toContain("--no-session-persistence");
   });
 
   it("resumes only an explicitly continuing session", () => {
@@ -94,6 +107,67 @@ describe("Claude Code runner protocol", () => {
     );
     expect(parsed.sessionId).toBe("session-1");
     expect(extractClaudeFinalResult(parsed)).toEqual({ publicSummary: "Ready" });
+  });
+
+  it("normalizes live Claude session, text, retry, and completion events", () => {
+    const parsed = emptyParsed();
+    const progress: RuntimeProgressEvent[] = [];
+    const emit = (event: RuntimeProgressEvent) => progress.push(event);
+
+    parseClaudeStreamLine(
+      JSON.stringify({ type: "system", subtype: "init", session_id: "session-1" }),
+      parsed,
+      emit,
+    );
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "message_start" },
+      }),
+      parsed,
+      emit,
+    );
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: "Working" },
+        },
+      }),
+      parsed,
+      emit,
+    );
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "system",
+        subtype: "api_retry",
+        attempt: 2,
+        max_retries: 5,
+        retry_delay_ms: 750,
+      }),
+      parsed,
+      emit,
+    );
+    parseClaudeStreamLine(
+      JSON.stringify({ type: "result", structured_output: { state: "ready" } }),
+      parsed,
+      emit,
+    );
+
+    expect(progress).toEqual([
+      { type: "session_started", provider: "claude" },
+      { type: "turn_started", provider: "claude" },
+      { type: "text_delta", provider: "claude", text: "Working" },
+      {
+        type: "retrying",
+        provider: "claude",
+        attempt: 2,
+        maxRetries: 5,
+        retryDelayMs: 750,
+      },
+      { type: "turn_completed", provider: "claude" },
+    ]);
   });
 
   it("rejects invalid stream JSON and missing structured output", () => {

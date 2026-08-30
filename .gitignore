@@ -79,11 +79,9 @@ deploy/volcengine/terraform.tfvars
 *.tfstate.backup
 .terraform/
 
-# ---------------------------------------------------------------------------
-# Local AI coding-assistant instructions and state
-# These stay on each developer's machine and must not be committed.
-# ---------------------------------------------------------------------------
-AGENTS.md
+# Local AI coding-assistant state stays on each developer's machine. The
+# repository-level AGENTS.md is intentionally tracked as canonical project
+# guidance so future coding agents do not revive superseded product plans.
 CLAUDE.md
 .agents/
 .codex/
