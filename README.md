@@ -128,11 +128,11 @@ The five next-phase briefs assign research and design ownership; they are not ir
 
 | Owner | Focus |
 | --- | --- |
-| [Khoa](docs/team/khoa.md) | Local GitHub proof, repository identity, collaborator trust, authorization, and revocation |
-| [Phuong](docs/team/phuong.md) | Local connector, Claude/Codex adapters, sessions, durable memory, and orchestration |
+| [Khoa](docs/team/khoa.md) | Local GitHub proof, repository identity, collaborator trust, authorization, revocation, and capability/file-access policy |
+| [Phuong](docs/team/phuong.md) | Local connector, Claude/Codex adapters, sessions, durable memory, orchestration, and the bounded capability loop |
 | [Thai](docs/team/thai.md) | Cloud deployment, connector networking, storage, cost, and latency |
-| [Duy](docs/team/duy.md) | Product UX from landing through private and shared conversations |
-| [Hien](docs/team/hien.md) | Agent protocol experiments, safety evaluation, and test architecture |
+| [Duy](docs/team/duy.md) | Product UX from landing through private and shared conversations, including scope-expansion approval |
+| [Hien](docs/team/hien.md) | Agent protocol experiments, safety and capability evaluation, and test architecture |
 
 Additional technical evidence and decision records:
 

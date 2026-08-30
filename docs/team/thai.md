@@ -91,6 +91,8 @@ private-draft metadata/status
 provider status
 connector bindings/presence/status
 approvals
+capability grants: task, peer, opaque resource ID, mode, expiry, revocation
+safe resource metadata: language, size, last-modified - never a path
 audit events
 conversation memory summaries
 ```
@@ -113,6 +115,7 @@ Classify:
 - GitHub/provider auth
 - provider session state
 - binding-to-workspace/provider mapping
+- resource-ID-to-local-path registry
 
 ### ephemeral
 - raw CLI streams
@@ -122,6 +125,10 @@ Classify:
 - rejected drafts
 
 Telaegent durable memory must not depend on provider session survival.
+
+Capability grants are cloud-durable so they survive a connector restart and so
+revocation is authoritative; the resource-to-path mapping behind them is not.
+See [canonical build plan section 8](../product/canonical-build-plan.md).
 
 ## 9. Local GitHub connector requirements
 
