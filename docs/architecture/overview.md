@@ -52,6 +52,8 @@ Normalized provider states and recovery behavior are defined in
 - private-draft metadata/status without cross-user visibility
 - exact outbound approval and idempotent send
 - connector/provider status and opaque connector binding IDs
+- task and resource-request routing between connectors
+- safe capability/grant metadata, never the local paths behind it
 - safe audit and correlation IDs
 - compact conversation memory for provider rehydration
 
@@ -64,6 +66,9 @@ Normalized provider states and recovery behavior are defined in
 - bounded repository inspection
 - structured candidate output
 - timeout, cancel, reconnect, and session-loss behavior
+- the local resource registry mapping opaque resource IDs to canonical paths
+- deterministic scope checks and local consent enforcement
+- a local file broker performing every authorized read
 
 ## Conversation state
 
@@ -75,6 +80,43 @@ incoming shared message -> recipient private agent -> recipient approval -> shar
 ```
 
 Only approved content belongs to the shared conversation. Provider sessions are caches; Supabase-backed Telaegent conversation state is durable memory.
+
+## Capability-scoped resource requests
+
+Specified in [canonical build plan section 8](../product/canonical-build-plan.md).
+Design commitment; nothing in `apps/` implements it.
+
+A recipient's agent often needs a file it does not own. The request path keeps
+the cloud out of the decision:
+
+```text
+peer agent requests a resource
+        ↓
+control plane routes the request to the owning connector
+        ↓
+owning connector validates task + peer + resource + grant
+        ↓
+AUTO_ALLOW            HUMAN_REQUIRED            DENY
+        ↓                     ↓
+local file broker      Deny / Allow once / Allow for this task
+        ↓
+bounded content returned
+```
+
+The control plane routes; it never authorizes. The owning connector is the
+reference monitor for its owner's files, and re-checks authorization
+immediately before each read.
+
+Automatic access requires all of: same task, same peer, same exact resource,
+read-only, an unexpired human grant, and safe resolution inside the registered
+project. A mixed request splits — already-approved resources resolve
+immediately while new ones wait for their owner, so the requesting agent is not
+blocked on the whole batch.
+
+A remote peer holds only opaque resource IDs and safe metadata. For a file it
+has never been granted, it may send a bounded project-relative hint such as
+`src/settings.ts` with a reason; that always requires human approval before the
+path is registered or read.
 
 ## GitHub access
 
@@ -89,6 +131,9 @@ Collaborator discovery uses mutual proof: both Telaegent users independently con
 - WebSocket versus long-poll job delivery and reconnect semantics
 - local user x repository workspace/provider-session isolation
 - private-draft retention
+- capability-grant storage, expiry, and revocation semantics
+- resource-ID stability across a task when the underlying file changes
+- follow-up round, request, and byte limits that stay useful without stalling
 - safe repository metadata refresh/branch policy
 - polling versus SSE versus Supabase Realtime
 - measured latency and cost
