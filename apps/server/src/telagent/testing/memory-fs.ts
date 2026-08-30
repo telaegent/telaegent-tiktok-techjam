@@ -157,7 +157,11 @@ export function createMemoryFileSystem(
     async mkdtemp(prefix) {
       record("mkdtemp", prefix);
       tempCounter += 1;
-      const created = prefix + "abc" + String(tempCounter).padStart(3, "0");
+      // Normalised, like every other method here. mkdtemp used to return the
+      // raw concatenation while `list()` returns path.resolve()d keys, so on
+      // Windows the returned root ("\\tmp\\...", no drive) never matched the
+      // stored keys ("C:\\tmp\\...") and callers filtering by prefix saw nothing.
+      const created = normalize(prefix + "abc" + String(tempCounter).padStart(3, "0"));
       addDir(created);
       return created;
     },

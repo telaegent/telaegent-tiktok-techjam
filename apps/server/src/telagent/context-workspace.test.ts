@@ -206,6 +206,18 @@ describe("cleanup", () => {
     ["the temporary root itself", "/tmp/telagent-test"],
     ["a path outside the temporary root", "/ws/phoenix-bob"],
     ["a sibling without the marker prefix", "/tmp/telagent-test/something-else"],
+    // Regression: the guard used to be `root.startsWith(temporaryRoot)`, which
+    // a SIBLING satisfies - "/tmp/telagent-test-evil" starts with
+    // "/tmp/telagent-test" without being inside it - and whose basename here
+    // also carries the marker, so both old checks passed and it was deleted.
+    //
+    // The same string comparison was separator-sensitive, so on Windows a root
+    // built by path.join never matched a temporaryRoot written with forward
+    // slashes: cleanup silently did nothing and an isolated workspace of copied
+    // repository source stayed on disk. That is the bug this row keeps fixed.
+    // It is asserted through the sibling case because a separator mismatch
+    // cannot be reproduced on a POSIX runner.
+    ["a sibling of the temporary root", "/tmp/telagent-test-evil/telagent-ctx-decoy"],
   ])("refuses to delete %s", async (_label, target) => {
     const ports = seed(createInMemoryPorts());
     ports.fs.addFile("/tmp/telagent-test/something-else/keep.txt", "keep me");
