@@ -24,6 +24,12 @@ import {
   registerIdentityRoutes,
   type IdentityRouteDependencies,
 } from "./authentication/routes.js";
+import {
+  connectorAuthenticatedRepositoryProofRoutes,
+  registerRepositoryProofRoutes,
+  type RepositoryProofRouteDependencies,
+} from "./repository-proof/routes.js";
+import { RepositoryProofError } from "./repository-proof/service.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
@@ -59,6 +65,7 @@ export async function createApp(
   telagentService?: TelagentService,
   conversationApi?: ConversationRouteDependencies,
   identityApi?: IdentityRouteDependencies,
+  repositoryProofApi?: RepositoryProofRouteDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -84,7 +91,13 @@ export async function createApp(
       requestPath === "/api/auth" ||
       requestPath.startsWith("/api/auth/") ||
       (conversationApi &&
-        userAuthenticatedConversationRoutes.has(request.routeOptions.url ?? ""))
+        userAuthenticatedConversationRoutes.has(
+          request.routeOptions.url ?? "",
+        )) ||
+      (repositoryProofApi &&
+        connectorAuthenticatedRepositoryProofRoutes.has(
+          request.routeOptions.url ?? "",
+        ))
     ) {
       return;
     }
@@ -129,6 +142,9 @@ export async function createApp(
   if (conversationApi) {
     registerConversationRoutes(app, conversationApi);
   }
+  if (repositoryProofApi) {
+    registerRepositoryProofRoutes(app, repositoryProofApi);
+  }
 
   if (config.nodeEnv === "production") {
     const webRoot = fileURLToPath(new URL("../../web/dist", import.meta.url));
@@ -154,7 +170,10 @@ export async function createApp(
     const policyError = error instanceof MessagePolicyError ? error : null;
     const authorizationError =
       error instanceof PrivateRuntimeAuthorizationError ? error : null;
-    const authenticationError = error instanceof UserAuthenticationError ? error : null;
+    const authenticationError =
+      error instanceof UserAuthenticationError ? error : null;
+    const repositoryProofError =
+      error instanceof RepositoryProofError ? error : null;
     const frameworkStatus =
       typeof (error as { statusCode?: unknown }).statusCode === "number"
         ? (error as { statusCode: number }).statusCode
@@ -164,19 +183,23 @@ export async function createApp(
         ? runtimeError.statusCode
         : authenticationError
           ? authenticationError.statusCode
-        : policyError
-          ? 422
-          : authorizationError
-            ? authorizationError.code === "PRIVATE_RUNTIME_FORBIDDEN"
-              ? 403
-              : 503
-            : error instanceof HttpError
-              ? error.statusCode
-              : validationError
-                ? 400
-                : frameworkStatus && frameworkStatus >= 400 && frameworkStatus <= 599
-                  ? frameworkStatus
-                  : 500;
+          : repositoryProofError
+            ? repositoryProofError.statusCode
+            : policyError
+              ? 422
+              : authorizationError
+                ? authorizationError.code === "PRIVATE_RUNTIME_FORBIDDEN"
+                  ? 403
+                  : 503
+                : error instanceof HttpError
+                  ? error.statusCode
+                  : validationError
+                    ? 400
+                    : frameworkStatus &&
+                        frameworkStatus >= 400 &&
+                        frameworkStatus <= 599
+                      ? frameworkStatus
+                      : 500;
     if (statusCode >= 500) {
       request.log.error(
         {
@@ -190,6 +213,7 @@ export async function createApp(
       error:
         runtimeError?.message ??
         authenticationError?.message ??
+        repositoryProofError?.message ??
         authorizationError?.message ??
         (statusCode >= 500 ? "Internal server error" : appError.message),
       ...(runtimeError
@@ -198,6 +222,7 @@ export async function createApp(
       ...(authenticationError
         ? { code: authenticationError.code, retryable: authenticationError.retryable }
         : {}),
+      ...(repositoryProofError ? { code: repositoryProofError.code } : {}),
       ...(policyError ? { findings: policyError.findings } : {}),
       ...(validationError ? { details: error.issues } : {}),
     });

@@ -24,6 +24,14 @@ package. The cloud bootstrap leaves `ENABLE_LEGACY_LOCAL_PLAYGROUND=0` and must
 not construct those runners. A future package move may relocate them without
 changing this trust boundary.
 
+## Local repository proof seam
+
+The Khoa-owned cloud ingestion/persistence contract is documented in
+[`docs/architecture/local-github-repository-proof-contract.md`](../../../../docs/architecture/local-github-repository-proof-contract.md).
+Its HTTP routes remain unmounted until this connector transport provides a real
+authenticated `ConnectorPrincipalResolver`; the browser session and legacy
+shared API token are deliberately not accepted as connector authentication.
+
 ## Resource requests (design commitment, not built)
 
 [Canonical build plan section 8](../../../../docs/product/canonical-build-plan.md)
