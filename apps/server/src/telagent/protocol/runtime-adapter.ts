@@ -177,6 +177,13 @@ export interface ProtocolHydratorOptions {
    * nothing measured and buys the property that matters here.
    */
   format?: ProtocolFormatId;
+  /**
+   * Called when the loaded context belongs to a different repository than the
+   * scope asked for. Reported rather than thrown, for the reason in the body:
+   * a hydrator that throws turns recoverable session loss into a failed turn.
+   * Khoa's audit layer is the natural home for it.
+   */
+  onScopeMismatch?: (scope: ProviderSessionScope) => void;
 }
 
 /**
@@ -210,6 +217,25 @@ export function createProtocolHydrator(
   ): Promise<ManagedAgentTurnRequest> => {
     const context = await options.load(scope);
     if (context === null) return request;
+
+    // The scope and the context it loaded must agree on which repository this
+    // is. They come from different places — the scope from the session
+    // manager, the facts from the backend's own store — and a mismatch means
+    // one conversation is about to be hydrated with another project's history.
+    //
+    // That is the cross-project boundary the corpus tests at the prompt level,
+    // arriving here as a plumbing bug instead of an attack. Refusing to hydrate
+    // is the safe failure: the turn proceeds with less context, which is the
+    // same degradation as a failed load, rather than with the wrong context,
+    // which nothing downstream could detect.
+    //
+    // Only checkable at all because main renamed the scope key to
+    // `githubRepositoryId`; against the old free-form `repositoryId` there was
+    // no common identifier to compare.
+    if (context.facts.githubRepositoryId !== scope.githubRepositoryId) {
+      options.onScopeMismatch?.(scope);
+      return request;
+    }
 
     const memory = rehydrationContext(context.sharedHistory, context.projectFacts);
     const rendered = getFormat(formatId).render(toTurnInput(context, memory));

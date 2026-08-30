@@ -48,7 +48,14 @@ import {
 
 const SCOPE: ProviderSessionScope = {
   userId: "user-justin",
-  repositoryId: "repo-123",
+  // Renamed and retyped on main: ProviderSessionScope now carries
+  // `githubRepositoryId`, a decimal string validated against
+  // /^[1-9][0-9]{0,19}$/. The old "repo-123" was not a valid GitHub id and the
+  // manager rejected the whole scope. Worth noting the two sides converged
+  // independently — ProjectFacts already keyed on githubRepositoryId, for the
+  // same reason khoa.md gives: the stable numeric id is the real scope key,
+  // because a repository can be renamed.
+  githubRepositoryId: "123",
   conversationId: "conv-1",
   provider: "claude",
 };
@@ -335,6 +342,36 @@ describe("Q12: what happens when provider memory is lost", () => {
 
     expect(result.exitCode).toBe(0);
     expect(runs[0]?.runtimePrompt).toBe("");
+  });
+
+  it("refuses to hydrate a conversation with another project's history", async () => {
+    // A plumbing bug, not an attack: the scope says repository 123, the store
+    // hands back context for 999. Nothing downstream could detect that the
+    // wrong project's conversation had been injected, so the hydrator declines
+    // and the turn proceeds with less context rather than wrong context.
+    const { runtime, runs } = recordingRuntime();
+    const store = new InMemoryProviderSessionStore();
+    const mismatches: string[] = [];
+
+    const manager = new ProviderSessionManager(
+      runtime,
+      store,
+      createProtocolHydrator({
+        load: async () =>
+          durableContext({
+            facts: { ...FACTS, githubRepositoryId: "999" },
+          }),
+        onScopeMismatch: (scope) => mismatches.push(scope.githubRepositoryId),
+      }),
+    );
+
+    const result = await manager.run(SCOPE, baseRequest());
+
+    expect(mismatches).toEqual(["123"]);
+    expect(runs[0]?.runtimePrompt).toBe("");
+    expect(runs[0]?.runtimePrompt).not.toContain(PROJECT_CONSTANT);
+    // Reported, not thrown: the turn still completes.
+    expect(result.exitCode).toBe(0);
   });
 
   it("recovery never fabricates a session id", async () => {
