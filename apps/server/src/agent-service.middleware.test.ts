@@ -247,10 +247,13 @@ describe("AgentService middleware turns", () => {
     const active = service.runMiddlewareTurn(
       middlewareRequest(agent.id, agent.workspacePath),
     );
+    // Attach the rejection handler before cancellation can synchronously reject
+    // the provider promise, avoiding an unhandled-rejection race in Vitest.
+    const activeExpectation = expect(active).rejects.toBeInstanceOf(RunCancelledError);
     await expect.poll(() => service.getAgent(agent.id).status).toBe("busy");
 
     await expect(service.cancelMiddlewareTurn(agent.id)).resolves.toBe(true);
-    await expect(active).rejects.toBeInstanceOf(RunCancelledError);
+    await activeExpectation;
     expect(service.getAgent(agent.id).status).toBe("ready");
     expect(service.getRuns(agent.id)[0]).toMatchObject({
       status: "cancelled",

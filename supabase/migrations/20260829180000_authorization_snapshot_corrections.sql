@@ -217,13 +217,6 @@ as $$
         'githubRepositoryId', rb.github_repository_id::text,
         'status',             rb.status
       )
-      -- workspacePath is present only for ready bindings; the domain type
-      -- forbids the key entirely in every other state.
-      || case
-           when rb.status = 'ready'
-             then jsonb_build_object('workspacePath', rb.workspace_path)
-           else '{}'::jsonb
-         end
       from public.runtime_bindings rb
       join project p on p.project_id = rb.project_id
       where rb.user_id = p_user_id

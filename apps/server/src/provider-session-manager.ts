@@ -55,7 +55,9 @@ const validScopePart = /^[^\u0000\r\n]{1,256}$/;
 const validSessionId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
 /**
- * Owns provider session references behind Telaegent's product scope.
+ * Connector-side/local adapter that owns provider session references behind
+ * Telaegent's product scope. Provider session IDs must never cross into a
+ * cloud connector job or cloud persistence.
  *
  * Provider sessions are an optimization only. Callers provide canonical
  * Telaegent conversation context through `rehydrate`; a missing provider

@@ -1,7 +1,12 @@
 # Azure GitHub Authentication Proof
 
+> [!WARNING]
+> Superseded research only. The canonical Telaegent architecture runs GitHub
+> CLI and repositories locally through the developer's outbound connector.
+> Do not deploy or extend this package as product infrastructure.
+
 This package reproduces the validated GitHub CLI device-authentication flow on
-a short-lived Azure Ubuntu VM. It is deliberately an experiment, not the final
+a short-lived Azure Ubuntu VM. It is deliberately preserved evidence, not the
 Telaegent runtime architecture.
 
 ## Ownership boundary
@@ -200,4 +205,3 @@ Record only safe evidence:
 
 Never copy raw Azure/GitHub tokens, `.azure` caches, `hosts.yml`, SSH private
 keys, repository source, or hidden provider state into documentation or chat.
-

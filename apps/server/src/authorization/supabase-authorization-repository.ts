@@ -107,7 +107,6 @@ const readyRuntimeBindingSchema = z.strictObject({
   projectId: identifierSchema,
   githubRepositoryId: githubRepositoryIdSchema,
   status: z.literal("ready"),
-  workspacePath: boundedTextSchema,
 });
 const unavailableRuntimeBindingSchema = z.strictObject({
   runtimeBindingId: identifierSchema,

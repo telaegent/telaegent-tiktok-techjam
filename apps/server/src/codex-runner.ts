@@ -8,7 +8,7 @@ import { RunCancelledError } from "./errors.js";
 import type {
   JsonSchemaDocument,
   MiddlewareProviderRunner,
-  MiddlewareRunRequest,
+  LocalMiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeProviderCapability,
   RuntimeActivity,
@@ -106,7 +106,7 @@ export function buildCodexArgs(
 }
 
 export function buildCodexMiddlewareArgs(
-  request: MiddlewareRunRequest,
+  request: LocalMiddlewareRunRequest,
   outputSchemaPath: string,
   workspacePath = request.workspacePath,
 ): string[] {
@@ -289,7 +289,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
   }
 
   async runStructured(
-    request: MiddlewareRunRequest,
+    request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
     onProgress?: RuntimeProgressSink,
   ): Promise<NormalizedRunResult> {

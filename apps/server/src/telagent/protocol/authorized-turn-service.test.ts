@@ -33,7 +33,6 @@ const AUTHORIZATION: AuthorizePrivateRuntimeInput = {
   githubRepositoryId: "123",
   conversationId: "conv-1",
 };
-const BOUND_WORKSPACE = "/srv/telaegent/runtimes/user-justin/123";
 const POLICY: AuthorizedPrivateRuntimeTurnPolicy = {
   maxTurns: 3,
   maximumRuntimePromptBytes: 1_048_576,
@@ -79,7 +78,6 @@ function fakeAuthorizer(revoked = false): PrivateRuntimeAuthorizer {
         userId: input.authenticatedUserId,
         githubRepositoryId: input.githubRepositoryId,
         runtimeBindingId: "binding-1",
-        workspacePath: BOUND_WORKSPACE,
       };
     },
   };
@@ -153,7 +151,8 @@ describe("AuthorizedProtocolTurnService", () => {
       expect(runs).toHaveLength(1);
       expect(runs[0]).toMatchObject({
         purpose: role === "sender" ? "sender_draft" : "recipient_answer",
-        workspacePath: BOUND_WORKSPACE,
+        // Cloud-facing requests remain path-free; the local connector resolves
+        // its workspace from the opaque binding.
         agentId: "binding-1",
         sandboxMode: "read-only",
         networkMode: "none",

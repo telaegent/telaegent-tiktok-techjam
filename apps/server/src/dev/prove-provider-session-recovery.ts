@@ -16,6 +16,7 @@ import type {
   JsonSchemaDocument,
   MiddlewareProviderRunner,
   MiddlewareRunRequest,
+  LocalMiddlewareRunRequest,
   RuntimeProgressEvent,
   RuntimeProgressSink,
 } from "../runtime-contract.js";
@@ -108,7 +109,14 @@ const runtime = {
   async run(request: MiddlewareRunRequest, onProgress?: RuntimeProgressSink) {
     attemptModes.push(request.sessionMode);
     try {
-      return await runner.runStructured(request, recoverySchema, onProgress);
+      if (!request.workspacePath) {
+        throw new Error("Local recovery demo workspace is not resolved");
+      }
+      const localRequest: LocalMiddlewareRunRequest = {
+        ...request,
+        workspacePath: request.workspacePath,
+      };
+      return await runner.runStructured(localRequest, recoverySchema, onProgress);
     } catch (error) {
       if (error instanceof RuntimeProviderError) failureCodes.push(error.code);
       throw error;

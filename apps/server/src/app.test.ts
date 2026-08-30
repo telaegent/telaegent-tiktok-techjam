@@ -10,6 +10,23 @@ const service = {
 } as unknown as AgentService;
 
 describe("HTTP boundary", () => {
+  it("serves the control plane without a legacy Playground service", async () => {
+    // Production boots with ENABLE_LEGACY_LOCAL_PLAYGROUND unset, so the server
+    // must stay healthy while owning no agent runner and no workspace.
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), undefined);
+
+    const health = await app.inject({ method: "GET", url: "/api/health" });
+    expect(health.statusCode).toBe(200);
+    expect(health.json()).toMatchObject({
+      ok: true,
+      service: "telaegent-control-plane",
+    });
+
+    const playground = await app.inject({ method: "GET", url: "/api/agents" });
+    expect(playground.statusCode).toBe(404);
+    await app.close();
+  });
+
   it("protects API routes with the configured shared token", async () => {
     const app = await createApp(
       loadConfig({ NODE_ENV: "test", APP_AUTH_TOKEN: "a-strong-test-token" }),

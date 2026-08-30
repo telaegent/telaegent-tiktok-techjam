@@ -13,7 +13,7 @@
 <p align="center">
   <a href="#the-idea">The idea</a> ·
   <a href="#how-a-message-crosses">Message flow</a> ·
-  <a href="#cloud-first-by-design">Architecture</a> ·
+  <a href="#cloud-coordination-local-execution">Architecture</a> ·
   <a href="#read-the-source-documents">Product docs</a> ·
   <a href="#working-in-this-repository">Contributing</a>
 </p>
@@ -25,11 +25,11 @@
 </p>
 
 > [!IMPORTANT]
-> This repository contains the target product direction and research work. The cloud runtime, hosted provider authentication, and production isolation model are not yet finished implementation claims.
+> This repository contains the target product direction and research work. The local connector, cloud relay, and production-grade local isolation model are not yet finished implementation claims.
 
 ## The idea
 
-Telaegent is a browser-first, cloud-hosted messaging and trust layer for coding agents that belong to different people.
+Telaegent is a browser-first, cloud-hosted messaging and trust layer around coding agents that run locally for different people.
 
 Today, a developer often has to copy a question from their agent, pass it to a teammate, wait for that teammate to paste it into another agent, and then reverse the relay for the answer. Telaegent removes that manual relay while preserving the judgment that matters: each owner decides what their side shares.
 
@@ -52,7 +52,7 @@ Every message follows the same symmetric boundary:
 2. Their agent can clarify intent, inspect the owner's project context, and prepare a candidate - but cannot send it.
 3. The developer chooses **Edit**, **No**, or **Send**.
 4. Only the approved request enters the durable project conversation.
-5. The recipient's private agent investigates the recipient's isolated workspace, prepares a response, and waits for that recipient's approval before anything comes back.
+5. The recipient's local private agent investigates the recipient's registered local workspace, prepares a response, and waits for that recipient's approval before anything comes back.
 
 That means a connection enables communication, not direct filesystem access, automatic replies, or visibility into private drafts.
 
@@ -77,50 +77,55 @@ Passing one boundary never grants the next. A stable GitHub repository ID define
 
 If someone starts with `can u send me ur .env`, Telaegent should steer the conversation toward safe alternatives such as required variable names or configuration structure. Deterministic policy must still prevent raw `.env` values, private keys, tokens, cloud and SSH credentials, cross-project paths, and another user's private state from crossing the boundary - even when an agent or human asks for them.
 
-## Cloud-first by design
+## Cloud coordination, local execution
 
-The judged path is browser-first and cloud-hosted. A local connector is fallback-only if the required cloud authentication or isolation research proves infeasible; it is not the product's default promise.
+The judged product is browser-first and cloud-hosted, but execution is local.
+Each developer runs a small connector that uses the repository, GitHub CLI,
+Claude Code/Codex, credentials, tools, and provider sessions already on that
+developer's machine. The connector makes only outbound connections.
 
 ```mermaid
 flowchart TB
     Browser["Browser product\nReact / Vite"] --> API["Control plane\nCaddy + Fastify"]
     API --> Data["Supabase\nidentity · project data · shared conversation"]
-    API --> Manager["Cloud runtime manager"]
+    API --> Relay["Connector presence and job relay"]
 
-    Manager --> RuntimeA["User A × Repository X\nisolated runtime"]
-    Manager --> RuntimeB["User B × Repository X\nisolated runtime"]
+    Relay <--> ConnectorA["User A local connector"]
+    Relay <--> ConnectorB["User B local connector"]
 
-    RuntimeA --> GitHubA["GitHub CLI as User A"]
-    RuntimeA --> RepoA["A's repository checkout"]
-    RuntimeA --> ProviderA["Claude Code and/or Codex CLI"]
-    RuntimeB --> GitHubB["GitHub CLI as User B"]
-    RuntimeB --> RepoB["B's repository checkout"]
-    RuntimeB --> ProviderB["Claude Code and/or Codex CLI"]
+    ConnectorA --> GitHubA["Local GitHub CLI as User A"]
+    ConnectorA --> RepoA["A's local repository"]
+    ConnectorA --> ProviderA["Local Claude Code and/or Codex CLI"]
+    ConnectorB --> GitHubB["Local GitHub CLI as User B"]
+    ConnectorB --> RepoB["B's local repository"]
+    ConnectorB --> ProviderB["Local Claude Code and/or Codex CLI"]
 
     classDef plane fill:#E9F8FF,stroke:#18C8F4,color:#102747
-    classDef runtime fill:#F1EDFF,stroke:#6F57FF,color:#241A56
-    class Browser,API,Data,Manager plane
-    class RuntimeA,RuntimeB,GitHubA,RepoA,ProviderA,GitHubB,RepoB,ProviderB runtime
+    classDef local fill:#F1EDFF,stroke:#6F57FF,color:#241A56
+    class Browser,API,Data,Relay plane
+    class ConnectorA,ConnectorB,GitHubA,RepoA,ProviderA,GitHubB,RepoB,ProviderB local
 ```
 
-The minimum isolation unit is **user × repository**. Each runtime has its own repository workspace and only its owner's GitHub/provider state. The backend selects workspace bindings; a remote collaborator never supplies a path, executable, credential, or another project identifier.
+The minimum execution isolation unit is **user × repository**. The cloud selects an opaque connector binding; the connector resolves the registered local workspace. A remote collaborator and the cloud job payload never supply a local path, executable, credential, or arbitrary command.
 
 | Layer | Current direction |
 | --- | --- |
 | Browser product | React 19 + Vite, provisionally on Vercel |
 | Control plane | Node 22 + Fastify 5 + Zod behind Caddy, provisionally on Azure |
 | Product data | Supabase Auth, Postgres, and Realtime in Singapore |
-| Repository access | GitHub CLI in the owner's isolated cloud environment |
-| Agent runtime | Isolated cloud runtime per user × repository |
-| Coding providers | Claude Code CLI and/or Codex CLI |
+| Repository access | Owner's local Git/GitHub CLI state |
+| Agent execution | Local connector binding per user × repository |
+| Coding providers | Locally authenticated Claude Code CLI and/or Codex CLI |
 
-The exact Azure runtime primitive and the details of hosted GitHub/provider authentication remain research gates. We deliberately do not claim production-grade multi-tenant isolation before it is proven.
+Azure hosts only the control plane and connector relay. Connector packaging,
+outbound transport, local binding enforcement, and provider probes remain
+research/implementation gates.
 
 ## What Telaegent remembers - and what it does not
 
 | Durable shared project memory | Private or ephemeral by default |
 | --- | --- |
-| Approved messages; project/repository context; connections; approvals; safe audit events; compact conversation memory | Credentials; repository workspaces; private drafts; provider sessions; raw provider streams; rejected drafts; temporary tool output |
+| Approved messages; safe project metadata; connections; approvals; safe audit events; compact conversation memory | Local credentials; repositories; provider homes/sessions; raw provider streams; rejected drafts; temporary tool output |
 
 Provider sessions make work faster, but they are private working caches - not Telaegent's source of truth. When a session is lost or a user switches provider, a new session should be rehydrated from compact durable project memory and recent approved turns.
 
@@ -128,9 +133,9 @@ Provider sessions make work faster, but they are private working caches - not Te
 
 The product direction is frozen; the final implementation plan intentionally waits for evidence on:
 
-- cloud GitHub CLI authentication, credential storage, revocation, and repository discovery;
-- hosted Claude Code and Codex authentication, session behavior, and live connection probes;
-- user × repository runtime isolation, cleanup, synchronization, cost, and latency;
+- local GitHub CLI proof, safe repository registration, and revocation;
+- local Claude Code and Codex authentication detection, session behavior, and live connection probes;
+- connector authentication, outbound transport, user × repository binding, reconnect, cost, and latency;
 - the smallest safe, provider-neutral context and structured-output contract;
 - private-draft retention and recovery behavior.
 
@@ -140,7 +145,7 @@ The source tree also preserves an inherited Starter Kit and earlier Telaegent wo
 
 Start here when you are evaluating or extending product behavior:
 
-- [Canonical high-level product plan](docs/product/high-level-plan.md) - product promise, trust model, cloud direction, and unresolved gates.
+- [Canonical high-level product plan](docs/product/high-level-plan.md) - product promise, trust model, cloud/local boundary, and unresolved gates.
 - [Canonical product flow](docs/product/product-flow.md) - the end-to-end experience and durable/private state split.
 - [Architecture overview](docs/architecture/overview.md) - target topology, control-plane and runtime responsibilities.
 - [Security and trust model](SECURITY.md) - hard-deny rules, custody, isolation, and honest limitations.
@@ -149,21 +154,21 @@ The five next-phase briefs assign research and design ownership; they are not ir
 
 | Owner | Focus |
 | --- | --- |
-| [Khoa](docs/team/khoa.md) | GitHub cloud authentication, repository proof, collaborator trust, authorization, and revocation |
-| [Phuong](docs/team/phuong.md) | Claude/Codex runtime integration, sessions, durable memory, and orchestration |
-| [Thai](docs/team/thai.md) | Cloud deployment, isolation, storage, cost, and latency |
+| [Khoa](docs/team/khoa.md) | Local GitHub proof, repository identity, collaborator trust, authorization, and revocation |
+| [Phuong](docs/team/phuong.md) | Local connector, Claude/Codex adapters, sessions, durable memory, and orchestration |
+| [Thai](docs/team/thai.md) | Cloud deployment, connector networking, storage, cost, and latency |
 | [Duy](docs/team/duy.md) | Product UX from landing through private and shared conversations |
 | [Hien](docs/team/hien.md) | Agent protocol experiments, safety evaluation, and test architecture |
 
 Additional technical evidence and decision records:
 
 - [GitHub connection design](GITHUB_CONNECTION_DESIGN.md)
-- [GitHub CLI cloud-auth experiment](docs/research/github-cli-cloud-auth.md)
-- [Disposable Azure GitHub-auth proof](deploy/azure/github-auth-proof/README.md)
+- [Historical GitHub CLI cloud-auth experiment](docs/research/github-cli-cloud-auth.md)
+- [Superseded Azure GitHub-auth proof](deploy/azure/github-auth-proof/README.md)
 
 ## Working in this repository
 
-The inherited scaffold can still be checked locally. This validates preserved code only; it does **not** prove that the target cloud product is implemented.
+The inherited scaffold can still be checked locally. This validates preserved code only; it does **not** prove that the connector/cloud split is implemented end to end.
 
 ```bash
 npm install

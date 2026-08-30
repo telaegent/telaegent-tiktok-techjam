@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Legacy inherited Starter Kit Playground, kept for local maintenance only.
+# It runs the provider inside a container on this machine and therefore needs
+# ENABLE_LEGACY_LOCAL_PLAYGROUND=1; the canonical Telaegent control plane does
+# not launch providers and does not use this script.
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -150,6 +154,8 @@ export HOST="${HOST:-127.0.0.1}"
 export PORT="${PORT:-3000}"
 export CODEX_SANDBOX_MODE="$codex_sandbox_mode"
 export RUNTIME_PROVIDER=container
+# Without this the server boots as a pure control plane and /api/agents is 404.
+export ENABLE_LEGACY_LOCAL_PLAYGROUND=1
 export CONTAINER_ENGINE="$engine"
 export CONTAINER_RUNTIME_IMAGE="$runtime_image"
 

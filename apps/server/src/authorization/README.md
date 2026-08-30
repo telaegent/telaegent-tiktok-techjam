@@ -1,7 +1,7 @@
 # Authorization module
 
-This directory is the canonical product-authorization seam for the cloud
-Telaegent architecture. It is separate from the preserved Telagent
+This directory is the canonical product-authorization seam between the cloud
+control plane and outbound local connectors. It is separate from the preserved Telagent
 Phoenix/conflict workflow under `src/telagent/`.
 
 Current scope:
@@ -38,11 +38,11 @@ PrivateRuntimeAuthorizationRepository (one consistent, bounded read)
 authorization service cross-checks every scope, state, and revocation
                     |
                     v
-AuthorizedPrivateRuntime
+authorized opaque connector binding
                     |
                     v
 authorized private-turn starter
-  - binding ID and workspace from authorization only
+  - binding ID from authorization only; no local path in cloud state/job
   - read-only sandbox, no network, bounded turns
                     |
                     v
@@ -59,7 +59,8 @@ provider session manager / owner-scoped private progress stream
   transactional RPC/schema.
 - Khoa owns the backend RPC client configuration, transport safety, strict DTO
   mapping, and authorization policy above that RPC.
-- Phuong consumes only a successful `AuthorizedPrivateRuntime` result.
+- Phuong consumes only a successful opaque binding result and dispatches a
+  bounded job to the owning local connector.
 - Duy consumes later HTTP/realtime APIs and never receives a workspace path.
 
 ## Invariants retained by this contract
@@ -70,12 +71,13 @@ provider session manager / owner-scoped private progress stream
   signed `BIGINT` range and is never parsed into a JavaScript number.
 - GitHub access, project membership, collaborator connection, and message
   approval remain separate permissions.
-- A runtime binding belongs to exactly one user and one project/repository.
-- Only a ready runtime binding exposes its server-controlled workspace path.
+- A runtime binding belongs to exactly one user and one project/repository and
+  represents an opaque local connector registration.
+- No binding or authorization DTO exposes a local workspace path.
 - Credentials and credential references are not part of authorization-domain
   projections.
 - Repository adapters load facts; they do not decide authorization.
-- Browser/untyped input cannot select a runtime ID, workspace, sandbox,
+- Browser/untyped input cannot select a binding ID, local workspace, sandbox,
   network mode, provider session ID, or turn budget.
 
 ## Security behavior
@@ -88,22 +90,21 @@ provider session manager / owner-scoped private progress stream
 - active repository project and active user membership;
 - active conversation in the same project with unique, bounded participants;
 - one connected project relationship from the user to every other participant;
-- ready runtime binding owned by the same user and project/repository;
-- existing workspace whose real path is a child of the configured runtime root.
+- ready connector binding owned by the same user and project/repository.
 
 The repository is read again for every private turn. Do not cache an allow
 decision across turns because GitHub access, membership, connections, and
 runtime bindings are revocable. Authorization is also repeated after the
-provider-session queue and immediately before CLI execution. This closes the
+job queue and immediately before connector dispatch. This closes the
 window where a turn was allowed, waited behind another turn, and could
-otherwise run after revocation. If its binding or workspace rotated while
+otherwise run after revocation. If its binding rotated while
 queued, the stale request fails closed and must be retried. Denials have one
 public message; internal reason codes are non-enumerable and must remain
 server-side.
 
-Realpath containment closes ordinary traversal and symlink escapes. The
-runtime launcher must still mount/open the authorized workspace in the same
-isolation boundary to avoid a filesystem time-of-check/time-of-use race.
+Realpath containment is a connector-side responsibility after it resolves the
+opaque binding to its private local workspace mapping. The cloud must never
+receive or validate that path.
 
 The private-turn starter accepts only a backend-prepared prompt and durable
 summary plus the requested provider and authorization scope. It reconstructs
@@ -155,4 +156,4 @@ IDs, or unrelated rows. Recommended indexes/constraints:
 - indexed project-connection lookup by project and both participant IDs.
 
 RLS remains defense in depth. The browser must not query runtime bindings or
-workspace metadata directly; this service runs in the trusted backend.
+connector metadata directly; this service runs in the trusted backend.

@@ -15,7 +15,7 @@ import { RunCancelledError } from "./errors.js";
 import type {
   JsonSchemaDocument,
   MiddlewareProviderRunner,
-  MiddlewareRunRequest,
+  LocalMiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeProviderCapability,
 } from "./runtime-contract.js";
@@ -38,7 +38,7 @@ interface ActiveContainer {
 }
 
 export function buildContainerMiddlewareRunArgs(
-  request: MiddlewareRunRequest,
+  request: LocalMiddlewareRunRequest,
   config: AppConfig,
   hostSchemaPath: string,
 ): string[] {
@@ -139,7 +139,7 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
   }
 
   async runStructured(
-    request: MiddlewareRunRequest,
+    request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
   ): Promise<NormalizedRunResult> {
     if (!isArkConfigured(this.config)) {

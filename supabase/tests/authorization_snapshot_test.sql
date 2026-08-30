@@ -109,10 +109,10 @@ insert into public.conversation_participants (conversation_id, project_id, user_
   ('0c000003-0000-4000-8000-000000000003', '0a111111-0000-4000-8000-000000000001', 'ffffffff-0000-4000-8000-000000000005');
 
 insert into public.runtime_bindings
-  (runtime_binding_id, user_id, project_id, github_repository_id, status, workspace_path)
+  (runtime_binding_id, user_id, project_id, github_repository_id, status)
 values
   ('0d000001-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001',
-   '0a111111-0000-4000-8000-000000000001', 1001, 'ready', '/srv/connector-a/repo');
+   '0a111111-0000-4000-8000-000000000001', 1001, 'ready');
 
 -- ---------------------------------------------------------------------------
 -- T1  Two-person conversation with an unrelated third connection present
@@ -147,9 +147,9 @@ begin
     raise exception 'T1 FAILED: unexpected counterparty %', counterparty;
   end if;
 
-  -- The runtime binding is ready, so workspacePath must be present.
-  if not (snapshot -> 'runtimeBinding' ? 'workspacePath') then
-    raise exception 'T1 FAILED: ready binding is missing workspacePath';
+  -- Cloud state must never contain the connector's local workspace path.
+  if snapshot -> 'runtimeBinding' ? 'workspacePath' then
+    raise exception 'T1 FAILED: binding leaked workspacePath';
   end if;
 
   -- Repository identifiers must be decimal text, never JSON numbers.
@@ -279,9 +279,9 @@ do $$
 begin
   begin
     insert into public.runtime_bindings
-      (user_id, project_id, github_repository_id, status, workspace_path)
+      (user_id, project_id, github_repository_id, status)
     values ('99999999-0000-4000-8000-000000000006',
-            '0a111111-0000-4000-8000-000000000001', 1001, 'provisioning', null);
+            '0a111111-0000-4000-8000-000000000001', 1001, 'provisioning');
     raise exception 'T6 FAILED: binding without membership was accepted';
   exception when foreign_key_violation then
     null;

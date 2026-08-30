@@ -1,5 +1,5 @@
 /**
- * Canonical authorization-domain types for the cloud Telaegent product.
+ * Canonical authorization-domain types for the Telaegent cloud control plane.
  *
  * These records are deliberately independent of Supabase row shapes, HTTP
  * request bodies, and the preserved legacy Telagent conflict workflow. An
@@ -130,18 +130,15 @@ interface RuntimeBindingBase {
 }
 
 /**
- * Only a ready binding exposes a workspace path. This prevents callers from
- * accidentally launching a provider against a stale, revoked, or partially
- * provisioned workspace.
+ * Cloud projection of an opaque local connector binding. Local workspace,
+ * provider-home, credential, and session details intentionally never appear.
  */
 export type RuntimeBinding =
   | (RuntimeBindingBase & {
       status: "ready";
-      workspacePath: string;
     })
   | (RuntimeBindingBase & {
       status: "provisioning" | "stopped" | "unavailable" | "revoked";
-      workspacePath?: never;
     });
 
 /**
@@ -155,13 +152,12 @@ export interface AuthorizePrivateRuntimeInput {
 }
 
 /**
- * Internal result consumed by Phuong's provider runtime layer. It must never be
- * serialized directly to the browser because `workspacePath` is private
- * runtime metadata.
+ * Internal result consumed by connector job dispatch. `runtimeBindingId` is an
+ * opaque cloud identifier whose path/provider mapping exists only on the
+ * owning developer's local connector.
  */
 export interface AuthorizedPrivateRuntime {
   userId: UserId;
   githubRepositoryId: GitHubRepositoryId;
-  workspacePath: string;
   runtimeBindingId: RuntimeBindingId;
 }

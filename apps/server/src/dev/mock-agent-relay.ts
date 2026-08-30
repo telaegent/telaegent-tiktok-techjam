@@ -14,7 +14,7 @@ import type {
   AgentProvider,
   JsonSchemaDocument,
   MiddlewareProviderRunner,
-  MiddlewareRunRequest,
+  LocalMiddlewareRunRequest,
   RuntimeProgressEvent,
 } from "../runtime-contract.js";
 
@@ -67,7 +67,7 @@ function cliEndpoint(options: {
   return {
     provider: options.provider,
     async runTurn(turn, onProgress) {
-      const request: MiddlewareRunRequest = {
+      const request: LocalMiddlewareRunRequest = {
         agentId: `mock-${options.provider}`,
         provider: options.provider,
         purpose:

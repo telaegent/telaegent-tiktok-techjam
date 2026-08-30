@@ -3,7 +3,10 @@
 ## Canonical product direction
 
 The product is **Telaegent**, a cloud-first, project-scoped messaging and trust
-layer between independently owned coding agents.
+layer between independently owned coding agents. Cloud-first describes the
+product and coordination plane, not provider execution: GitHub CLI, Claude
+Code, Codex, repositories, credentials, and provider sessions stay local on
+each developer's machine and are reached through an outbound connector.
 
 Before changing product behavior, architecture, API contracts, runtime
 integration, security policy, UX, demo flow, or implementation plans, read:
@@ -35,17 +38,21 @@ claim.
 
 ## Non-negotiable product principles
 
-- The judged path is browser-first and cloud-hosted. A local connector is
-  fallback-only.
+- The judged product is browser-first and cloud-hosted, with a required local
+  connector for repository and provider execution.
 - A stable GitHub repository ID is the project boundary.
 - Collaborator connections are project-scoped, accepted once, revocable, and
   do not grant direct repository or runtime access.
 - Every cross-user message is prepared privately and crosses only after the
   owning human chooses `Send`; editing or rejecting must remain possible.
-- Claude Code and Codex run as real provider CLIs in isolated cloud runtimes.
+- GitHub CLI, Claude Code, Codex, repositories, credentials, tools, and
+  provider sessions run locally on each developer's machine. Telaegent cloud
+  must never launch them or store their credentials.
 - Telaegent's approved shared project conversation is durable memory; provider
   sessions are private working caches.
-- The minimum runtime isolation unit is user x repository.
+- The minimum local execution isolation unit is user x repository. The cloud
+  stores only an opaque connector binding and safe repository/runtime status;
+  local paths are resolved and enforced by the connector.
 - Obvious secrets, credentials, cross-project paths, and another user's private
   state remain backend-enforced denials even if an agent or human requests them.
 
@@ -63,8 +70,9 @@ new project messaging model is implemented.
 
 ## Current research ownership
 
-Khoa and Phuong co-own the backend. Khoa owns GitHub cloud authentication,
+Khoa and Phuong co-own the backend. Khoa owns local GitHub authentication,
 repository discovery and proof of access, project-scoped collaborator trust,
 authorization, and revocation. Phuong owns provider runtimes, sessions,
-conversation orchestration, and durable Telaegent memory. Their shared data and
-API contracts must be agreed before broad implementation.
+the local connector, conversation orchestration, and durable Telaegent memory.
+Their shared connector/cloud data and API contracts must be agreed before broad
+implementation.

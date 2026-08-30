@@ -10,7 +10,6 @@ import {
   type PrivateRuntimeAuthorizationReadOptions,
   type PrivateRuntimeAuthorizationRepository,
   type PrivateRuntimeAuthorizationSnapshot,
-  type WorkspaceBoundary,
 } from "./index.js";
 
 const now = new Date("2026-08-30T12:00:00.000Z");
@@ -77,7 +76,6 @@ function validSnapshot(): PrivateRuntimeAuthorizationSnapshot {
       projectId: "project-1",
       githubRepositoryId: "1345851083",
       status: "ready",
-      workspacePath: "/srv/telaegent/user-1/1345851083",
     },
   };
 }
@@ -102,19 +100,11 @@ class SnapshotRepository implements PrivateRuntimeAuthorizationRepository {
   }
 }
 
-const allowWorkspace: WorkspaceBoundary = {
-  async contains() {
-    return true;
-  },
-};
-
 function service(
   repository: PrivateRuntimeAuthorizationRepository,
-  workspaceBoundary: WorkspaceBoundary = allowWorkspace,
 ): PrivateRuntimeAuthorizationService {
   return new PrivateRuntimeAuthorizationService(
     repository,
-    workspaceBoundary,
     {
       repositoryAccessMaxAgeMs: 5 * 60_000,
       repositoryReadTimeoutMs: 100,
@@ -142,7 +132,6 @@ describe("PrivateRuntimeAuthorizationService", () => {
     await expect(service(repository).authorizePrivateRuntime(input)).resolves.toEqual({
       userId: "user-1",
       githubRepositoryId: "1345851083",
-      workspacePath: "/srv/telaegent/user-1/1345851083",
       runtimeBindingId: "runtime-binding-1",
     });
     expect(repository.calls).toBe(1);
@@ -262,7 +251,7 @@ describe("PrivateRuntimeAuthorizationService", () => {
     vi.useRealTimers();
   });
 
-  it("does not expose repository or workspace details in errors", async () => {
+  it("does not expose repository or local details in errors", async () => {
     const repository: PrivateRuntimeAuthorizationRepository = {
       async loadPrivateRuntimeAuthorizationSnapshot() {
         throw new Error("database leaked /srv/private and token ghp_example");
@@ -279,33 +268,9 @@ describe("PrivateRuntimeAuthorizationService", () => {
     expect(JSON.stringify(error)).not.toContain("repository_read_failed");
   });
 
-  it("denies a workspace rejected by the server boundary", async () => {
-    await expectForbidden(
-      service(new SnapshotRepository(), {
-        async contains() {
-          return false;
-        },
-      }).authorizePrivateRuntime(input),
-      "workspace_outside_boundary",
-    );
-  });
-
-  it("normalizes an unexpected workspace-boundary failure", async () => {
-    await expect(
-      service(new SnapshotRepository(), {
-        async contains() {
-          throw new Error("private path /srv/telaegent/user-1");
-        },
-      }).authorizePrivateRuntime(input),
-    ).rejects.toMatchObject({
-      code: "PRIVATE_RUNTIME_AUTHORIZATION_UNAVAILABLE",
-      reason: "workspace_boundary_failed",
-      message: "Private runtime authorization is temporarily unavailable",
-    });
-  });
 });
 
-describe("RealpathWorkspaceBoundary", () => {
+describe("connector-side RealpathWorkspaceBoundary", () => {
   const temporaryRoots: string[] = [];
 
   afterEach(async () => {

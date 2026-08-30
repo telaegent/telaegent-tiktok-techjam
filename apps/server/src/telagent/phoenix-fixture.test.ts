@@ -328,10 +328,11 @@ describe("the fixture fits the canonical demo scope", () => {
       "tests/auth/**",
     ]);
     if (!approved.ok) throw new Error("demo rules must normalize");
+    const canonicalRoot = await nodeFileSystemPort.realpath(bob.value.workspacePath);
 
     const enumerated = await enumerateApprovedSources(
       approved.value,
-      bob.value.workspacePath,
+      canonicalRoot,
       nodeFileSystemPort,
     );
 

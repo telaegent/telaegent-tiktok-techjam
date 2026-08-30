@@ -23,8 +23,23 @@ const registry = new RuntimeProviderRegistry(
     },
   },
 );
-const connections = new ProviderConnectionService(registry);
 const workspaces = new Map<AgentProvider, string>();
+const connections = new ProviderConnectionService({
+  capability: (_bindingId, provider) => registry.capability(provider),
+  probe: (target, onProgress) => {
+    const workspacePath = workspaces.get(target.provider);
+    if (!workspacePath) throw new Error("Local probe workspace is unavailable");
+    return registry.probe(
+      {
+        agentId: target.bindingId,
+        provider: target.provider,
+        workspacePath,
+        correlationId: target.correlationId,
+      },
+      onProgress,
+    );
+  },
+});
 
 try {
   for (const provider of ["claude", "codex"] as const) {
@@ -37,9 +52,7 @@ try {
     console.log(`${provider}: ${before.state} (auth=${before.authenticated})`);
     const after = await connections.probe({
       bindingId,
-      agentId: `probe-${provider}`,
       provider,
-      workspacePath,
       correlationId: randomUUID(),
     });
     console.log(
