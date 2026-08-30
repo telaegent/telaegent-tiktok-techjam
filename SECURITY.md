@@ -11,6 +11,11 @@ Telaegent is a hackathon proof of concept. The canonical repository is [telaegen
 
 Passing one boundary never grants the next. A project connection permits requests, not direct repository access or automatic responses.
 
+Boundary 4 may be *narrowed and reused*, never widened. When an owner approves a
+set of files for a task, their agent may serve later requests for those exact
+files within that task without asking again. Anything outside that set returns
+to the human. See [Capability-scoped autonomous collaboration](#capability-scoped-autonomous-collaboration).
+
 ## Hard protection
 
 Before shared delivery, deterministic policy must be able to block:
@@ -20,6 +25,9 @@ Before shared delivery, deterministic policy must be able to block:
 - paths outside the selected repository
 - another user's workspace, provider home, session, credentials, or private drafts
 - hidden system prompts and raw provider streams
+- reuse of a capability across a different task, peer, or resource
+- path traversal and symlink escape out of the registered project
+- any automatic write capability, which P0 does not grant at all
 
 The agent may recommend a safe alternative such as environment-variable names or configuration structure. It cannot approve itself, change project authorization, or send automatically.
 
