@@ -10,7 +10,7 @@
 export type UserId = string;
 export type GitHubConnectionId = string;
 export type GitHubUserId = string;
-/** GitHub's stable numeric repository ID, represented as a decimal string. */
+/** Positive PostgreSQL BIGINT GitHub repository ID as a canonical decimal string. */
 export type GitHubRepositoryId = string;
 export type ProjectId = string;
 export type ConversationId = string;

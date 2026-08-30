@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { isGitHubRepositoryId } from "./authorization/github-repository-id.js";
+import type { GitHubRepositoryId } from "./authorization/types.js";
 import type { RuntimeProgressEvent } from "./runtime-contract.js";
 
 export interface RuntimeProgressOwner {
   userId: string;
-  githubRepositoryId: number;
+  /** Stable GitHub numeric repository ID represented as a decimal string. */
+  githubRepositoryId: GitHubRepositoryId;
   conversationId: string;
 }
 
@@ -115,10 +118,7 @@ export class RuntimeProgressChannel {
         throw new Error("Runtime progress owner is invalid");
       }
     }
-    if (
-      !Number.isSafeInteger(owner.githubRepositoryId) ||
-      owner.githubRepositoryId <= 0
-    ) {
+    if (!isGitHubRepositoryId(owner.githubRepositoryId)) {
       throw new Error("Runtime progress owner is invalid");
     }
   }

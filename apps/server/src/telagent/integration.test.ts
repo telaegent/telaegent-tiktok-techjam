@@ -219,7 +219,22 @@ describe("the canonical Telagent flow", () => {
         plannedFiles: intents[1]!.plannedFiles,
         changedFiles: intents[1]!.changedFiles,
         interfaces: intents[1]!.interfaces,
-        baseCommit: intents[1]!.baseCommit,
+        // Deliberately Bob's base commit, not Alice's.
+        //
+        // This assertion is about overlapping work — shared interface, shared
+        // module — and divergent bases are orthogonal to it. Alice's and Bob's
+        // workspaces are `git init`-ed independently, so identical trees get
+        // different commit SHAs whenever the second ticks over between the two
+        // initialisations. Under load that happened, `base_commit` contributed
+        // +1, and the canonical 5 became 6 — a flake that failed
+        // `npm run check` at random and looked like whatever change happened to
+        // be in flight.
+        //
+        // The deeper fix is for both workspaces of one project to share a base
+        // commit, which is what two real clones would do. Left as a fixture
+        // follow-up rather than done here, because it touches setup every other
+        // stage depends on. Divergent bases are covered on their own below.
+        baseCommit: intents[0]!.baseCommit,
       },
     );
     // plan.md §14.1: shared `Session` interface (+4) and shared `src/auth`
@@ -230,6 +245,26 @@ describe("the canonical Telagent flow", () => {
       "interface",
       "module",
     ]);
+
+    // Divergent bases, asserted deliberately rather than arrived at by timing.
+    const divergent = assessConflict(
+      {
+        intentId: intents[0]!.intentId,
+        plannedFiles: intents[0]!.plannedFiles,
+        changedFiles: intents[0]!.changedFiles,
+        interfaces: intents[0]!.interfaces,
+        baseCommit: "aaaaaaa",
+      },
+      {
+        intentId: intents[1]!.intentId,
+        plannedFiles: intents[1]!.plannedFiles,
+        changedFiles: intents[1]!.changedFiles,
+        interfaces: intents[1]!.interfaces,
+        baseCommit: "bbbbbbb",
+      },
+    );
+    expect(divergent.score).toBe(6);
+    expect(divergent.signals.map((signal) => signal.type)).toContain("base_commit");
 
     /* 5 — bounded status from Bob's private session ------------------------ */
     const status = await dispatch(

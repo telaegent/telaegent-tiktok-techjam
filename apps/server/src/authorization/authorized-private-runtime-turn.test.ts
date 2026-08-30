@@ -169,7 +169,7 @@ describe("AuthorizedPrivateRuntimeTurnStarter", () => {
     });
     const owner = {
       userId: "user-1",
-      repositoryId: "1345851083",
+      githubRepositoryId: "1345851083",
       conversationId: "conversation-1",
     };
     expect(

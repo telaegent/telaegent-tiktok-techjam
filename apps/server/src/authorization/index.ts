@@ -27,6 +27,7 @@ export type {
   UserAccountStatus,
   UserId,
 } from "./types.js";
+export { isGitHubRepositoryId } from "./github-repository-id.js";
 export type {
   PrivateRuntimeAuthorizationRepository,
   PrivateRuntimeAuthorizationReadOptions,
@@ -63,3 +64,14 @@ export type {
   BackendPreparedPrivateTurn,
   PrivateConversationTurnPurpose,
 } from "./authorized-private-runtime-turn.js";
+export {
+  mapSupabasePrivateRuntimeAuthorizationSnapshot,
+  SupabaseAuthorizationRepositoryError,
+  SupabasePrivateRuntimeAuthorizationRepository,
+} from "./supabase-authorization-repository.js";
+export type {
+  SupabaseAuthorizationRepositoryErrorCode,
+  SupabaseAuthorizationSnapshotClient,
+  SupabasePrivateRuntimeAuthorizationRpcRequest,
+  SupabasePrivateRuntimeAuthorizationSnapshotDto,
+} from "./supabase-authorization-repository.js";

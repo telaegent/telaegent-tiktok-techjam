@@ -263,6 +263,30 @@ describe("tolerant JSON extraction", () => {
  * ========================================================================== */
 
 describe("provider output schema documents", () => {
+  it("the committed schema files match what the Zod objects generate", async () => {
+    // The resolver reads schemas from disk, so the documents have to be
+    // committed — but a hand-maintained .json beside a Zod schema drifts, and
+    // the drift is invisible until a model is rejected for obeying the document
+    // it was given. Committing the generated artefact and asserting it is in
+    // sync gets the resolver what it needs without the fuse.
+    //
+    // Regenerate with:
+    //   npx tsx -e "..." (see runtime-adapter.ts, PROTOCOL_OUTPUT_SCHEMAS)
+    const { readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const root = path.resolve(import.meta.dirname, "..", "output-schemas");
+
+    const sender = JSON.parse(
+      await readFile(path.join(root, "sender-turn.schema.json"), "utf8"),
+    ) as unknown;
+    const recipient = JSON.parse(
+      await readFile(path.join(root, "recipient-turn.schema.json"), "utf8"),
+    ) as unknown;
+
+    expect(sender).toEqual(senderJsonSchema());
+    expect(recipient).toEqual(recipientJsonSchema());
+  });
+
   it("generates from the same Zod object the parser uses", () => {
     // Generation rather than a hand-written .schema.json is what stops the
     // document shown to the model drifting from the one enforced on its answer.

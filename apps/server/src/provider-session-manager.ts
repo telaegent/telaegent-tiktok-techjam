@@ -1,3 +1,5 @@
+import type { GitHubRepositoryId } from "./authorization/types.js";
+import { isGitHubRepositoryId } from "./authorization/github-repository-id.js";
 import type {
   AgentProvider,
   MiddlewareRunRequest,
@@ -8,7 +10,8 @@ import { RuntimeProviderError } from "./runtime-errors.js";
 
 export interface ProviderSessionScope {
   userId: string;
-  githubRepositoryId: number;
+  /** Stable GitHub numeric repository ID represented as a decimal string. */
+  githubRepositoryId: GitHubRepositoryId;
   conversationId: string;
   provider: AgentProvider;
 }
@@ -236,10 +239,7 @@ export class ProviderSessionManager {
         throw new Error("Provider session scope is invalid");
       }
     }
-    if (
-      !Number.isSafeInteger(scope.githubRepositoryId) ||
-      scope.githubRepositoryId <= 0
-    ) {
+    if (!isGitHubRepositoryId(scope.githubRepositoryId)) {
       throw new Error("Provider session scope is invalid");
     }
   }

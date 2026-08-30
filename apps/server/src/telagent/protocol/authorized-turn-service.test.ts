@@ -1,0 +1,230 @@
+import { describe, expect, it, vi } from "vitest";
+import type { AuthorizedPrivateRuntimeTurnPolicy } from "../../authorization/authorized-private-runtime-turn.js";
+import {
+  PrivateRuntimeAuthorizationError,
+  type PrivateRuntimeAuthorizer,
+} from "../../authorization/private-runtime-authorization.js";
+import type {
+  AuthorizePrivateRuntimeInput,
+  AuthorizedPrivateRuntime,
+} from "../../authorization/types.js";
+import {
+  InMemoryProviderSessionStore,
+  type ProviderSessionRuntime,
+} from "../../provider-session-manager.js";
+import type {
+  MiddlewareRunRequest,
+  NormalizedRunResult,
+  SessionMode,
+} from "../../runtime-contract.js";
+import type { ProjectFacts, ProtocolRole } from "./contract.js";
+import {
+  AuthorizedProtocolTurnService,
+  createAuthorizedProtocolTurnRuntime,
+} from "./authorized-turn-service.js";
+import {
+  ProtocolHydrationError,
+  type DurableContextLoader,
+  type DurableConversationContext,
+} from "./runtime-adapter.js";
+
+const AUTHORIZATION: AuthorizePrivateRuntimeInput = {
+  authenticatedUserId: "user-justin",
+  githubRepositoryId: "123",
+  conversationId: "conv-1",
+};
+const BOUND_WORKSPACE = "/srv/telaegent/runtimes/user-justin/123";
+const POLICY: AuthorizedPrivateRuntimeTurnPolicy = {
+  maxTurns: 3,
+  maximumRuntimePromptBytes: 1_048_576,
+  maximumPersistedSummaryBytes: 524_288,
+};
+const FACTS: ProjectFacts = {
+  repositoryFullName: "telaegent/backend",
+  githubRepositoryId: "123",
+  branch: "feat/auth",
+  commit: "0123456789abcdef0123456789abcdef01234567",
+  ownerName: "Justin",
+  collaboratorName: "Phuong",
+};
+
+function durableContext(
+  role: ProtocolRole = "recipient",
+  overrides: Partial<DurableConversationContext> = {},
+): DurableConversationContext {
+  return {
+    role,
+    facts: FACTS,
+    sharedHistory: [],
+    projectFacts: ["repository telaegent/backend"],
+    ...(role === "sender"
+      ? { ownerInput: "Ask how token rotation works" }
+      : { incomingMessage: "How does token rotation work?" }),
+    ...overrides,
+  };
+}
+
+function fakeAuthorizer(revoked = false): PrivateRuntimeAuthorizer {
+  return {
+    async authorizePrivateRuntime(
+      input: Readonly<AuthorizePrivateRuntimeInput>,
+    ): Promise<AuthorizedPrivateRuntime> {
+      if (revoked) {
+        throw new PrivateRuntimeAuthorizationError(
+          "PRIVATE_RUNTIME_FORBIDDEN",
+          "not_authorized",
+        );
+      }
+      return {
+        userId: input.authenticatedUserId,
+        githubRepositoryId: input.githubRepositoryId,
+        runtimeBindingId: "binding-1",
+        workspacePath: BOUND_WORKSPACE,
+      };
+    },
+  };
+}
+
+function harness(options: {
+  revoked?: boolean;
+  initialContext?: DurableConversationContext | null;
+  loadError?: boolean;
+} = {}) {
+  let stored = options.initialContext === undefined
+    ? durableContext()
+    : options.initialContext;
+  const load = vi.fn<DurableContextLoader>(async () => {
+    if (options.loadError) throw new Error("database detail must not escape");
+    return stored;
+  });
+  const runs: MiddlewareRunRequest[] = [];
+  const runtime: ProviderSessionRuntime = {
+    async run(request): Promise<NormalizedRunResult> {
+      runs.push(request);
+      return {
+        provider: request.provider,
+        sessionId: "session-" + String(runs.length),
+        final: { state: "ready" },
+        changedFiles: [],
+        exitCode: 0,
+        durationMs: 1,
+      };
+    },
+  };
+  const authorizer = fakeAuthorizer(options.revoked);
+  const { turns: service } = createAuthorizedProtocolTurnRuntime({
+    authorizer,
+    loadContext: load,
+    runtime,
+    sessionStore: new InMemoryProviderSessionStore(),
+    policy: POLICY,
+  });
+  return {
+    load,
+    runs,
+    service,
+    setContext(context: DurableConversationContext | null) {
+      stored = context;
+    },
+  };
+}
+
+async function start(
+  service: AuthorizedProtocolTurnService,
+  options: { role?: ProtocolRole; sessionMode?: SessionMode } = {},
+) {
+  const started = await service.start({
+    authorization: AUTHORIZATION,
+    provider: "claude",
+    role: options.role ?? "recipient",
+    correlationId: "corr-1",
+    ...(options.sessionMode ? { sessionMode: options.sessionMode } : {}),
+  });
+  return started.completion;
+}
+
+describe("AuthorizedProtocolTurnService", () => {
+  it("runs sender and recipient turns with authorization-owned infrastructure", async () => {
+    for (const role of ["sender", "recipient"] as const) {
+      const context = durableContext(role);
+      const { runs, service } = harness({ initialContext: context });
+      await start(service, { role });
+
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        purpose: role === "sender" ? "sender_draft" : "recipient_answer",
+        workspacePath: BOUND_WORKSPACE,
+        agentId: "binding-1",
+        sandboxMode: "read-only",
+        networkMode: "none",
+        maxTurns: POLICY.maxTurns,
+      });
+    }
+  });
+
+  it.each([undefined, "fresh", "ephemeral"] as const)(
+    "blocks mismatched repository context for session mode %s",
+    async (sessionMode) => {
+      const mismatch = durableContext("recipient", {
+        facts: { ...FACTS, githubRepositoryId: "999" },
+      });
+      const { runs, service } = harness({ initialContext: mismatch });
+
+      await expect(start(service, { sessionMode })).rejects.toMatchObject({
+        code: "DURABLE_CONTEXT_SCOPE_MISMATCH",
+        retryable: false,
+      });
+      expect(runs).toHaveLength(0);
+    },
+  );
+
+  it("validates context even when an existing provider session could resume", async () => {
+    const { runs, service, setContext } = harness();
+    await start(service);
+    expect(runs).toHaveLength(1);
+
+    setContext(durableContext("recipient", {
+      facts: { ...FACTS, githubRepositoryId: "999" },
+    }));
+    await expect(start(service)).rejects.toMatchObject({
+      code: "DURABLE_CONTEXT_SCOPE_MISMATCH",
+    });
+    expect(runs).toHaveLength(1);
+  });
+
+  it.each([
+    { name: "missing", initialContext: null, loadError: false },
+    { name: "unreachable", initialContext: durableContext(), loadError: true },
+  ])("fails closed when durable context is $name", async (testCase) => {
+    const { runs, service } = harness(testCase);
+    const error = await start(service).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProtocolHydrationError);
+    expect(error).toMatchObject({
+      code: "DURABLE_CONTEXT_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(String(error)).not.toContain("database detail");
+    expect(runs).toHaveLength(0);
+  });
+
+  it("blocks a role mismatch before provider execution", async () => {
+    const { runs, service } = harness({
+      initialContext: durableContext("recipient"),
+    });
+    await expect(start(service, { role: "sender" })).rejects.toMatchObject({
+      code: "DURABLE_CONTEXT_PURPOSE_MISMATCH",
+      retryable: false,
+    });
+    expect(runs).toHaveLength(0);
+  });
+
+  it("authorizes before reading private durable context", async () => {
+    const { load, runs, service } = harness({ revoked: true });
+    await expect(start(service)).rejects.toBeInstanceOf(
+      PrivateRuntimeAuthorizationError,
+    );
+    expect(load).not.toHaveBeenCalled();
+    expect(runs).toHaveLength(0);
+  });
+});
