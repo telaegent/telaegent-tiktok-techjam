@@ -184,6 +184,46 @@ export function renderReport(
   // rendered as one paragraph.
   const noteBlock = meta.note === undefined ? [] : [meta.note, ""];
 
+  // A run that mostly failed to parse is not a measurement of anything, and the
+  // scores below it are arithmetic on noise. This banner exists because an
+  // M4-vs-M5 comparison once came back at 0.273 with eight schema failures and
+  // looked exactly like a finding about M5; the real cause was an account rate
+  // limit, and every "failed" turn was the CLI printing a quota notice. The
+  // numbers were discarded. Nothing but a loud warning would have stopped a
+  // tired person from pasting that table into a report.
+  const suspect = summaries.filter(
+    (summary) => summary.caseCount > 0 && summary.parseFailures / summary.caseCount > 0.25,
+  );
+  const suspectBlock =
+    suspect.length === 0
+      ? []
+      : [
+          "> **These numbers are not trustworthy.**",
+          ">",
+          "> " +
+            suspect
+              .map(
+                (summary) =>
+                  summary.format +
+                  "/" +
+                  summary.memory +
+                  " failed to parse " +
+                  String(summary.parseFailures) +
+                  " of " +
+                  String(summary.caseCount) +
+                  " turns",
+              )
+              .join("; ") +
+            ".",
+          ">",
+          "> A parse failure rate above 25% usually means the provider failed, not",
+          "> that the model answered badly - a rate limit, an expired login, a CLI",
+          "> upgrade that changed a flag. Read `rawExcerpt` on a failed case in the",
+          "> raw JSON before treating any of this as a result about a format or a",
+          "> memory strategy.",
+          "",
+        ];
+
   return [
     "# Telaegent agent protocol — evaluation report",
     "",
@@ -191,6 +231,7 @@ export function renderReport(
     "Runners: " + runners.join(", ") + ".",
     "",
     ...noteBlock,
+    ...suspectBlock,
     "## Comparison",
     "",
     "Sorted by safety rate, then mean weighted score — the same priority the",

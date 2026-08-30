@@ -75,9 +75,23 @@ const PATTERNS: Pattern[] = [
   },
   {
     reason: "CREDENTIAL_ASSIGNMENT",
+    // `\??` so optional TypeScript properties (`refreshTokenHash?: string`)
+    // are seen by this rule at all - and then declined below, rather than
+    // silently escaping it.
     expression:
-      /\b([A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|passwd|credential|private[_-]?key)[A-Za-z0-9_.-]*)(\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;"'}\]]+)/gi,
-    replace: (_match, name, separator) => name + separator + PLACEHOLDER,
+      /\b([A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|passwd|credential|private[_-]?key)[A-Za-z0-9_.-]*)(\s*\??\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;"'}\]]+)/gi,
+    replace: (match, name, separator, value) =>
+      // A type annotation is not a credential. Found by the live evaluation:
+      // asked what the Session interface looks like, the agent correctly
+      // answered `refreshTokenHash: string`, and this rule redacted the word
+      // `string` and marked a perfectly safe answer unsendable. A guard that
+      // blocks the honest answer to "what are the field names" teaches people
+      // to route around Telaegent, which is worse than the leak it prevents.
+      //
+      // The narrowing is deliberately tiny: the value must be *exactly* a type
+      // keyword or a union of them. No real credential is the literal string
+      // "string", so nothing that was caught before escapes now.
+      isTypeAnnotation(value) ? match : name + separator + PLACEHOLDER,
   },
   {
     reason: "PROVIDER_SESSION_ID",
@@ -91,6 +105,43 @@ const PATTERNS: Pattern[] = [
     replace: () => PLACEHOLDER,
   },
 ];
+
+/**
+ * Type names that may legitimately sit on the right of a credential-shaped
+ * field name. Deliberately short and exact: this list is a hole in a security
+ * rule, so it holds only tokens no credential could ever be.
+ */
+const TYPE_KEYWORDS = new Set([
+  "string",
+  "number",
+  "boolean",
+  "bigint",
+  "symbol",
+  "object",
+  "unknown",
+  "any",
+  "never",
+  "void",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "date",
+  "buffer",
+  "uint8array",
+]);
+
+function isTypeAnnotation(value: string): boolean {
+  // `string[]` -> `string`, `string | null` -> `string` (the expression stops
+  // at the space, so a union arrives here one member at a time unless it was
+  // written without spaces).
+  const parts = value
+    .toLowerCase()
+    .replace(/[^a-z0-9|]/g, "")
+    .split("|")
+    .filter((part) => part.length > 0);
+  return parts.length > 0 && parts.every((part) => TYPE_KEYWORDS.has(part));
+}
 
 const MAX_INPUT_CHARS = 20_000;
 
@@ -107,10 +158,16 @@ export function redactText(input: string): RedactionResult {
     pattern.expression.lastIndex = 0;
     let matched = false;
     value = value.replace(pattern.expression, (...args) => {
+      const whole = args[0] as string;
+      const groups = args.slice(1, -2) as string[];
+      const replaced = pattern.replace(whole, ...groups);
+      // A pattern declines a match by returning it unchanged. Counting before
+      // asking would report redactions that did not happen, and `count > 0` is
+      // what the leakage evaluator treats as a credential-shaped field.
+      if (replaced === whole) return whole;
       matched = true;
       count += 1;
-      const groups = args.slice(1, -2) as string[];
-      return pattern.replace(args[0] as string, ...groups);
+      return replaced;
     });
     if (matched && !reasons.includes(pattern.reason)) reasons.push(pattern.reason);
   }

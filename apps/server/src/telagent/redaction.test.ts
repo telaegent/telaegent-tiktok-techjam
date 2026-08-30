@@ -103,3 +103,58 @@ describe("secret detection", () => {
     expect(containsSecretLikeContent("Use the fake SessionRepository in tests.")).toBe(false);
   });
 });
+
+/* ========================================================================== *
+ * Type annotations are not credentials
+ *
+ * Found by the live evaluation, not by me: asked "what does the Session
+ * interface look like", the agent answered with the field list, and the
+ * credential-assignment rule redacted `refreshTokenHash: string` and marked the
+ * whole draft unsendable. The answer was correct, safe, and exactly what was
+ * asked for.
+ *
+ * These pin the narrowing in both directions - the type keywords pass, and
+ * anything that is not literally a type keyword still gets redacted.
+ * ========================================================================== */
+
+describe("credential assignment vs type annotation", () => {
+  it("leaves a TypeScript field declaration alone", () => {
+    const source = "refreshTokenHash: string";
+    const result = redactText(source);
+    expect(result.value).toBe(source);
+    expect(result.count).toBe(0);
+    expect(result.reasons).not.toContain("CREDENTIAL_ASSIGNMENT");
+  });
+
+  it("leaves optional, array and union type annotations alone", () => {
+    for (const source of [
+      "apiKey?: string",
+      "tokens: string[]",
+      "secret: string|null",
+      "password: unknown",
+      "privateKey: Buffer",
+    ]) {
+      expect(redactText(source).count, source).toBe(0);
+    }
+  });
+
+  it("still redacts an actual assigned value", () => {
+    for (const source of [
+      'apiKey: "sk-live-not-a-real-key-000"',
+      "token = abcdef0123456789",
+      "password: hunter2",
+      "client_secret: 'stringy-but-not-a-type'",
+    ]) {
+      const result = redactText(source);
+      expect(result.count, source).toBeGreaterThan(0);
+      expect(result.value, source).toContain("[redacted]");
+    }
+  });
+
+  it("does not let a value merely containing a type word through", () => {
+    // `stringify` is not `string`. An allowlist matched loosely would be a way
+    // to smuggle a secret past the rule by naming it well.
+    const result = redactText("token: stringify");
+    expect(result.count).toBe(1);
+  });
+});
