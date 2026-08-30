@@ -1,10 +1,16 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import telaegentLogo from "../../../ui/logo/telaegent-logo-transparent-dark.png";
 import telaegentLogoBright from "../../../ui/logo/telaegent-logo-transparent-bright.png";
 import telaegentMark from "../../../ui/logo/telaegent-logo-symbol-transparent.png";
 import connectionsIcon from "../../../ui/icon/connections.svg";
 import projectsIcon from "../../../ui/icon/project.svg";
 import settingsIcon from "../../../ui/icon/setting.svg";
+import {
+  api,
+  ApiError,
+  type ConversationMessage,
+  type PrivateDraftView,
+} from "./api";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -12,10 +18,7 @@ type ProductRoute = "onboarding" | "projects" | "connections" | "settings" | "wo
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
 type GithubStage = "idle" | "connector" | "connected";
 type WorkspaceTab = "chat" | "people" | "settings";
-type Participant = "phuong" | "justin";
-type PrivateMode = "outgoing" | "recipient";
-type PrivateStage = "clarify" | "thinking" | "ready";
-type DeliveryStage = "idle" | "waiting" | "recipient-ready" | "complete";
+type MessageLoadState = "unconfigured" | "loading" | "ready" | "error";
 
 type Collaborator = {
   id: string;
@@ -28,14 +31,104 @@ type Collaborator = {
 };
 
 type SharedMessage = {
-  id: number;
+  id: string;
   side: "outgoing" | "incoming";
   author: string;
   provider: string;
   body: string;
   meta: string;
-  code?: string[];
 };
+
+const conversationConfig = {
+  conversationId: import.meta.env.VITE_TELAEGENT_CONVERSATION_ID?.trim() ?? "",
+  githubRepositoryId:
+    import.meta.env.VITE_TELAEGENT_GITHUB_REPOSITORY_ID?.trim() ?? "",
+  currentUserId: import.meta.env.VITE_TELAEGENT_CURRENT_USER_ID?.trim() ?? "",
+};
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const repositoryIdPattern = /^[1-9][0-9]*$/;
+
+function conversationConfigurationError(): string | null {
+  if (!uuidPattern.test(conversationConfig.conversationId)) {
+    return "Set VITE_TELAEGENT_CONVERSATION_ID to a conversation UUID.";
+  }
+  if (!repositoryIdPattern.test(conversationConfig.githubRepositoryId)) {
+    return "Set VITE_TELAEGENT_GITHUB_REPOSITORY_ID to the stable numeric GitHub repository ID.";
+  }
+  return null;
+}
+
+function formatProvider(provider: ConversationMessage["provider"]): string {
+  return provider === "claude" ? "Claude Code" : "Codex";
+}
+
+function formatMessageTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Approved message";
+  return `Approved · ${new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)}`;
+}
+
+function normalizeApiError(error: unknown): ApiError {
+  return error instanceof ApiError
+    ? error
+    : new ApiError("Unexpected conversation error", 500, null, true);
+}
+
+function apiErrorGuidance(error: ApiError): string {
+  if (error.status === 404) {
+    return "The canonical conversation API is not enabled on this server deployment.";
+  }
+  if (error.status === 401) return "Sign in again before opening this conversation.";
+  if (error.status === 403) {
+    return "Your project connection or repository authorization does not allow this action.";
+  }
+  if (error.status === 424 || error.code === "RUNTIME_AUTHENTICATION_FAILED") {
+    return "Sign in to the selected coding provider locally, then ask the Telaegent connector to check again.";
+  }
+  if (error.code === "RUNTIME_UNAVAILABLE") {
+    return "Make sure the local Telaegent connector is online and the selected provider is available.";
+  }
+  if (error.code === "RUNTIME_SESSION_NOT_FOUND") {
+    return "The local provider session is unavailable. Retry to rebuild it from approved project memory.";
+  }
+  if (error.code === "RUNTIME_TIMEOUT") {
+    return "The local provider timed out. Check the connector and retry when it is responsive.";
+  }
+  if (error.code === "UNSUPPORTED_RUNTIME_POLICY") {
+    return "The local connector cannot enforce the required project policy and must be updated or reconnected.";
+  }
+  return error.message;
+}
+
+function draftFailureGuidance(draft: PrivateDraftView): string {
+  switch (draft.failure?.code) {
+    case "RUNTIME_UNAVAILABLE":
+      return "Make sure your local Telaegent connector is online and the selected provider is available.";
+    case "RUNTIME_AUTHENTICATION_FAILED":
+      return `Sign in to ${formatProvider(draft.provider)} locally, then ask the connector to check again.`;
+    case "RUNTIME_SESSION_NOT_FOUND":
+      return "The connector lost the private provider session. Retry to rebuild it from approved project memory.";
+    case "RUNTIME_TIMEOUT":
+      return "The local agent took too long. Check the connector and retry when the provider is responsive.";
+    case "RUNTIME_OUTPUT_LIMIT":
+      return "The provider returned too much output. Narrow the request before preparing another draft.";
+    case "INVALID_AGENT_OUTPUT":
+      return "The provider response did not match the private message protocol. You can retry safely.";
+    case "UNSUPPORTED_RUNTIME_POLICY":
+      return "This connector cannot enforce the required project policy. Update or reconnect it before retrying.";
+    case "RUNTIME_CANCELLED":
+      return "The local turn was cancelled and no shared message was created.";
+    default:
+      return draft.failure?.retryable
+        ? "Check the local connector and retry the private turn."
+        : "Reconnect the local provider before preparing another draft.";
+  }
+}
 
 const collaborators: Collaborator[] = [
   {
@@ -103,26 +196,6 @@ const projects = [
     collaborators: 0,
     provider: "Codex",
     updated: "6 days ago",
-  },
-];
-
-const initialMessages: SharedMessage[] = [
-  {
-    id: 1,
-    side: "outgoing",
-    author: "Phuong",
-    provider: "Codex",
-    body: "How does your branch refresh sessions, and what should my auth UI call?",
-    meta: "Approved by Phuong · feat/auth-ui · a184f2c",
-  },
-  {
-    id: 2,
-    side: "incoming",
-    author: "Justin",
-    provider: "Claude Code",
-    body: "The service rotates the refresh token through POST /auth/refresh. Send the refresh cookie and retry the original request once.",
-    meta: "Approved by Justin · feat/auth-service · 81ad2e",
-    code: ["auth/session.ts", "routes/auth.ts"],
   },
 ];
 
@@ -539,278 +612,447 @@ function WorkspaceSidebar({
   );
 }
 
+function mapConversationMessage(message: ConversationMessage, forceOutgoing = false): SharedMessage {
+  const outgoing = forceOutgoing ||
+    (!!conversationConfig.currentUserId && message.senderUserId === conversationConfig.currentUserId);
+  return {
+    id: message.messageId,
+    side: outgoing ? "outgoing" : "incoming",
+    author: outgoing ? "You" : "Project member",
+    provider: formatProvider(message.provider),
+    body: message.body,
+    meta: formatMessageTime(message.sentAt),
+  };
+}
+
 function PrivateAgentRoom({
   open,
-  mode,
-  stage,
+  draft,
   recipient,
-  roughMessage,
   clarification,
-  sensitive,
+  approvedContent,
+  editingCandidate,
+  busy,
+  error,
+  onClarificationChange,
+  onApprovedContentChange,
   onClarify,
-  onClose,
+  onNo,
   onEdit,
   onSend,
+  onRetry,
 }: {
   open: boolean;
-  mode: PrivateMode;
-  stage: PrivateStage;
+  draft: PrivateDraftView | null;
   recipient: Collaborator;
-  roughMessage: string;
   clarification: string;
-  sensitive: boolean;
-  onClarify: (answer: string) => void;
-  onClose: () => void;
+  approvedContent: string;
+  editingCandidate: boolean;
+  busy: boolean;
+  error: ApiError | null;
+  onClarificationChange: (value: string) => void;
+  onApprovedContentChange: (value: string) => void;
+  onClarify: (event: FormEvent<HTMLFormElement>) => void;
+  onNo: () => void;
   onEdit: () => void;
   onSend: () => void;
+  onRetry: () => void;
 }) {
-  const outgoingCandidate = sensitive
-    ? "Can you share the environment-variable names required by this project, without any secret values?"
-    : roughMessage.trim();
+  const state = draft?.state ?? "created";
+  const isWorking = state === "created" || state === "agent_working";
+  const lastTurn = draft?.privateTurns.at(-1);
+  const showPrivateMessage = !!draft?.privateMessage &&
+    !(lastTurn?.speaker === "agent" && lastTurn.text === draft.privateMessage);
 
   return (
     <aside className={`workspace-private-room${open ? " open" : ""}`} aria-hidden={!open}>
       <header>
         <div>
-          <strong>{mode === "recipient" || stage === "ready" ? "Message Approval" : "Message Preparation"}</strong>
-          <small>
-            {mode === "outgoing"
-              ? `Private with Codex. Not visible to ${recipient.name}.`
-              : "Private with Claude Code. Not visible to Phuong."}
-          </small>
+          <strong>{state === "ready" ? "Message Approval" : "Message Preparation"}</strong>
+          <small>Private with {draft ? formatProvider(draft.provider) : "your agent"}. Not visible to {recipient.name}.</small>
         </div>
-        <button type="button" onClick={onClose}>Close</button>
+        <button type="button" onClick={onNo} disabled={busy}>No</button>
       </header>
 
       <div className="private-scope-bar">
-        <span>telaegent/backend</span><span>{mode === "outgoing" ? "feat/auth-ui" : recipient.branch}</span>
+        <span>{conversationConfig.githubRepositoryId || "repository not configured"}</span>
+        <span>{draft?.draftId ? `draft ${draft.draftId.slice(0, 8)}` : "private draft"}</span>
       </div>
 
-      <div className="workspace-private-thread">
-        {mode === "outgoing" ? (
-          <>
-            <article className="private-bubble user"><span>You</span><p>{roughMessage}</p></article>
-            {stage !== "thinking" && (
-              <article className="private-bubble agent">
-                <div><span>Codex</span>{sensitive && <small>Protected content</small>}</div>
-                {stage === "clarify" && (
-                  <>
-                    <p>
-                      {sensitive
-                        ? "A .env file is likely to contain credentials. Do you need the values, or only the variable names and safe configuration?"
-                        : `Should I include your branch context and ask ${recipient.name}'s agent to inspect ${recipient.branch}?`}
-                    </p>
-                    {sensitive && <p className="policy-copy">Telaegent will not send raw secret values, even after approval.</p>}
-                  </>
-                )}
-                {stage === "ready" && (
-                  <>
-                    <p className="ready-label">Ready to send</p>
-                    {clarification && <p className="clarification-line">You clarified: {clarification}</p>}
-                    <blockquote>{outgoingCandidate}</blockquote>
-                  </>
-                )}
-              </article>
-            )}
-            {stage === "clarify" && (
-              <div className="private-choice-list">
-                {(sensitive ? ["Only the variable names", "Safe setup guidance"] : ["Include branch context", "Keep it brief"]).map((choice, index) => (
-                  <button className={index === 0 ? "selected" : ""} type="button" key={choice} onClick={() => onClarify(choice)}>
-                    <kbd>{index + 1}</kbd>
-                    <span>{choice}</span>
-                    {index === 0 && <small aria-hidden="true">↵</small>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="incoming-context">
-              <span>Approved request from Phuong</span>
-              <p>Can you share the environment-variable names required by this project, without any secret values?</p>
-            </div>
-            <article className="private-bubble agent recipient-response">
-              <div><span>Claude Code</span><small>Safe response</small></div>
-              <p>I checked this repository. These variable names are required:</p>
-              <code>DATABASE_URL<br />REDIS_URL<br />JWT_SECRET<br />GITHUB_CLIENT_ID<br />GITHUB_CLIENT_SECRET</code>
-              <p className="policy-copy">No values or raw .env content are included.</p>
-            </article>
-          </>
+      <div className="workspace-private-thread" aria-live="polite">
+        {draft && (
+          <article className="private-bubble user"><span>You</span><p>{draft.roughMessage}</p></article>
         )}
 
-        {stage === "thinking" && (
-          <div className="private-thinking"><span>{mode === "outgoing" ? "Codex is preparing the message" : "Claude is checking the repository"}</span><TypingDots /></div>
-        )}
-      </div>
+        {draft?.privateTurns.map((turn, index) => (
+          <article className={`private-bubble ${turn.speaker === "owner" ? "user" : "agent"}`} key={`${turn.speaker}-${index}`}>
+            <span>{turn.speaker === "owner" ? "You" : formatProvider(draft.provider)}</span>
+            <p>{turn.text}</p>
+          </article>
+        ))}
 
-      {stage === "ready" && (
-        <footer className="private-approval-bar">
-          <span>Only Send crosses the trust boundary.</span>
-          <div>
-            <button type="button" onClick={onEdit}>Edit</button>
-            <button type="button" onClick={onClose}>No</button>
-            <button className="send" type="button" onClick={onSend}>Send</button>
+        {showPrivateMessage && (
+          <article className="private-bubble agent">
+            <span>{draft ? formatProvider(draft.provider) : "Agent"}</span>
+            <p>{draft?.privateMessage}</p>
+          </article>
+        )}
+
+        {isWorking && (
+          <div className="private-thinking">
+            <span>{state === "created" ? "Starting the private turn" : "Your agent is preparing the message"}</span>
+            <TypingDots />
           </div>
-        </footer>
-      )}
+        )}
+
+        {state === "needs_clarification" && (
+          <form className="private-clarification-form" onSubmit={onClarify}>
+            <label htmlFor="draft-clarification">Reply privately</label>
+            <textarea
+              id="draft-clarification"
+              rows={3}
+              value={clarification}
+              onChange={(event) => onClarificationChange(event.target.value)}
+              placeholder="Add the detail your agent needs…"
+            />
+            <button type="submit" disabled={busy || !clarification.trim()}>Continue</button>
+          </form>
+        )}
+
+        {state === "ready" && (
+          <article className="private-bubble agent private-candidate">
+            <p className="ready-label">Ready to send</p>
+            {editingCandidate ? (
+              <textarea
+                aria-label="Approved message"
+                rows={6}
+                value={approvedContent}
+                onChange={(event) => onApprovedContentChange(event.target.value)}
+              />
+            ) : (
+              <blockquote>{approvedContent || draft?.sendCandidate}</blockquote>
+            )}
+          </article>
+        )}
+
+        {state === "blocked" && (
+          <div className="private-runtime-error">
+            <strong>This message cannot be sent.</strong>
+            <p>{draft?.privateMessage || "Telaegent blocked content that cannot cross the project trust boundary."}</p>
+            {!!draft?.guardFindings.length && (
+              <ul>{draft.guardFindings.map((finding) => <li key={finding.code}>{finding.safeReason}</li>)}</ul>
+            )}
+          </div>
+        )}
+
+        {state === "runtime_failed" && (
+          <div className="private-runtime-error">
+            <strong>{draft?.failure?.code || "The private agent turn stopped"}</strong>
+            <p>{draft?.failure?.message || draft?.privateMessage || "No shared message was created."}</p>
+            {draft && <small>{draftFailureGuidance(draft)}</small>}
+          </div>
+        )}
+
+        {error && (
+          <div className="api-state error" role="alert">
+            <strong>{error.code || `Request failed (${error.status || "offline"})`}</strong>
+            <p>{apiErrorGuidance(error)}</p>
+            {!!error.findings.length && (
+              <ul>{error.findings.map((finding) => <li key={finding.code}>{finding.safeReason}</li>)}</ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      <footer className="private-approval-bar">
+        <span>{state === "ready" ? "Only Send crosses the trust boundary." : "This work remains private until a message is approved."}</span>
+        <div>
+          {state === "ready" && <button type="button" onClick={onEdit} disabled={busy}>Edit</button>}
+          <button type="button" onClick={onNo} disabled={busy}>No</button>
+          {state === "ready" && (
+            <button className="send" type="button" onClick={onSend} disabled={busy || !approvedContent.trim()}>Send</button>
+          )}
+          {(state === "runtime_failed" || (state === "created" && !!error)) &&
+            (state !== "runtime_failed" ? error?.retryable !== false : draft?.failure?.retryable !== false) && (
+            <button className="send" type="button" onClick={onRetry} disabled={busy}>Retry</button>
+          )}
+        </div>
+      </footer>
     </aside>
   );
 }
 
 function ProjectChat({ selectedId }: { selectedId: string }) {
   const selected = collaborators.find((person) => person.id === selectedId) ?? collaborators[0];
-  const [participant, setParticipant] = useState<Participant>("phuong");
-  const [composer, setComposer] = useState("can u send me ur .env");
+  const [composer, setComposer] = useState("");
   const [roughMessage, setRoughMessage] = useState("");
-  const [clarification, setClarification] = useState("");
-  const [privateMode, setPrivateMode] = useState<PrivateMode>("outgoing");
-  const [privateStage, setPrivateStage] = useState<PrivateStage>("clarify");
+  const [messages, setMessages] = useState<SharedMessage[]>([]);
+  const [messageLoadState, setMessageLoadState] = useState<MessageLoadState>("loading");
+  const [messageError, setMessageError] = useState<ApiError | null>(null);
+  const [draft, setDraft] = useState<PrivateDraftView | null>(null);
   const [privateRoomOpen, setPrivateRoomOpen] = useState(false);
-  const [deliveryStage, setDeliveryStage] = useState<DeliveryStage>("idle");
-  const [messages, setMessages] = useState<SharedMessage[]>(initialMessages);
-  const sensitive = /\.env|secret|credential|private key|access token/i.test(roughMessage);
-  const visibleMessages = selected.id === "justin" ? messages : [];
+  const [clarification, setClarification] = useState("");
+  const [approvedContent, setApprovedContent] = useState("");
+  const [editingCandidate, setEditingCandidate] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<ApiError | null>(null);
+  const ownMessageIds = useRef(new Set<string>());
+  const configurationError = conversationConfigurationError();
+  const isBoundConversation = selected.id === "justin";
+
+  async function loadMessages() {
+    if (configurationError || !isBoundConversation) {
+      setMessages([]);
+      setMessageLoadState("unconfigured");
+      return;
+    }
+    setMessageLoadState("loading");
+    setMessageError(null);
+    try {
+      const result = await api.conversationMessages(
+        conversationConfig.conversationId,
+        conversationConfig.githubRepositoryId,
+      );
+      setMessages(result.messages.map((message) =>
+        mapConversationMessage(message, ownMessageIds.current.has(message.messageId)),
+      ));
+      setMessageLoadState("ready");
+    } catch (error) {
+      setMessageError(normalizeApiError(error));
+      setMessageLoadState("error");
+    }
+  }
 
   useEffect(() => {
-    if (privateStage !== "thinking") return;
-    const timer = window.setTimeout(() => setPrivateStage("ready"), 1100);
-    return () => window.clearTimeout(timer);
-  }, [privateStage]);
-
-  useEffect(() => {
-    if (deliveryStage !== "waiting") return;
-    const timer = window.setTimeout(() => setDeliveryStage("recipient-ready"), 1800);
-    return () => window.clearTimeout(timer);
-  }, [deliveryStage]);
-
-  useEffect(() => {
+    let active = true;
     setPrivateRoomOpen(false);
-    setDeliveryStage("idle");
-    setParticipant("phuong");
-  }, [selectedId]);
+    setDraft(null);
+    setActionError(null);
+    if (configurationError || !isBoundConversation) {
+      setMessages([]);
+      setMessageLoadState("unconfigured");
+      return () => { active = false; };
+    }
+    setMessageLoadState("loading");
+    setMessageError(null);
+    void api.conversationMessages(
+      conversationConfig.conversationId,
+      conversationConfig.githubRepositoryId,
+    ).then((result) => {
+      if (!active) return;
+      setMessages(result.messages.map((message) =>
+        mapConversationMessage(message, ownMessageIds.current.has(message.messageId)),
+      ));
+      setMessageLoadState("ready");
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setMessageError(normalizeApiError(error));
+      setMessageLoadState("error");
+    });
+    return () => { active = false; };
+  }, [selectedId, configurationError, isBoundConversation]);
+
+  useEffect(() => {
+    if (configurationError || !isBoundConversation || messageLoadState !== "ready") return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void api.conversationMessages(
+        conversationConfig.conversationId,
+        conversationConfig.githubRepositoryId,
+      ).then((result) => {
+        if (!active) return;
+        setMessages(result.messages.map((message) =>
+          mapConversationMessage(message, ownMessageIds.current.has(message.messageId)),
+        ));
+      }).catch(() => {
+        // Keep the last approved snapshot. An explicit load exposes connection errors.
+      });
+    }, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [configurationError, isBoundConversation, messageLoadState]);
+
+  useEffect(() => {
+    if (!privateRoomOpen || draft?.state !== "agent_working") return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void api.conversationDraft(draft.draftId).then(({ draft: nextDraft }) => {
+        if (!active) return;
+        setDraft(nextDraft);
+        setActionError(null);
+        if (nextDraft.state === "ready") {
+          setApprovedContent(nextDraft.sendCandidate ?? "");
+          setEditingCandidate(false);
+        }
+      }).catch((error: unknown) => {
+        if (active) setActionError(normalizeApiError(error));
+      });
+    }, 900);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [actionError, draft, privateRoomOpen]);
+
+  async function runDraft(draftId: string) {
+    try {
+      const result = await api.runConversationDraft(draftId);
+      setDraft(result.draft);
+      setActionError(null);
+    } catch (error) {
+      setActionError(normalizeApiError(error));
+    }
+  }
+
+  async function createAndRunDraft(message: string) {
+    setBusy(true);
+    setDraft(null);
+    setActionError(null);
+    try {
+      const created = await api.createConversationDraft(conversationConfig.conversationId, {
+        githubRepositoryId: conversationConfig.githubRepositoryId,
+        provider: "codex",
+        roughMessage: message,
+      });
+      setDraft(created.draft);
+      setPrivateRoomOpen(true);
+      await runDraft(created.draft.draftId);
+    } catch (error) {
+      setActionError(normalizeApiError(error));
+      setPrivateRoomOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function submitRoughMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextMessage = composer.trim();
-    if (!nextMessage) return;
+    if (!nextMessage || configurationError || !isBoundConversation) return;
     setRoughMessage(nextMessage);
     setClarification("");
-    setPrivateMode("outgoing");
-    setPrivateStage("clarify");
-    setPrivateRoomOpen(true);
+    setApprovedContent("");
+    setEditingCandidate(false);
+    void createAndRunDraft(nextMessage);
   }
 
-  function clarify(answer: string) {
-    setClarification(answer);
-    setPrivateStage("thinking");
+  async function clarifyDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft || !clarification.trim()) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const clarified = await api.clarifyConversationDraft(draft.draftId, clarification.trim());
+      setDraft(clarified.draft);
+      setClarification("");
+      await runDraft(draft.draftId);
+    } catch (error) {
+      setActionError(normalizeApiError(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function sendOutgoing() {
-    const body = sensitive
-      ? "Can you share the environment-variable names required by this project, without any secret values?"
-      : roughMessage;
-    setMessages((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        side: "outgoing",
-        author: "Phuong",
-        provider: "Codex",
-        body,
-        meta: "Approved by Phuong · feat/auth-ui · a184f2c",
-      },
-    ]);
-    setPrivateRoomOpen(false);
-    setComposer("");
-    setDeliveryStage("waiting");
+  async function rejectDraft() {
+    if (!draft) {
+      setPrivateRoomOpen(false);
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      await api.cancelConversationDraft(draft.draftId);
+      setPrivateRoomOpen(false);
+      setDraft(null);
+      setComposer("");
+    } catch (error) {
+      setActionError(normalizeApiError(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function openRecipientReview() {
-    setParticipant("justin");
-    setPrivateMode("recipient");
-    setPrivateStage("ready");
-    setPrivateRoomOpen(true);
+  async function sendDraft() {
+    if (!draft || draft.state !== "ready" || !approvedContent.trim()) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const result = await api.sendConversationDraft(draft.draftId, {
+        approvedContent: approvedContent.trim(),
+        idempotencyKey: `send:${draft.draftId}:${crypto.randomUUID()}`,
+      });
+      ownMessageIds.current.add(result.message.messageId);
+      setMessages((current) => [...current, mapConversationMessage(result.message, true)]);
+      setMessageLoadState("ready");
+      setPrivateRoomOpen(false);
+      setDraft(null);
+      setComposer("");
+      await loadMessages();
+    } catch (error) {
+      setActionError(normalizeApiError(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function sendRecipientResponse() {
-    setMessages((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        side: "incoming",
-        author: "Justin",
-        provider: "Claude Code",
-        body: "I checked the project configuration. These are the required environment-variable names; no values are included.",
-        meta: "Approved by Justin · feat/auth-service · 81ad2e",
-        code: ["DATABASE_URL", "REDIS_URL", "JWT_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
-      },
-    ]);
-    setPrivateRoomOpen(false);
-    setDeliveryStage("complete");
+  async function retryDraft() {
+    if (draft?.state === "created") {
+      setBusy(true);
+      await runDraft(draft.draftId);
+      setBusy(false);
+      return;
+    }
+    if (roughMessage) await createAndRunDraft(roughMessage);
   }
 
   return (
     <section className={`project-chat${privateRoomOpen ? " private-open" : ""}`}>
       <header className="project-chat-header">
         <div>
-          <span className="app-avatar">{participant === "phuong" ? selected.initial : "P"}</span>
-          <span>
-            <strong>{participant === "phuong" ? selected.name : "Phuong"}</strong>
-            <small>Shared project conversation</small>
-          </span>
+          <span className="app-avatar">{selected.initial}</span>
+          <span><strong>{selected.name}</strong><small>Approved project conversation</small></span>
         </div>
-        <div className="chat-header-meta">
-          <span>Codex ↔ {selected.provider}</span>
-          <button type="button" onClick={() => setParticipant((current) => (current === "phuong" ? "justin" : "phuong"))}>
-            View as {participant === "phuong" ? "Justin" : "Phuong"}
-          </button>
-        </div>
+        <div className="chat-header-meta"><span>Codex ↔ {selected.provider}</span></div>
       </header>
 
       <div className="chat-project-strip">
-        <span><StatusMark /> telaegent/backend</span>
-        <small>Phuong: feat/auth-ui · Justin: {selected.branch}</small>
+        <span><StatusMark tone={messageLoadState === "error" ? "warn" : "ok"} /> telaegent/backend</span>
+        <small>Repository ID {conversationConfig.githubRepositoryId || "not configured"}</small>
       </div>
 
       <div className="shared-thread" aria-live="polite">
-        <p className="thread-date">Today</p>
-        {visibleMessages.length === 0 ? (
+        {messageLoadState === "loading" && (
+          <div className="turn-status"><TypingDots label="Loading approved messages" /><span>Loading approved messages</span></div>
+        )}
+        {messageLoadState === "unconfigured" && (
+          <div className="api-state">
+            <strong>{isBoundConversation ? "Connect this workspace to a conversation" : "No conversation is bound to this collaborator"}</strong>
+            <p>{isBoundConversation ? configurationError : "The backend does not yet provide conversation discovery, so this screen can only open the configured conversation."}</p>
+          </div>
+        )}
+        {messageLoadState === "error" && messageError && (
+          <div className="api-state error" role="alert">
+            <strong>{messageError.code || `Conversation unavailable (${messageError.status || "offline"})`}</strong>
+            <p>{apiErrorGuidance(messageError)}</p>
+            {messageError.retryable && <button type="button" onClick={() => void loadMessages()}>Retry</button>}
+          </div>
+        )}
+        {messageLoadState === "ready" && messages.length === 0 && (
           <div className="empty-conversation">
             <span className="app-avatar">{selected.initial}</span>
             <h2>Start a project conversation with {selected.name}.</h2>
             <p>Your rough message goes to your agent privately before {selected.name} can see it.</p>
           </div>
-        ) : (
-          visibleMessages.map((message) => (
-            <article className={`shared-message ${message.side}`} key={message.id}>
-              <span>{message.author} · {message.provider}</span>
-              <p>{message.body}</p>
-              {message.code && (
-                <div className="shared-code-list">
-                  {message.code.map((item) => <code key={item}>{item}</code>)}
-                </div>
-              )}
-              <small>{message.meta}</small>
-            </article>
-          ))
         )}
-
-        {deliveryStage === "waiting" && (
-          <div className="turn-status"><TypingDots label="Justin's agent is investigating" /><span>Justin&apos;s Claude is investigating privately.</span></div>
-        )}
-        {deliveryStage === "recipient-ready" && (
-          <div className="turn-status decision">
-            <div><strong>Response ready on Justin&apos;s side</strong><small>Nothing returns until Justin approves it.</small></div>
-            <button type="button" onClick={openRecipientReview}>Preview Justin&apos;s review</button>
-          </div>
-        )}
-        {deliveryStage === "complete" && participant === "justin" && (
-          <div className="turn-status decision">
-            <div><strong>Response sent</strong><small>Phuong can now see the approved answer.</small></div>
-            <button type="button" onClick={() => setParticipant("phuong")}>Return to Phuong&apos;s view</button>
-          </div>
-        )}
+        {messages.map((message) => (
+          <article className={`shared-message ${message.side}`} key={message.id}>
+            <span>{message.author} · {message.provider}</span>
+            <p>{message.body}</p>
+            <small>{message.meta}</small>
+          </article>
+        ))}
       </div>
 
       <form className="shared-composer" onSubmit={submitRoughMessage}>
@@ -822,24 +1064,29 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
             value={composer}
             onChange={(event) => setComposer(event.target.value)}
             placeholder={`Ask ${selected.name} about this project…`}
+            disabled={!!configurationError || !isBoundConversation}
           />
-          <button type="submit" disabled={!composer.trim()}>Prepare privately</button>
+          <button type="submit" disabled={busy || !composer.trim() || !!configurationError || !isBoundConversation}>Prepare privately</button>
         </div>
-        <small>Drafts open with your Codex first. Enter does not send to {selected.name}.</small>
+        <small>Enter prepares a private draft. Only Send shares the approved result with {selected.name}.</small>
       </form>
 
       <PrivateAgentRoom
         open={privateRoomOpen}
-        mode={privateMode}
-        stage={privateStage}
+        draft={draft}
         recipient={selected}
-        roughMessage={roughMessage}
         clarification={clarification}
-        sensitive={sensitive}
-        onClarify={clarify}
-        onClose={() => setPrivateRoomOpen(false)}
-        onEdit={() => setPrivateStage(privateMode === "outgoing" ? "clarify" : "ready")}
-        onSend={privateMode === "outgoing" ? sendOutgoing : sendRecipientResponse}
+        approvedContent={approvedContent}
+        editingCandidate={editingCandidate}
+        busy={busy}
+        error={actionError}
+        onClarificationChange={setClarification}
+        onApprovedContentChange={setApprovedContent}
+        onClarify={clarifyDraft}
+        onNo={() => void rejectDraft()}
+        onEdit={() => setEditingCandidate(true)}
+        onSend={() => void sendDraft()}
+        onRetry={() => void retryDraft()}
       />
     </section>
   );

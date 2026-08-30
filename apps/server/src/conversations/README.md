@@ -15,6 +15,11 @@ separate from the preserved Phoenix/conflict workflow under `src/telagent/`.
 | `POST` | `/api/drafts/:draftId/send` | Record exact human approval and atomically append one shared message. |
 | `GET` | `/api/conversations/:conversationId/messages` | Read approved shared messages only. |
 
+Asynchronous provider or connector failures are returned by draft polling as
+`state: "runtime_failed"` with a normalized `failure` object containing only a
+public `code`, safe `message`, and `retryable` flag. Raw connector, provider,
+path, credential, and process details never enter the draft response.
+
 The authenticated user is injected by trusted server authentication. No route
 accepts a user ID, local workspace path, connector binding, provider session ID,
 sandbox policy, or turn budget from the browser.

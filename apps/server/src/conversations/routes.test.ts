@@ -4,6 +4,7 @@ import type { AgentService } from "../agent-service.js";
 import { createApp } from "../app.js";
 import { PrivateRuntimeAuthorizationError } from "../authorization/private-runtime-authorization.js";
 import { loadConfig } from "../config.js";
+import { RuntimeProviderError } from "../runtime-errors.js";
 import type { SenderTurnOutput } from "../telagent/protocol/contract.js";
 import { InMemoryConversationRepository } from "./in-memory-repository.js";
 import {
@@ -352,6 +353,47 @@ describe("canonical conversation API", () => {
       headers: { "x-test-user": OWNER },
     });
     expect(messages.json()).toEqual({ messages: [] });
+    await app.close();
+  });
+
+  it("exposes only normalized connector failures through private draft polling", async () => {
+    const test = harness();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+    const created = await createDraft(app);
+    const draftId = created.json().draft.draftId as string;
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+
+    test.completion.reject(
+      new RuntimeProviderError(
+        "RUNTIME_UNAVAILABLE",
+        "connector socket failed at C:\\private\\workspace",
+      ),
+    );
+
+    await expect.poll(() => test.service.getDraft(OWNER, draftId)).toMatchObject({
+      state: "runtime_failed",
+      privateMessage: "Agent provider is temporarily unavailable",
+      failure: {
+        code: "RUNTIME_UNAVAILABLE",
+        message: "Agent provider is temporarily unavailable",
+        retryable: true,
+      },
+    });
+    const polled = await app.inject({
+      method: "GET",
+      url: `/api/drafts/${draftId}`,
+      headers: { "x-test-user": OWNER },
+    });
+    expect(polled.statusCode).toBe(200);
+    expect(polled.body).not.toContain("private\\workspace");
     await app.close();
   });
 

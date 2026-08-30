@@ -3,6 +3,7 @@ import type { AuthorizePrivateRuntimeInput } from "../authorization/types.js";
 import { HttpError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import type { AgentProvider } from "../runtime-contract.js";
+import { normalizeRuntimeFailure, RuntimeProviderError } from "../runtime-errors.js";
 import { redactText } from "../telagent/redaction.js";
 import {
   PROTOCOL_LIMITS,
@@ -93,6 +94,7 @@ export class ConversationService {
       sendCandidate: null,
       riskFlags: [],
       guardFindings: [],
+      failure: null,
       createdAt: timestamp,
       updatedAt: timestamp,
       sentMessageId: null,
@@ -238,7 +240,13 @@ export class ConversationService {
 
   private async completeTurn(draftId: string, turnId: string, rawOutput: unknown): Promise<void> {
     const parsed = senderOutputSchema.safeParse(rawOutput);
-    if (!parsed.success) return this.failTurn(draftId, turnId);
+    if (!parsed.success) {
+      return this.failTurn(
+        draftId,
+        turnId,
+        new RuntimeProviderError("INVALID_AGENT_OUTPUT", "Invalid structured output"),
+      );
+    }
     const output = parsed.data;
     const guarded = guardTurn(output);
     const privateMessage = redactText(output.assistantMessage).value;
@@ -263,11 +271,11 @@ export class ConversationService {
     try {
       const result = await completion;
       await this.completeTurn(draftId, turnId, result.final);
-    } catch {
+    } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe
       // owner-facing state. Raw provider/database errors never enter the draft.
       try {
-        await this.failTurn(draftId, turnId);
+        await this.failTurn(draftId, turnId, error);
       } catch {
         // The HTTP request has already returned 202. A durable adapter reports
         // this through its own safe audit/alerting path; never create an
@@ -276,11 +284,17 @@ export class ConversationService {
     }
   }
 
-  private async failTurn(draftId: string, turnId: string): Promise<void> {
+  private async failTurn(draftId: string, turnId: string, error: unknown): Promise<void> {
+    const failure = normalizeRuntimeFailure(error);
     await this.repository.markDraftFailed({
       draftId,
       expectedTurnId: turnId,
-      privateMessage: "Your agent could not prepare this draft. Retry the private turn.",
+      privateMessage: failure.message,
+      failure: {
+        code: failure.code,
+        message: failure.message,
+        retryable: failure.retryable,
+      },
       updatedAt: this.now().toISOString(),
     });
   }

@@ -1,5 +1,6 @@
 import type { GitHubRepositoryId } from "../authorization/types.js";
 import type { AgentProvider } from "../runtime-contract.js";
+import type { PublicRuntimeErrorCode } from "../runtime-errors.js";
 import type { RiskFlag } from "../telagent/protocol/contract.js";
 import type { GuardFinding } from "../telagent/protocol/guards.js";
 
@@ -12,6 +13,12 @@ export type PrivateDraftState =
   | "runtime_failed"
   | "cancelled"
   | "sent";
+
+export interface PrivateDraftFailure {
+  code: PublicRuntimeErrorCode;
+  message: string;
+  retryable: boolean;
+}
 
 export interface PrivateDraft {
   draftId: string;
@@ -27,6 +34,7 @@ export interface PrivateDraft {
   sendCandidate: string | null;
   riskFlags: RiskFlag[];
   guardFindings: GuardFinding[];
+  failure: PrivateDraftFailure | null;
   createdAt: string;
   updatedAt: string;
   sentMessageId: string | null;
@@ -72,6 +80,7 @@ export interface PrivateDraftView {
   sendCandidate: string | null;
   riskFlags: RiskFlag[];
   guardFindings: GuardFinding[];
+  failure: PrivateDraftFailure | null;
   createdAt: string;
   updatedAt: string;
   sentMessageId: string | null;
@@ -91,6 +100,7 @@ export function toPrivateDraftView(draft: Readonly<PrivateDraft>): PrivateDraftV
     sendCandidate: draft.sendCandidate,
     riskFlags: [...draft.riskFlags],
     guardFindings: structuredClone(draft.guardFindings),
+    failure: draft.failure ? { ...draft.failure } : null,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,
     sentMessageId: draft.sentMessageId,
