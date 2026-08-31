@@ -53,8 +53,7 @@ const workflow = [
   {
     owner: "Shared project",
     title: "Send to your teammate",
-    description:
-      "Only the approved message enters the durable conversation.",
+    description: "Only the approved message enters the durable conversation.",
   },
   {
     owner: "Teammate + agent",
@@ -95,7 +94,10 @@ function AgentLinkVisual() {
 
         <div className="agent-signal" aria-hidden="true">
           <svg viewBox="0 0 420 100" role="presentation">
-            <path className="agent-signal-path" d="M18 50H390M374 34L390 50L374 66" />
+            <path
+              className="agent-signal-path"
+              d="M18 50H390M374 34L390 50L374 66"
+            />
             <g className="agent-signal-packet">
               <circle cx="22" cy="50" r="5" />
             </g>
@@ -132,13 +134,18 @@ function HowItWorks() {
     <section className="trust-section" id="trust">
       <header className="section-heading">
         <h2>One conversation. Two private rooms.</h2>
-        <p>Agents investigate on each side. People decide what becomes shared project memory.</p>
+        <p>
+          Agents investigate on each side. People decide what becomes shared
+          project memory.
+        </p>
       </header>
 
       <div className="workflow-list">
         {workflow.map((item, index) => (
           <article className="workflow-row" key={item.title}>
-            <span className="workflow-index">{String(index + 1).padStart(2, "0")}</span>
+            <span className="workflow-index">
+              {String(index + 1).padStart(2, "0")}
+            </span>
             <small>{item.owner}</small>
             <h3>{item.title}</h3>
             <p>{item.description}</p>
@@ -192,14 +199,29 @@ export default function App() {
           <section className="onboarding-card">
             <span className="app-eyebrow">Telaegent account</span>
             <h1>Sign-in is temporarily unavailable.</h1>
-            <p>Check the cloud service and try again. No local GitHub or agent credentials were changed.</p>
-            <button className="app-primary-action" type="button" onClick={() => setSurface("landing")}>Back</button>
+            <p>
+              Check the cloud service and try again. No local GitHub or agent
+              credentials were changed.
+            </p>
+            <button
+              className="app-primary-action"
+              type="button"
+              onClick={() => setSurface("landing")}
+            >
+              Back
+            </button>
           </section>
         </main>
       );
     }
     if (session === null) {
-      return <main className="onboarding-shell"><section className="onboarding-card"><p>Loading your Telaegent account…</p></section></main>;
+      return (
+        <main className="onboarding-shell">
+          <section className="onboarding-card">
+            <p>Loading your Telaegent account…</p>
+          </section>
+        </main>
+      );
     }
     if (session.enabled && !session.authenticated) {
       return (
@@ -207,8 +229,16 @@ export default function App() {
           <section className="onboarding-card">
             <span className="app-eyebrow">Telaegent account</span>
             <h1>Sign in with GitHub.</h1>
-            <p>This identifies your Telaegent account only. Repository access is verified separately by your local connector.</p>
-            <a className="app-primary-action" href="/api/auth/github/start?returnTo=%2F%3Fview%3Dplatform">Continue with GitHub</a>
+            <p>
+              This identifies your Telaegent account only. Repository access is
+              verified separately by your local connector.
+            </p>
+            <a
+              className="app-primary-action"
+              href="/api/auth/github/start?returnTo=%2F%3Fview%3Dplatform"
+            >
+              Continue with GitHub
+            </a>
           </section>
         </main>
       );
@@ -243,8 +273,8 @@ export default function App() {
 
         <nav className="site-nav" aria-label="Primary navigation">
           <a href="#product">Product</a>
-          <a href="#trust">How it works</a>
           <a href="#sandbox">Sandbox</a>
+          <a href="#trust">How it works</a>
         </nav>
 
         <div className="site-actions">

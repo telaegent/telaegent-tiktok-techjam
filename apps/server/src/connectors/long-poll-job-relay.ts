@@ -78,7 +78,8 @@ export interface LongPollConnectorJobRelayOptions {
  * Repository bindings remain durable in the authorization store. Jobs are
  * deliberately transient private work: they are bounded, leased to exactly
  * one authenticated connector, and disappear on completion, cancellation, or
- * timeout. A connector must re-register its proven binding after cloud restart.
+ * timeout. Routes restore a ready binding from durable authorization state on
+ * the connector's first authenticated request after a cloud restart.
  */
 export class LongPollConnectorJobRelay implements ConnectorJobRelay {
   private readonly bindings = new Map<string, RegisteredBinding>();

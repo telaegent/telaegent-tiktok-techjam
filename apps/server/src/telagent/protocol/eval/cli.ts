@@ -16,6 +16,8 @@
  *   --memory M4         default: M4
  *   --cases a,b,c       run case ids containing ANY of these substrings
  *   --timeout 120000    per turn
+ *   --skip-turns 0      skip this many format/case combinations
+ *   --max-turns 100     hard cap for this invocation
  *   --out <dir>         default: ./src/telagent/protocol/eval/results (gitignored)
  */
 
@@ -50,6 +52,8 @@ interface Options {
   memory: MemoryStrategyId;
   caseFilters: string[];
   timeoutMs: number;
+  skipTurns: number;
+  maxTurns: number;
   outDir: string;
 }
 
@@ -77,6 +81,8 @@ function parseArgs(argv: readonly string[]): Options {
       .map((value) => value.trim())
       .filter((value) => value.length > 0),
     timeoutMs: Number(get("--timeout") ?? "120000"),
+    skipTurns: Number(get("--skip-turns") ?? "0"),
+    maxTurns: Number(get("--max-turns") ?? String(Number.MAX_SAFE_INTEGER)),
     outDir:
       get("--out") ??
       path.resolve(process.cwd(), "src/telagent/protocol/eval/results"),
@@ -167,8 +173,18 @@ async function main(): Promise<void> {
   const git = nodeGitPort;
 
   const results: HarnessRunResult[] = [];
+  let turnsToSkip = options.skipTurns;
+  let turnsRemaining = options.maxTurns;
 
   for (const format of options.formats) {
+    const skippedInFormat = Math.min(turnsToSkip, cases.length);
+    turnsToSkip -= skippedInFormat;
+    const selectedCases = cases.slice(
+      skippedInFormat,
+      skippedInFormat + Math.max(0, turnsRemaining),
+    );
+    if (selectedCases.length === 0) continue;
+
     const config: HarnessConfig = {
       format,
       memory: options.memory,
@@ -184,9 +200,17 @@ async function main(): Promise<void> {
     };
 
     process.stderr.write(
-      "running " + format + " (" + String(cases.length) + " cases)...\n",
+      "running " + format + " (" + String(selectedCases.length) + " cases)...\n",
     );
-    results.push(await runCorpus(cases, config));
+    results.push(await runCorpus(selectedCases, config));
+    turnsRemaining -= selectedCases.length;
+    if (turnsRemaining <= 0) break;
+  }
+
+  if (results.length === 0) {
+    console.error("The requested --skip-turns/--max-turns window selected no cases.");
+    process.exitCode = 1;
+    return;
   }
 
   const generatedAt = new Date().toISOString();

@@ -41,6 +41,13 @@ describe("runtime timeout configuration", () => {
   });
 });
 
+describe("Codex model configuration", () => {
+  it("keeps the model implicit by default and accepts a connector-local override", () => {
+    expect(loadConfig({}).codexModel).toBe("");
+    expect(loadConfig({ CODEX_MODEL: "gpt-5.5" }).codexModel).toBe("gpt-5.5");
+  });
+});
+
 describe("authorization persistence configuration", () => {
   const secretKey = "sb_secret_" + "a".repeat(32);
 

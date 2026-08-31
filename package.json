@@ -19,14 +19,15 @@
     "connector:connect": "npm run connector:connect -w @launchpad/server --",
     "build": "npm run build -w @launchpad/web && npm run build -w @launchpad/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @launchpad/server",
+    "test": "npm run test --workspaces --if-present",
     "check": "npm run typecheck && npm run test && npm run build",
     "poc": "./scripts/start-local-poc.sh",
     "start": "npm run start -w @launchpad/server",
     "test:protocol": "npm run test -w @launchpad/server -- src/telagent/protocol",
-    "eval:fake": "npm run eval:fake -w @launchpad/server",
-    "eval:claude": "npm run eval:claude -w @launchpad/server",
-    "eval:codex": "npm run eval:codex -w @launchpad/server"
+    "eval:fake": "npm run eval:fake -w @launchpad/server --",
+    "eval:claude": "npm run eval:claude -w @launchpad/server --",
+    "eval:codex": "npm run eval:codex -w @launchpad/server --",
+    "eval:deepseek": "npm run eval:deepseek -w @launchpad/server --"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

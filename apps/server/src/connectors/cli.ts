@@ -20,6 +20,7 @@ import {
 import { repositoryProofResultSchema } from "../repository-proof/contract.js";
 import { connectorPrincipalSchema } from "../repository-proof/contract.js";
 import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worker.js";
+import { parseConnectorCliOptions } from "./connector-cli-options.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -48,10 +49,8 @@ const probeResponseSchema = z.strictObject({
 });
 
 async function main(): Promise<void> {
-  const [command, workspaceCandidate = "."] = process.argv.slice(2);
-  if (command !== "connect") {
-    throw new Error("Usage: npm run connector:connect -- connect <workspace>");
-  }
+  const { workspaceCandidate, provider: providerSelection } =
+    parseConnectorCliOptions(process.argv.slice(2));
   const serverOrigin = validateServerOrigin(requiredEnvironment("TELAEGENT_URL"));
   const credential = requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL");
   const connectorInstanceId = requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID");
@@ -88,8 +87,11 @@ async function main(): Promise<void> {
     ENABLE_LEGACY_LOCAL_PLAYGROUND: "0",
     CODEX_HOME: process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"),
   });
+  const localRunners = [new ClaudeCodeRunner(config), new CodexRunner(config)].filter(
+    (runner) => providerSelection === "auto" || runner.provider === providerSelection,
+  );
   const providers = new RuntimeProviderRegistry(
-    [new ClaudeCodeRunner(config), new CodexRunner(config)],
+    localRunners,
     new FileOutputSchemaResolver(
       fileURLToPath(new URL("../telagent/output-schemas", import.meta.url)),
     ),
@@ -103,6 +105,12 @@ async function main(): Promise<void> {
     serverOrigin,
     registered.connectorBindingId,
     credential,
+    fetch,
+    {
+      onRetry: ({ attempt, delayMs }) => {
+        process.stderr.write(`TELAEGENT RECONNECTING (attempt ${attempt}, ${delayMs}ms)\n`);
+      },
+    },
   );
   const worker = new ConnectorWorker(
     {
@@ -117,7 +125,10 @@ async function main(): Promise<void> {
   );
 
   const capabilities = await providers.capabilities();
-  const availableProviders = (["claude", "codex"] as const).filter(
+  const selectedProviders = providerSelection === "auto"
+    ? (["claude", "codex"] as const)
+    : ([providerSelection] as const);
+  const availableProviders = selectedProviders.filter(
     (provider) => capabilities[provider].authenticated,
   );
   if (availableProviders.length === 0) {

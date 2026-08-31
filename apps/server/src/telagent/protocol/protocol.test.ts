@@ -594,6 +594,13 @@ describe("live evaluation is not reachable from CI", () => {
   it("refuses to construct a live runner without the flag", () => {
     expect(() => createRunner("claude", { env: {} })).toThrow(/TELAEGENT_LIVE_EVAL/);
     expect(() => createRunner("codex", { env: {} })).toThrow(/TELAEGENT_LIVE_EVAL/);
+    expect(() => createRunner("deepseek", { env: {} })).toThrow(/TELAEGENT_LIVE_EVAL/);
+  });
+
+  it("requires a DeepSeek key only after the explicit live gate", () => {
+    expect(() =>
+      createRunner("deepseek", { env: { TELAEGENT_LIVE_EVAL: "1" } }),
+    ).toThrow(/AI_KEY/);
   });
 
   it("never falls back from one provider to another", () => {

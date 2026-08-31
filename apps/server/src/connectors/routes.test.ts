@@ -127,6 +127,40 @@ describe("connector long-poll HTTP transport", () => {
     await app.close();
   });
 
+  it("rejects raw provider text at the cloud progress boundary", async () => {
+    const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { relay, resolveConnectorPrincipal: async () => principal },
+    );
+    const completion = relay.dispatch(job);
+    await app.inject({
+      method: "GET",
+      url: `/api/connectors/jobs/next?connectorBindingId=${bindingId}&waitMs=0`,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/connectors/jobs/${job.jobId}/progress`,
+      payload: {
+        type: "text_delta",
+        provider: "claude",
+        text: "raw private provider output C:\\Users\\owner\\repo",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    await relay.cancel(bindingId);
+    await expect(completion).rejects.toBeDefined();
+    await app.close();
+  });
+
   it("proves one fixed Claude job through the same outbound relay", async () => {
     const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);
