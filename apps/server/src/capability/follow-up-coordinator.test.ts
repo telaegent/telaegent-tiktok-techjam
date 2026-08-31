@@ -267,7 +267,10 @@ describe("capability follow-up coordinator", () => {
           {
             status: "pending_approval",
             request: askByHint,
-            candidate: { resourceId: otherResourceId },
+            candidate: {
+              resourceId: otherResourceId,
+              resourceDisplayLabel: "src/settings.ts",
+            },
           },
         ],
       }),
@@ -275,8 +278,9 @@ describe("capability follow-up coordinator", () => {
 
     const result = await coordinator.runRound(context, [askByHint]);
 
-    // The human sees the peer's own words and an identifier the owner's
-    // connector minted. The cloud never learns which file that identifier is.
+    // The human sees the peer's own words, the opaque identifier, and a safe
+    // project-relative label derived by the owner's connector. The canonical
+    // local path never enters the cloud.
     expect(recordScopeRequest).toHaveBeenCalledWith(
       {
         scopeRequestId,
@@ -284,6 +288,7 @@ describe("capability follow-up coordinator", () => {
         ownerUserId: ownerId,
         peerUserId: peerId,
         requestedHint: "src/settings.ts",
+        resourceDisplayLabel: "src/settings.ts",
         requestedReason: "the landing page imports it",
         candidateResourceId: otherResourceId,
       },
@@ -294,6 +299,7 @@ describe("capability follow-up coordinator", () => {
         {
           candidateResourceId: otherResourceId,
           requestedHint: "src/settings.ts",
+          resourceDisplayLabel: "src/settings.ts",
           requestedReason: "the landing page imports it",
           outcome: { outcome: "recorded", scopeRequestId },
         },
@@ -379,7 +385,7 @@ describe("capability follow-up coordinator", () => {
           {
             status: "pending_approval",
             request: askForHeld,
-            candidate: { resourceId },
+            candidate: { resourceId, resourceDisplayLabel: "src/known.ts" },
           },
         ],
       }),
@@ -395,7 +401,13 @@ describe("capability follow-up coordinator", () => {
     // An escalated identifier carries no hint: the human already knows which
     // file it is, and the peer never learned a name for it.
     expect(result).toMatchObject({
-      queued: [{ candidateResourceId: resourceId, requestedHint: null }],
+      queued: [
+        {
+          candidateResourceId: resourceId,
+          resourceDisplayLabel: "src/known.ts",
+          requestedHint: null,
+        },
+      ],
     });
   });
 

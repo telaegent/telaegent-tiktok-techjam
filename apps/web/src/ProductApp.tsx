@@ -1383,10 +1383,10 @@ function ProjectChat({
                   <header>
                     <div>
                       <span className="scope-approval-kicker">Your decision is needed</span>
-                      <h2>{request.requestedHint ?? request.candidateResourceId}</h2>
-                      {request.requestedHint && (
-                        <small className="scope-resource-id">Resource {request.candidateResourceId}</small>
-                      )}
+                      <h2>{request.resourceDisplayLabel}</h2>
+                      <small className="scope-resource-id">
+                        Resource {request.candidateResourceId}
+                      </small>
                     </div>
                     <span className="scope-read-badge">Read only</span>
                   </header>

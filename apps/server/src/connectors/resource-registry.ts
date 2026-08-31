@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { link, mkdir, open, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { RESOURCE_ID_PATTERN, resourceIdSchema } from "./resource-request.js";
@@ -45,6 +45,8 @@ export interface ResourceRegistry {
   mint(taskId: string, canonicalPath: string): Promise<string>;
   /** Returns the local path for an identifier, or null if this task never held it. */
   resolve(taskId: string, resourceId: string): Promise<string | null>;
+  /** Removes every local handle when its cloud task has durably ended. */
+  removeTask(taskId: string): Promise<void>;
 }
 
 /**
@@ -86,6 +88,12 @@ export class InMemoryResourceRegistry implements ResourceRegistry {
     );
     return entry?.canonicalPath ?? null;
   }
+
+  async removeTask(taskId: string): Promise<void> {
+    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
+      if (this.entries[index]?.taskId === taskId) this.entries.splice(index, 1);
+    }
+  }
 }
 
 /**
@@ -96,51 +104,86 @@ export class InMemoryResourceRegistry implements ResourceRegistry {
  */
 export class FileResourceRegistry implements ResourceRegistry {
   private queue: Promise<unknown> = Promise.resolve();
+  private legacyImport: Promise<void> | undefined;
+  private readonly entriesDirectory: string;
+  private readonly byKeyDirectory: string;
+  private readonly byResourceDirectory: string;
+  private readonly legacyImportMarker: string;
 
   constructor(
     private readonly filePath: string,
     private readonly now: () => Date = () => new Date(),
+    private readonly maximumEntries: number = MAX_REGISTRY_ENTRIES,
   ) {
     if (!path.isAbsolute(filePath)) {
       throw new Error("Resource registry path must be absolute");
     }
+    if (!Number.isInteger(maximumEntries) || maximumEntries < 1 || maximumEntries > MAX_REGISTRY_ENTRIES) {
+      throw new Error("Resource registry capacity is invalid");
+    }
+    // The original implementation used one JSON read/modify/write file. Keep
+    // that path as a read-only migration source and put immutable records next
+    // to it. Atomic hard links install records without overwriting a winner,
+    // which is the cross-process compare-and-set primitive Node exposes on all
+    // supported local filesystems.
+    this.entriesDirectory = `${filePath}.entries`;
+    this.byKeyDirectory = path.join(this.entriesDirectory, "by-key");
+    this.byResourceDirectory = path.join(this.entriesDirectory, "by-resource");
+    this.legacyImportMarker = path.join(this.entriesDirectory, ".legacy-imported");
   }
 
   mint(taskId: string, canonicalPath: string): Promise<string> {
     // Serialized so two concurrent approvals for one path cannot each mint an
     // identifier and leave the loser's grant pointing at a forgotten entry.
     return this.enqueue(async () => {
+      await this.ensureReady();
       const resolved = path.resolve(canonicalPath);
-      const entries = await this.read();
-      const existing = entries.find(
-        (entry) => entry.taskId === taskId && entry.canonicalPath === resolved,
-      );
+      const existing = await this.readByKey(taskId, resolved);
       if (existing) return existing.resourceId;
       // Refuse the new mapping before writing. Persisting 10,001 entries would
       // create a file our own read schema rejects and turn one capacity event
       // into permanent registry corruption.
-      if (entries.length >= MAX_REGISTRY_ENTRIES) {
+      if ((await this.entryCount()) >= this.maximumEntries) {
         throw new Error("Resource registry capacity exceeded");
       }
-      const resourceId = mintResourceId();
-      entries.push({
+      const proposed: ResourceRegistryEntry = {
         taskId,
-        resourceId,
+        resourceId: mintResourceId(),
         canonicalPath: resolved,
         issuedAt: this.now().toISOString(),
-      });
-      await this.write(entries);
-      return resourceId;
+      };
+      const persisted = await this.install(proposed);
+      return persisted.resourceId;
     });
   }
 
   resolve(taskId: string, resourceId: string): Promise<string | null> {
     return this.enqueue(async () => {
-      const entries = await this.read();
-      const entry = entries.find(
-        (candidate) => candidate.taskId === taskId && candidate.resourceId === resourceId,
+      await this.ensureReady();
+      if (!resourceIdSchema.safeParse(resourceId).success) return null;
+      const entry = await this.readEntry(
+        path.join(this.byResourceDirectory, `${resourceId}.json`),
+        true,
       );
-      return entry?.canonicalPath ?? null;
+      if (entry && entry.resourceId !== resourceId) {
+        throw new Error("Resource registry is unreadable");
+      }
+      return entry?.taskId === taskId ? entry.canonicalPath : null;
+    });
+  }
+
+  removeTask(taskId: string): Promise<void> {
+    return this.enqueue(async () => {
+      await this.ensureReady();
+      for (const filename of await this.entryFilenames()) {
+        const keyPath = path.join(this.byKeyDirectory, filename);
+        const entry = await this.readEntry(keyPath, false);
+        if (!entry || entry.taskId !== taskId) continue;
+        await unlink(
+          path.join(this.byResourceDirectory, `${entry.resourceId}.json`),
+        ).catch(ignoreMissing);
+        await unlink(keyPath).catch(ignoreMissing);
+      }
     });
   }
 
@@ -150,28 +193,154 @@ export class FileResourceRegistry implements ResourceRegistry {
     return result;
   }
 
-  private async read(): Promise<ResourceRegistryEntry[]> {
+  private async ensureReady(): Promise<void> {
+    await mkdir(this.byKeyDirectory, { recursive: true, mode: 0o700 });
+    await mkdir(this.byResourceDirectory, { recursive: true, mode: 0o700 });
+    this.legacyImport ??= this.importLegacyFile();
+    await this.legacyImport;
+  }
+
+  private async importLegacyFile(): Promise<void> {
+    try {
+      await readFile(this.legacyImportMarker);
+      await unlink(this.filePath).catch(ignoreMissing);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        throw new Error("Resource registry is unreadable");
+      }
+    }
+
+    let entries: readonly ResourceRegistryEntry[];
     try {
       const parsed = fileSchema.parse(JSON.parse(await readFile(this.filePath, "utf8")));
-      return [...parsed.entries];
+      entries = parsed.entries;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return [];
-      // A corrupt registry must not be treated as "no grants exist yet", which
-      // would silently re-mint identifiers and orphan every live grant.
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+        await this.markLegacyImported();
+        return;
+      }
+      throw new Error("Resource registry is unreadable");
+    }
+    for (const entry of entries) await this.install(entry);
+    // Written only after every legacy mapping is durable. The old source is
+    // then removed so task cleanup cannot leave a second stale path mapping
+    // behind, while the marker prevents a later restart from re-importing it.
+    await this.markLegacyImported();
+    await unlink(this.filePath).catch(ignoreMissing);
+  }
+
+  private async markLegacyImported(): Promise<void> {
+    try {
+      const handle = await open(this.legacyImportMarker, "wx", 0o600);
+      await handle.close();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+    }
+  }
+
+  private async install(proposed: ResourceRegistryEntry): Promise<ResourceRegistryEntry> {
+    const keyPath = this.keyPath(proposed.taskId, proposed.canonicalPath);
+    const existing = await this.readEntry(keyPath, true);
+    if (existing) {
+      this.assertSameResource(existing, proposed.taskId, proposed.canonicalPath);
+      await this.ensureAlias(existing, keyPath);
+      return existing;
+    }
+
+    const temporary = path.join(
+      this.entriesDirectory,
+      `.entry-${process.pid}-${randomBytes(12).toString("hex")}.tmp`,
+    );
+    const handle = await open(temporary, "wx", 0o600);
+    try {
+      await handle.writeFile(JSON.stringify(proposed), "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+
+    try {
+      await link(temporary, keyPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+    } finally {
+      await unlink(temporary).catch(ignoreMissing);
+    }
+
+    const persisted = await this.readEntry(keyPath, false);
+    if (!persisted) throw new Error("Resource registry is unreadable");
+    this.assertSameResource(persisted, proposed.taskId, proposed.canonicalPath);
+    await this.ensureAlias(persisted, keyPath);
+    return persisted;
+  }
+
+  private async ensureAlias(entry: ResourceRegistryEntry, keyPath: string): Promise<void> {
+    const aliasPath = path.join(this.byResourceDirectory, `${entry.resourceId}.json`);
+    try {
+      await link(keyPath, aliasPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+      const aliased = await this.readEntry(aliasPath, false);
+      if (!aliased || JSON.stringify(aliased) !== JSON.stringify(entry)) {
+        throw new Error("Resource registry is unreadable");
+      }
+    }
+  }
+
+  private async readByKey(
+    taskId: string,
+    canonicalPath: string,
+  ): Promise<ResourceRegistryEntry | null> {
+    const entry = await this.readEntry(this.keyPath(taskId, canonicalPath), true);
+    if (entry) this.assertSameResource(entry, taskId, canonicalPath);
+    return entry;
+  }
+
+  private async readEntry(
+    entryPath: string,
+    missingIsNull: boolean,
+  ): Promise<ResourceRegistryEntry | null> {
+    try {
+      return entrySchema.parse(JSON.parse(await readFile(entryPath, "utf8")));
+    } catch (error) {
+      if (missingIsNull && (error as NodeJS.ErrnoException)?.code === "ENOENT") {
+        return null;
+      }
       throw new Error("Resource registry is unreadable");
     }
   }
 
-  private async write(entries: readonly ResourceRegistryEntry[]): Promise<void> {
-    // POSIX honours 0700/0600. On Windows the per-user application-data ACL is
-    // the boundary and Node ignores these mode bits, but retaining them here
-    // keeps the same code fail-safe on macOS and Linux.
-    await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    const temporary = `${this.filePath}.${randomBytes(6).toString("hex")}.tmp`;
-    await writeFile(temporary, JSON.stringify({ version: 1, entries }), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    await rename(temporary, this.filePath);
+  private keyPath(taskId: string, canonicalPath: string): string {
+    const key = createHash("sha256")
+      .update(taskId)
+      .update("\0")
+      .update(canonicalPath)
+      .digest("hex");
+    return path.join(this.byKeyDirectory, `${key}.json`);
   }
+
+  private assertSameResource(
+    entry: ResourceRegistryEntry,
+    taskId: string,
+    canonicalPath: string,
+  ): void {
+    if (entry.taskId !== taskId || entry.canonicalPath !== canonicalPath) {
+      throw new Error("Resource registry is unreadable");
+    }
+  }
+
+  private async entryFilenames(): Promise<string[]> {
+    return (await readdir(this.byKeyDirectory)).filter((name) =>
+      /^[0-9a-f]{64}\.json$/.test(name),
+    );
+  }
+
+  private async entryCount(): Promise<number> {
+    return (await this.entryFilenames()).length;
+  }
+}
+
+function ignoreMissing(error: unknown): void {
+  if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
 }

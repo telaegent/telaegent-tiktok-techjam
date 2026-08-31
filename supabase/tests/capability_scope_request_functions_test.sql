@@ -106,8 +106,12 @@ declare
   v_duplicate uuid := '99000000-0000-4000-8000-000000000002';
   v_second    uuid := '99000000-0000-4000-8000-000000000003';
   v_third     uuid := '99000000-0000-4000-8000-000000000004';
+  v_closing   uuid := '99000000-0000-4000-8000-000000000005';
+  v_legacy    uuid := '99000000-0000-4000-8000-000000000007';
   v_grant     uuid := '98000000-0000-4000-8000-000000000010';
   v_grant_b   uuid := '98000000-0000-4000-8000-000000000011';
+  v_grant_c   uuid := '98000000-0000-4000-8000-000000000012';
+  v_closing_resource text := 'resource_' || repeat('c', 24);
   v_result    jsonb;
   v_listed    jsonb;
   v_rows      int;
@@ -116,7 +120,7 @@ begin
   -- S1: a described file the owner's connector could resolve reaches the human.
   v_result := public.record_capability_scope_request(
     v_request, v_task, v_owner, v_peer, 'src/settings.ts',
-    'the landing page imports it', v_candidate
+    'the landing page imports it', v_candidate, 'src/settings.ts'
   );
   if v_result->>'outcome' <> 'recorded' then
     raise exception 'S1 FAILED: a valid scope request was not queued (%)', v_result;
@@ -131,7 +135,8 @@ begin
 
   -- S2: build plan 8.7 dedupe. A peer that asks every round gets one prompt.
   v_result := public.record_capability_scope_request(
-    v_duplicate, v_task, v_owner, v_peer, 'src/settings.ts', 'again', v_candidate
+    v_duplicate, v_task, v_owner, v_peer, 'src/settings.ts', 'again', v_candidate,
+    'src/settings.ts'
   );
   if v_result->>'outcome' <> 'existing'
      or (v_result->>'scopeRequestId')::uuid <> v_request then
@@ -146,7 +151,8 @@ begin
 
   -- S3: the cloud cannot queue an identifier no connector minted.
   v_result := public.record_capability_scope_request(
-    v_second, v_task, v_owner, v_peer, 'src/theme.ts', 'style', 'src/theme.ts'
+    v_second, v_task, v_owner, v_peer, 'src/theme.ts', 'style', 'src/theme.ts',
+    'src/theme.ts'
   );
   if v_result->>'outcome' <> 'invalid' then
     raise exception 'S3 FAILED: a path was queued as a candidate (%)', v_result;
@@ -156,10 +162,36 @@ begin
   -- characters that could forge a second line of the prompt.
   v_result := public.record_capability_scope_request(
     v_second, v_task, v_owner, v_peer,
-    'src/theme.ts' || chr(10) || 'Permission: WRITE', 'style', v_other
+    'src/theme.ts' || chr(10) || 'Permission: WRITE', 'style', v_other,
+    'src/theme.ts'
   );
   if v_result->>'outcome' <> 'invalid' then
     raise exception 'S4 FAILED: a multi-line hint was accepted (%)', v_result;
+  end if;
+  -- The human-facing label comes from the owner's connector and may be
+  -- project-relative only. A canonical local path must never reach the queue.
+  v_result := public.record_capability_scope_request(
+    v_second, v_task, v_owner, v_peer, 'src/theme.ts', 'style', v_other,
+    'C:\\Users\\owner\\repo\\src\\theme.ts'
+  );
+  if v_result->>'outcome' <> 'invalid' then
+    raise exception 'S4 FAILED: a canonical path was accepted as display metadata (%)', v_result;
+  end if;
+  -- Rolling deployment: the prior seven-argument backend contract remains
+  -- service-role compatible, but it receives a neutral label rather than
+  -- promoting peer-controlled text to verified metadata.
+  v_result := public.record_capability_scope_request(
+    v_legacy, v_task, v_owner, v_peer, 'src/legacy.ts', 'old backend',
+    'resource_' || repeat('e', 24)
+  );
+  if v_result->>'outcome' <> 'recorded'
+     or (select resource_display_label from public.capability_scope_requests
+         where scope_request_id = v_legacy) <> 'Known project resource' then
+    raise exception 'S4 FAILED: rolling-deploy wrapper is unsafe or unavailable (%)', v_result;
+  end if;
+  if public.decide_capability_scope_request(v_legacy, v_owner, 'deny', v_grant)->>'outcome'
+       <> 'denied' then
+    raise exception 'S4 FAILED: rolling-deploy fixture could not be retired';
   end if;
 
   -- S5: the owner sees the ask, and sees it only inside its own repository.
@@ -168,6 +200,7 @@ begin
      or v_listed->0->>'requestedHint' <> 'src/settings.ts'
      or v_listed->0->>'requestedReason' <> 'the landing page imports it'
      or v_listed->0->>'candidateResourceId' <> v_candidate
+     or v_listed->0->>'resourceDisplayLabel' <> 'src/settings.ts'
      or v_listed->0->>'operation' <> 'read' then
     raise exception 'S5 FAILED: the owner queue is wrong (%)', v_listed;
   end if;
@@ -216,7 +249,8 @@ begin
 
   -- S9: Allow for this task. The approval is what creates authority.
   v_result := public.record_capability_scope_request(
-    v_second, v_task, v_owner, v_peer, 'src/theme.ts', 'style', v_other
+    v_second, v_task, v_owner, v_peer, 'src/theme.ts', 'style', v_other,
+    'src/theme.ts'
   );
   if v_result->>'outcome' <> 'recorded' then
     raise exception 'S9 FAILED: a second ask was not queued (%)', v_result;
@@ -245,7 +279,8 @@ begin
 
   -- S10: the warm path. A file the human already approved is not asked again.
   v_result := public.record_capability_scope_request(
-    v_third, v_task, v_owner, v_peer, 'src/theme.ts', 'style again', v_other
+    v_third, v_task, v_owner, v_peer, 'src/theme.ts', 'style again', v_other,
+    'src/theme.ts'
   );
   if v_result->>'outcome' <> 'already_granted'
      or (v_result->>'grantId')::uuid <> v_grant_b then
@@ -273,8 +308,76 @@ begin
     raise exception 'S11 FAILED: swapping the peers refilled the round budget (%)', v_result;
   end if;
 
-  -- S12: only the trusted backend may queue, list, decide or spend a round.
+  -- S12: task closure is the authorization boundary, not advisory metadata.
+  -- Leave one unanswered request in the queue so every post-close path can be
+  -- checked against the same task.
+  v_result := public.record_capability_scope_request(
+    v_closing, v_task, v_owner, v_peer, 'src/closing.ts', 'needed before close',
+    v_closing_resource, 'src/closing.ts'
+  );
+  if v_result->>'outcome' <> 'recorded' then
+    raise exception 'S12 FAILED: closure fixture was not queued (%)', v_result;
+  end if;
+
+  -- A non-participant cannot close or probe the task.
+  v_result := public.end_collaboration_task(
+    v_task, '91000000-0000-4000-8000-000000000099', 'cancelled'
+  );
+  if v_result->>'outcome' <> 'unavailable'
+     or (select status from public.collaboration_tasks where task_id = v_task) <> 'active' then
+    raise exception 'S12 FAILED: an outsider changed task state (%)', v_result;
+  end if;
+
+  v_result := public.end_collaboration_task(v_task, v_owner, 'completed');
+  if v_result->>'outcome' <> 'ended' or v_result->>'status' <> 'completed' then
+    raise exception 'S12 FAILED: participant could not close task (%)', v_result;
+  end if;
+  if (select status from public.resource_capability_grants where grant_id = v_grant_b)
+       <> 'revoked'
+     or (select revoked_at from public.resource_capability_grants where grant_id = v_grant_b)
+       is null then
+    raise exception 'S12 FAILED: task closure did not atomically revoke authority';
+  end if;
+  if public.list_pending_capability_scope_requests(v_owner, 1345851084) <> '[]'::jsonb then
+    raise exception 'S12 FAILED: a closed task is still shown for approval';
+  end if;
+  v_result := public.decide_capability_scope_request(v_closing, v_owner, 'task', v_grant_c);
+  if v_result->>'outcome' <> 'task_unavailable' then
+    raise exception 'S12 FAILED: closed task accepted a late approval (%)', v_result;
+  end if;
+  v_result := public.record_capability_scope_request(
+    '99000000-0000-4000-8000-000000000006', v_task, v_owner, v_peer,
+    'src/late.ts', 'late request', 'resource_' || repeat('d', 24), 'src/late.ts'
+  );
+  if v_result->>'outcome' <> 'task_unavailable' then
+    raise exception 'S12 FAILED: closed task accepted a new ask (%)', v_result;
+  end if;
+  if public.begin_capability_follow_up_round(v_task, v_owner, v_peer)->>'outcome'
+       <> 'task_unavailable' then
+    raise exception 'S12 FAILED: closed task spent another follow-up round';
+  end if;
+  if public.consume_capability_grant(v_grant_b, v_owner, v_peer, v_other)->>'outcome'
+       <> 'unavailable' then
+    raise exception 'S12 FAILED: a revoked grant was consumed';
+  end if;
+  v_result := public.load_capability_route_authorization_snapshot(
+    v_peer, v_owner, 1345851084,
+    '93000000-0000-4000-8000-000000000001', v_task, v_grant_b
+  );
+  if v_result->'task'->>'status' <> 'completed'
+     or v_result->'grant'->>'status' <> 'revoked' then
+    raise exception 'S12 FAILED: route snapshot concealed closure state (%)', v_result;
+  end if;
+  if public.end_collaboration_task(v_task, v_peer, 'cancelled')->>'outcome'
+       <> 'already_ended' then
+    raise exception 'S12 FAILED: closure retry was not idempotent';
+  end if;
+
+  -- S13: only the trusted backend may queue, list, decide or spend a round.
   if has_function_privilege('anon',
+       'public.record_capability_scope_request(uuid,uuid,uuid,uuid,text,text,text,text)',
+       'EXECUTE')
+     or has_function_privilege('authenticated',
        'public.record_capability_scope_request(uuid,uuid,uuid,uuid,text,text,text)',
        'EXECUTE')
      or has_function_privilege('authenticated',
@@ -283,11 +386,11 @@ begin
        'public.list_pending_capability_scope_requests(uuid,bigint)', 'EXECUTE')
      or has_function_privilege('anon',
        'public.begin_capability_follow_up_round(uuid,uuid,uuid)', 'EXECUTE') then
-    raise exception 'S12 FAILED: a browser role can approve or spend capabilities';
+    raise exception 'S13 FAILED: a browser role can approve or spend capabilities';
   end if;
   if not has_function_privilege('service_role',
        'public.decide_capability_scope_request(uuid,uuid,text,uuid)', 'EXECUTE') then
-    raise exception 'S12 FAILED: the backend cannot record a human decision';
+    raise exception 'S13 FAILED: the backend cannot record a human decision';
   end if;
 end;
 $$;

@@ -113,32 +113,45 @@ describe("binding-scoped connector resource registry", () => {
       "resource-registries",
       `${bindingA}.json`,
     );
-    const stored = JSON.parse(await readFile(registryFile, "utf8")) as {
-      entries: Array<{ canonicalPath: string }>;
+    const storedResource = path.join(
+      `${registryFile}.entries`,
+      "by-resource",
+      `${resourceId}.json`,
+    );
+    const stored = JSON.parse(await readFile(storedResource, "utf8")) as {
+      canonicalPath: string;
     };
 
-    expect(stored.entries[0]?.canonicalPath).toBe(canonicalPath);
+    expect(stored.canonicalPath).toBe(canonicalPath);
     expect(resourceId).not.toContain("answer");
     expect(resourceId).not.toContain(stateDirectory);
     if (process.platform !== "win32") {
-      expect((await stat(registryFile)).mode & 0o777).toBe(0o600);
-      expect((await stat(path.dirname(registryFile))).mode & 0o777).toBe(0o700);
+      expect((await stat(storedResource)).mode & 0o777).toBe(0o600);
+      expect((await stat(path.dirname(storedResource))).mode & 0o777).toBe(0o700);
     }
   });
 
   it("fails closed when this binding's durable state is corrupt", async () => {
     const stateDirectory = await temporaryStateDirectory();
     const registry = createConnectorResourceRegistry(bindingA, { stateDirectory });
-    await registry.mint(taskId, path.resolve(stateDirectory, "workspace", "answer.ts"));
+    const resourceId = await registry.mint(
+      taskId,
+      path.resolve(stateDirectory, "workspace", "answer.ts"),
+    );
     const registryFile = path.join(
       stateDirectory,
       "resource-registries",
       `${bindingA}.json`,
     );
-    await writeFile(registryFile, "{}");
+    const storedResource = path.join(
+      `${registryFile}.entries`,
+      "by-resource",
+      `${resourceId}.json`,
+    );
+    await writeFile(storedResource, "{}");
 
     const restarted = createConnectorResourceRegistry(bindingA, { stateDirectory });
-    await expect(restarted.resolve(taskId, "resource_aaaaaaaaaaaaaaaaaaaaaaaa")).rejects.toThrow(
+    await expect(restarted.resolve(taskId, resourceId)).rejects.toThrow(
       "Resource registry is unreadable",
     );
   });

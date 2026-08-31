@@ -1,3 +1,4 @@
+import { request as httpRequest } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
 import { loadConfig } from "../config.js";
@@ -25,6 +26,7 @@ const pending: PendingCapabilityScopeRequest = {
   requestedHint: "src/settings.ts",
   requestedReason: "the landing page imports it",
   candidateResourceId,
+  resourceDisplayLabel: "src/settings.ts",
   operation: "read",
   requestedAt: "2026-08-31T09:40:00.000Z",
   taskExpiresAt: "2026-08-31T10:40:00.000Z",
@@ -86,6 +88,50 @@ describe("scope expansion approval routes", () => {
       { ownerUserId: ownerId, githubRepositoryId },
       expect.anything(),
     );
+    const options = listPendingScopeRequests.mock.calls[0]?.[1];
+    expect(options?.signal?.aborted).toBe(false);
+    await app.close();
+  });
+
+  it("aborts a pending capability call when the response socket closes early", async () => {
+    let started!: () => void;
+    const callStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let observedAbort!: () => void;
+    const abortObserved = new Promise<void>((resolve) => {
+      observedAbort = resolve;
+    });
+    const listPendingScopeRequests = vi.fn<
+      CapabilityScopeRequestRepository["listPendingScopeRequests"]
+    >(async (_input, options) => {
+      started();
+      await new Promise<never>((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            observedAbort();
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          },
+          { once: true },
+        );
+      });
+    });
+    const app = await appWith(stubRepository({ listPendingScopeRequests }));
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const pendingRequest = httpRequest(
+      `${address}/api/capability/scope-requests?githubRepositoryId=${githubRepositoryId}`,
+    );
+    pendingRequest.on("error", () => undefined);
+    pendingRequest.end();
+
+    await callStarted;
+    pendingRequest.destroy();
+    await abortObserved;
+
+    expect(listPendingScopeRequests).toHaveBeenCalledOnce();
     await app.close();
   });
 
@@ -262,6 +308,7 @@ describe("scope expansion service", () => {
       requestedHint: "src/theme.ts",
       requestedReason: "style",
       candidateResourceId,
+      resourceDisplayLabel: "src/theme.ts",
     });
 
     // Authority a human already delegated is reused, not asked for again.
@@ -275,6 +322,7 @@ describe("scope expansion service", () => {
         requestedHint: "src/theme.ts",
         requestedReason: "style",
         candidateResourceId,
+        resourceDisplayLabel: "src/theme.ts",
       },
       undefined,
     );

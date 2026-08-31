@@ -38,6 +38,7 @@ export interface QueueScopeRequestInput {
   requestedHint: string | null;
   requestedReason: string;
   candidateResourceId: string;
+  resourceDisplayLabel: string;
 }
 
 export interface ScopeDecisionResult {
