@@ -22,7 +22,7 @@ flowchart TB
     B --> BP["Local Claude Code and/or Codex CLI"]
 ```
 
-Frontend hosting is provisionally Vercel. The control plane is provisionally Azure behind Caddy/HTTPS. Supabase is provisionally in Southeast Asia/Singapore. Azure is not an agent execution platform; it hosts coordination and relay services only.
+Frontend hosting is provisionally Vercel. The control plane is provisionally AWS EC2 behind Caddy/HTTPS. Supabase is provisionally in Southeast Asia/Singapore. The control plane is not an agent execution platform; it hosts coordination and relay services only.
 
 ## Isolation boundary
 
