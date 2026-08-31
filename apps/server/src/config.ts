@@ -15,6 +15,7 @@ const envSchema = z.object({
   AGENT_WORKSPACE_ROOT: z.string().default(path.resolve("workspaces")),
   CODEX_HOME: z.string().default(path.resolve("codex-home")),
   CODEX_BIN: z.string().default("codex"),
+  CODEX_MODEL: z.string().trim().min(1).optional(),
   CODEX_API_KEY: z.string().optional(),
   CODEX_SANDBOX_MODE: z
     .enum(["read-only", "workspace-write", "danger-full-access"])
@@ -113,6 +114,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     workspaceRoot: path.resolve(env.AGENT_WORKSPACE_ROOT),
     codexHome: path.resolve(env.CODEX_HOME),
     codexBin: env.CODEX_BIN,
+    codexModel: env.CODEX_MODEL ?? "",
     codexApiKey: env.CODEX_API_KEY?.trim() ?? "",
     codexSandboxMode: env.CODEX_SANDBOX_MODE,
     runtimeIdleTimeoutMs: env.RUNTIME_IDLE_TIMEOUT_MS,

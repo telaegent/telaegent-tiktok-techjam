@@ -46,6 +46,19 @@ describe("Codex runner protocol", () => {
     expect(args.slice(-3)).toEqual(["resume", "thread-123", "add tests"]);
   });
 
+  it("uses an explicit local model without changing the global Codex default", () => {
+    const request = {
+      agentId: "agent",
+      workspacePath: "/tmp/workspace",
+      prompt: "build a calculator",
+      threadId: null,
+    };
+
+    expect(
+      buildCodexArgs(request, "read-only", request.workspacePath, "gpt-5.5"),
+    ).toContain("gpt-5.5");
+  });
+
   it("extracts the session, final message and usage", () => {
     const parsed = {
       messages: [] as string[],
@@ -148,6 +161,31 @@ describe("Codex runner protocol", () => {
     expect(args.slice(-3)).toEqual(["resume", "thread-123", "-"]);
     expect(args).not.toContain("Return status");
     expect(args).not.toContain("danger-full-access");
+  });
+
+  it("passes an explicit model to structured middleware runs", () => {
+    const args = buildCodexMiddlewareArgs(
+      {
+        agentId: "agent",
+        provider: "codex",
+        purpose: "status",
+        workspacePath: "/tmp/workspace",
+        runtimePrompt: "Return status",
+        persistedSummary: "Status",
+        sessionMode: "ephemeral",
+        sandboxMode: "read-only",
+        networkMode: "none",
+        outputSchemaName: "status.schema.json",
+        correlationId: "corr-model",
+        maxTurns: 1,
+      },
+      "/tmp/status.schema.json",
+      "/tmp/workspace",
+      "gpt-5.5",
+    );
+
+    expect(args).toContain("--model");
+    expect(args).toContain("gpt-5.5");
   });
 
   it("does not spawn Codex when cancellation arrives during schema preflight", async () => {
