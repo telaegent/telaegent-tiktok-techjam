@@ -337,6 +337,25 @@
   letter-spacing: .08em;
 }
 
+.connector-command-block {
+  margin-top: 16px;
+}
+
+.device-flow code.connector-command {
+  max-height: 112px;
+  overflow: auto;
+  display: block;
+  color: var(--text);
+  line-height: 1.6;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.connector-command-block p {
+  margin: 11px 0 0;
+}
+
 .device-flow p {
   margin: 12px 0 0;
 }
