@@ -923,6 +923,55 @@ html[data-theme="dark"] .app-rail button > img {
   font-size: 9px;
 }
 
+.connection-action-error {
+  margin-top: 28px;
+}
+
+.connections-list {
+  margin-top: 32px;
+}
+
+.connection-project + .connection-project {
+  margin-top: 24px;
+}
+
+.connection-project-heading {
+  min-height: 54px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.connection-project-heading strong,
+.connection-project-heading span {
+  display: block;
+}
+
+.connection-project-heading strong {
+  font-size: 13px;
+}
+
+.connection-project-heading span {
+  color: var(--quiet);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.connection-row > .connection-actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.connection-actions button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
 .connection-state,
 .tool-row > span {
   display: flex;
