@@ -16,6 +16,7 @@ import {
   HttpConnectorWorkerTransport,
   type ConnectorWorkerTransport,
 } from "./connector-worker.js";
+import type { ResourceExchangeResponse } from "./resource-exchange.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
 
@@ -47,6 +48,7 @@ class FakeTransport implements ConnectorWorkerTransport {
   readonly progressEvents: RuntimeProgressEvent[] = [];
   readonly results: ConnectorJobResult[] = [];
   readonly failures: string[] = [];
+  readonly resourceResponses: ResourceExchangeResponse[] = [];
   readonly pollTimes: number[] = [];
   private deliveries: Array<ConnectorDelivery | Error>;
 
@@ -76,6 +78,10 @@ class FakeTransport implements ConnectorWorkerTransport {
 
   async failure(_jobId: string, code: string): Promise<void> {
     this.failures.push(code);
+  }
+
+  async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
+    this.resourceResponses.push(response);
   }
 }
 

@@ -7,10 +7,12 @@ import type {
   ConnectorJobRequest,
   ConnectorJobResult,
 } from "./connector-turn-executor.js";
+import type { ResourceExchangeRequest } from "./resource-exchange.js";
 
 export type ConnectorDelivery =
   | { kind: "job"; job: Readonly<ConnectorJobRequest> }
-  | { kind: "cancel"; jobId: string };
+  | { kind: "cancel"; jobId: string }
+  | { kind: "resource_request"; request: Readonly<ResourceExchangeRequest> };
 
 interface RegisteredBinding {
   principal: ConnectorPrincipal;

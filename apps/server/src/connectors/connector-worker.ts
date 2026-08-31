@@ -12,6 +12,15 @@ import type {
   ConnectorJobResult,
 } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
+import { LocalFileBroker } from "./file-broker.js";
+import type { ResourcePolicyLimits } from "./resource-policy.js";
+import type { ResourceRegistry } from "./resource-registry.js";
+import {
+  fulfilResourceRequests,
+  resourceExchangeRequestSchema,
+  type ResourceExchangeRequest,
+  type ResourceExchangeResponse,
+} from "./resource-exchange.js";
 
 const idPart = z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/);
 const jobSchema = z.strictObject({
@@ -37,6 +46,10 @@ const deliverySchema = z.discriminatedUnion("kind", [
     kind: z.literal("cancel"),
     jobId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
   }),
+  z.strictObject({
+    kind: z.literal("resource_request"),
+    request: resourceExchangeRequestSchema,
+  }),
 ]);
 
 export interface LocalConnectorBinding {
@@ -52,11 +65,20 @@ export interface ConnectorWorkerTransport {
   progress(jobId: string, event: RuntimeProgressEvent): Promise<void>;
   result(jobId: string, result: ConnectorJobResult): Promise<void>;
   failure(jobId: string, code: string): Promise<void>;
+  resourceResponse(response: ResourceExchangeResponse): Promise<void>;
 }
 
 export interface ConnectorWorkerOptions {
   cancel: (connectorBindingId: string) => Promise<boolean>;
   pollRetryDelayMs?: number;
+  /**
+   * Capability serving. Absent means this connector cannot resolve any
+   * identifier, so it refuses every resource request rather than guessing.
+   */
+  resources?: {
+    registry: ResourceRegistry;
+    limits?: ResourcePolicyLimits;
+  };
 }
 
 export class ConnectorCredentialRejectedError extends Error {
@@ -84,6 +106,10 @@ export class ConnectorWorker {
     if (untrustedDelivery === null) return "idle";
     const delivery = deliverySchema.parse(untrustedDelivery);
     if (delivery.kind === "cancel") return "idle";
+    if (delivery.kind === "resource_request") {
+      await this.serveResourceRequest(delivery.request);
+      return "completed";
+    }
     const job = delivery.job;
     this.assertOwnedJob(job);
 
@@ -142,6 +168,35 @@ export class ConnectorWorker {
         await execution.catch(() => undefined);
       }
     }
+  }
+
+  /**
+   * Serves a peer resource request without launching a provider.
+   *
+   * Delivering a file is a reference-monitor operation, not an agent turn: no
+   * session is created or resumed, and no model sees the request. That keeps
+   * the authorization path free of anything a prompt could influence.
+   */
+  private async serveResourceRequest(request: ResourceExchangeRequest): Promise<void> {
+    if (request.connectorBindingId !== this.binding.connectorBindingId) {
+      throw new Error("Resource request does not match the local repository binding");
+    }
+    const registry = this.options.resources?.registry;
+    if (!registry) {
+      await this.transport.resourceResponse({
+        requestId: request.requestId,
+        outcomes: request.requests.map(() => ({ status: "refused" as const })),
+      });
+      return;
+    }
+    const limits = this.options.resources?.limits;
+    const response = await fulfilResourceRequests(request, {
+      registry,
+      broker: new LocalFileBroker(this.binding.workspacePath),
+      workspacePath: this.binding.workspacePath,
+      ...(limits ? { limits } : {}),
+    });
+    await this.transport.resourceResponse(response);
   }
 
   private async watchCancellation(
@@ -267,6 +322,10 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
 
   async failure(jobId: string, code: string): Promise<void> {
     await this.send(jobId, "failure", { code });
+  }
+
+  async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
+    await this.send(response.requestId, "resources", response);
   }
 
   private async send(jobId: string, action: string, body: unknown): Promise<void> {
