@@ -9,6 +9,8 @@ import {
   api,
   ApiError,
   type AgentProvider,
+  type CapabilityScopeDecision,
+  type CapabilityScopeRequest,
   type ConnectorCredential,
   type ConversationMessage,
   type PrivateDraftView,
@@ -70,6 +72,17 @@ function formatMessageTime(timestamp: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(date)}`;
+}
+
+function formatTaskExpiry(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "when this task ends";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function normalizeApiError(error: unknown): ApiError {
@@ -920,6 +933,9 @@ function ProjectChat({
   const [messages, setMessages] = useState<SharedMessage[]>([]);
   const [messageLoadState, setMessageLoadState] = useState<AsyncLoadState>("idle");
   const [messageError, setMessageError] = useState<ApiError | null>(null);
+  const [scopeRequests, setScopeRequests] = useState<CapabilityScopeRequest[]>([]);
+  const [scopeRequestError, setScopeRequestError] = useState<ApiError | null>(null);
+  const [decidingScopeRequestId, setDecidingScopeRequestId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PrivateDraftView | null>(null);
   // Set only while a reply draft is open, so the private room can show what is
   // being answered and Retry can reopen the same reply.
@@ -936,6 +952,40 @@ function ProjectChat({
   const replyCreationKeys = useRef(new Map<string, string>());
   const configurationError = projectConfigurationError(project.githubRepositoryId);
   const conversationId = conversation?.conversationId ?? null;
+
+  async function loadScopeRequests(showError = true) {
+    if (configurationError) {
+      setScopeRequests([]);
+      return;
+    }
+    try {
+      const result = await api.capabilityScopeRequests(project.githubRepositoryId);
+      setScopeRequests(result.requests);
+      setScopeRequestError(null);
+    } catch (error) {
+      if (showError) setScopeRequestError(normalizeApiError(error));
+    }
+  }
+
+  async function decideScopeRequest(
+    scopeRequestId: string,
+    decision: CapabilityScopeDecision,
+  ) {
+    setDecidingScopeRequestId(scopeRequestId);
+    setScopeRequestError(null);
+    try {
+      await api.decideCapabilityScopeRequest(scopeRequestId, decision);
+      setScopeRequests((current) =>
+        current.filter((request) => request.scopeRequestId !== scopeRequestId),
+      );
+      await loadScopeRequests(false);
+    } catch (error) {
+      setScopeRequestError(normalizeApiError(error));
+      await loadScopeRequests(false);
+    } finally {
+      setDecidingScopeRequestId(null);
+    }
+  }
 
   async function loadMessages() {
     if (configurationError || !conversationId) {
@@ -1015,6 +1065,32 @@ function ProjectChat({
       window.clearInterval(timer);
     };
   }, [configurationError, conversationId, messageLoadState, project.githubRepositoryId]);
+
+  useEffect(() => {
+    if (configurationError) {
+      setScopeRequests([]);
+      setScopeRequestError(null);
+      return;
+    }
+    let active = true;
+    setScopeRequests([]);
+    setScopeRequestError(null);
+    const poll = () => {
+      void api.capabilityScopeRequests(project.githubRepositoryId).then((result) => {
+        if (!active) return;
+        setScopeRequests(result.requests);
+        setScopeRequestError(null);
+      }).catch((error: unknown) => {
+        if (active) setScopeRequestError(normalizeApiError(error));
+      });
+    };
+    poll();
+    const timer = window.setInterval(poll, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [configurationError, project.githubRepositoryId]);
 
   useEffect(() => {
     if (!privateRoomOpen || draft?.state !== "agent_working") return;
@@ -1216,6 +1292,79 @@ function ProjectChat({
       </div>
 
       <div className="shared-thread" aria-live="polite">
+        {(scopeRequests.length > 0 || scopeRequestError) && (
+          <section className="scope-approval-queue" aria-label="File access decisions">
+            {scopeRequestError && (
+              <div className="scope-approval-error" role="alert">
+                <span>{apiErrorGuidance(scopeRequestError)}</span>
+                <button type="button" onClick={() => void loadScopeRequests()}>Try again</button>
+              </div>
+            )}
+            {scopeRequests.map((request) => {
+              const requestingPeer = request.peerUserId === peer?.userId
+                ? `@${peer.githubLogin}'s agent`
+                : `Peer agent ${request.peerUserId.slice(0, 8)}`;
+              const deciding = decidingScopeRequestId === request.scopeRequestId;
+              return (
+                <article className="scope-approval-card" key={request.scopeRequestId}>
+                  <header>
+                    <div>
+                      <span className="scope-approval-kicker">Your decision is needed</span>
+                      <h2>{request.requestedHint ?? request.candidateResourceId}</h2>
+                      {request.requestedHint && (
+                        <small className="scope-resource-id">Resource {request.candidateResourceId}</small>
+                      )}
+                    </div>
+                    <span className="scope-read-badge">Read only</span>
+                  </header>
+                  <dl>
+                    <div>
+                      <dt>Requested by</dt>
+                      <dd>{requestingPeer}</dd>
+                    </div>
+                    <div>
+                      <dt>Agent's stated reason</dt>
+                      <dd>&ldquo;{request.requestedReason}&rdquo;</dd>
+                    </div>
+                  </dl>
+                  <p className="scope-task-note">
+                    Allow for this task includes later versions of this exact file until the task ends
+                    {` (${formatTaskExpiry(request.taskExpiresAt)})`} or you revoke access.
+                  </p>
+                  <footer>
+                    <button
+                      className="scope-deny"
+                      type="button"
+                      disabled={deciding}
+                      onClick={() => void decideScopeRequest(request.scopeRequestId, "deny")}
+                    >
+                      Deny
+                      <small>The agent continues without this file.</small>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deciding}
+                      onClick={() => void decideScopeRequest(request.scopeRequestId, "once")}
+                    >
+                      Allow once
+                      <small>Read this request only.</small>
+                    </button>
+                    <button
+                      className="scope-task-allow"
+                      type="button"
+                      disabled={deciding}
+                      onClick={() => void decideScopeRequest(request.scopeRequestId, "task")}
+                    >
+                      Allow for this task
+                      <small>Reuse access to this file until the task ends.</small>
+                    </button>
+                  </footer>
+                  {deciding && <span className="scope-deciding" role="status"><TypingDots label="Recording your decision" /> Recording your decision</span>}
+                </article>
+              );
+            })}
+          </section>
+        )}
         {messageLoadState === "loading" && (
           <div className="turn-status"><TypingDots label="Loading approved messages" /><span>Loading approved messages</span></div>
         )}
