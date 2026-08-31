@@ -118,14 +118,14 @@ The current infrastructure hypothesis to validate is:
 | Layer | Provisional choice |
 | --- | --- |
 | Frontend | React/Vite on Vercel |
-| Backend/control plane | Node 22 + Fastify 5 behind Caddy on Azure |
+| Backend/control plane | Node 22 + Fastify 5 behind Caddy on AWS EC2 |
 | Database/Auth/Realtime | Supabase Postgres in Southeast Asia/Singapore |
-| Connector presence/job relay | Azure backend using outbound WebSocket, long-polling, or equivalent |
+| Connector presence/job relay | AWS EC2 backend using outbound WebSocket, long-polling, or equivalent |
 | Agent execution | local connector binding per user × repository |
 | Repository access | developer's local Git/GitHub CLI state |
 | Coding providers | developer's locally authenticated Claude Code CLI and/or Codex CLI |
 
-The exact connector transport is **not frozen yet**. Azure does not provision
+The exact connector transport is **not frozen yet**. The control plane does not provision
 provider runtimes. Production-grade local path binding, connector
 authentication, revocation, and job delivery should not be claimed until
 proven.
