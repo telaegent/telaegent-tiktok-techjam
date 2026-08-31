@@ -5,7 +5,10 @@ import { createApp } from "../app.js";
 import { PrivateRuntimeAuthorizationError } from "../authorization/private-runtime-authorization.js";
 import { loadConfig } from "../config.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
-import type { SenderTurnOutput } from "../telagent/protocol/contract.js";
+import type {
+  RecipientTurnOutput,
+  SenderTurnOutput,
+} from "../telagent/protocol/contract.js";
 import { UserAuthenticationError } from "../authentication/types.js";
 import { InMemoryConversationRepository } from "./in-memory-repository.js";
 import {
@@ -34,14 +37,19 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+type TurnCompletion = {
+  provider: "codex";
+  final: SenderTurnOutput | RecipientTurnOutput;
+  changedFiles: string[];
+  exitCode: number;
+  durationMs: number;
+};
+
 function harness() {
-  const completion = deferred<{
-    provider: "codex";
-    final: SenderTurnOutput;
-    changedFiles: string[];
-    exitCode: number;
-    durationMs: number;
-  }>();
+  const completion = deferred<TurnCompletion>();
+  // Each queued entry settles one `start`, in order. Tests that run a single
+  // turn queue nothing and keep resolving `completion` directly.
+  const queued: Array<ReturnType<typeof deferred<TurnCompletion>>> = [];
   const authorizations: Array<{
     userId: string;
     repositoryId: string;
@@ -65,7 +73,7 @@ function harness() {
         turnId: "44444444-4444-4444-8444-444444444444",
         streamId: "55555555-5555-4555-8555-555555555555",
         initialState: "queued" as const,
-        completion: completion.promise,
+        completion: (queued.shift() ?? completion).promise,
       };
     },
     async cancel() {
@@ -89,6 +97,11 @@ function harness() {
   return {
     service,
     completion,
+    queueTurn: () => {
+      const next = deferred<TurnCompletion>();
+      queued.push(next);
+      return next;
+    },
     authorizations,
     wasCancelled: () => cancelled,
     authenticatedUserId,
@@ -239,6 +252,163 @@ describe("canonical conversation API", () => {
     ]);
     expect(test.authorizations.map((call) => call.action)).toEqual(
       expect.arrayContaining(["create_draft", "run_draft", "read", "send"]),
+    );
+    await app.close();
+  });
+
+  it("completes the round trip: an approved message opens the recipient's own gated draft", async () => {
+    const test = harness();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+
+    const senderTurn = test.queueTurn();
+    const recipientTurn = test.queueTurn();
+
+    const created = await createDraft(app);
+    const senderDraftId = created.json().draft.draftId as string;
+    expect(created.json().draft).toMatchObject({
+      role: "sender",
+      incomingMessageId: null,
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${senderDraftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+    senderTurn.resolve({
+      provider: "codex",
+      final: {
+        state: "ready",
+        assistantMessage: "I prepared a focused question.",
+        sendCandidate: "How does refresh token rotation work on your branch?",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 20,
+    });
+    await expect.poll(async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/drafts/${senderDraftId}`,
+        headers: { "x-test-user": OWNER },
+      });
+      return response.json().draft.state;
+    }).toBe("ready");
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${senderDraftId}/send`,
+      headers: { "x-test-user": OWNER },
+      payload: { idempotencyKey: "send-question" },
+    });
+    expect(sent.statusCode).toBe(201);
+    const incomingMessageId = sent.json().message.messageId as string;
+
+    // An owner answers a collaborator, never themselves.
+    const selfReply = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${CONVERSATION}/replies`,
+      headers: { "x-test-user": OWNER },
+      payload: {
+        githubRepositoryId: REPOSITORY,
+        provider: "codex",
+        incomingMessageId,
+      },
+    });
+    expect(selfReply.statusCode).toBe(409);
+    expect(JSON.stringify(selfReply.json())).not.toContain("sender_user_id");
+
+    const reply = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${CONVERSATION}/replies`,
+      headers: { "x-test-user": OTHER },
+      payload: {
+        githubRepositoryId: REPOSITORY,
+        provider: "codex",
+        incomingMessageId,
+        ownerGuidance: "keep it short",
+      },
+    });
+    expect(reply.statusCode).toBe(201);
+    expect(reply.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(reply.json().draft).toMatchObject({
+      role: "recipient",
+      incomingMessageId,
+      // Steering on top of the message, not a rough ask of the owner's own.
+      roughMessage: "keep it short",
+      state: "created",
+    });
+    const replyDraftId = reply.json().draft.draftId as string;
+
+    // The reply is a private draft like any other: invisible to the collaborator
+    // who triggered it, and it still leaves only through Send.
+    const peek = await app.inject({
+      method: "GET",
+      url: `/api/drafts/${replyDraftId}`,
+      headers: { "x-test-user": OWNER },
+    });
+    expect(peek.statusCode).toBe(404);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${replyDraftId}/run`,
+      headers: { "x-test-user": OTHER },
+      payload: {},
+    });
+    recipientTurn.resolve({
+      provider: "codex",
+      final: {
+        state: "ready",
+        privateSummary: "Checked the auth module before answering.",
+        sendCandidate: "Rotation happens on every refresh, server side.",
+        riskFlags: [],
+        sourcePaths: [],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 20,
+    });
+    await expect.poll(async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/drafts/${replyDraftId}`,
+        headers: { "x-test-user": OTHER },
+      });
+      return response.json().draft.state;
+    }).toBe("ready");
+
+    const answered = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${replyDraftId}/send`,
+      headers: { "x-test-user": OTHER },
+      payload: { idempotencyKey: "send-answer" },
+    });
+    expect(answered.statusCode).toBe(201);
+
+    const shared = await app.inject({
+      method: "GET",
+      url: `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}`,
+      headers: { "x-test-user": OWNER },
+    });
+    expect(shared.json().messages).toEqual([
+      expect.objectContaining({
+        body: "How does refresh token rotation work on your branch?",
+        senderUserId: OWNER,
+      }),
+      expect.objectContaining({
+        body: "Rotation happens on every refresh, server side.",
+        senderUserId: OTHER,
+      }),
+    ]);
+    // The reply crossed the boundary under its own human gate, not the sender's.
+    expect(test.authorizations.map((call) => call.action)).toEqual(
+      expect.arrayContaining(["create_draft", "create_reply", "run_draft", "send"]),
     );
     await app.close();
   });

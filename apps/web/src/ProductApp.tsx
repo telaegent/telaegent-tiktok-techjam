@@ -708,6 +708,7 @@ function mapConversationMessage(
 function PrivateAgentRoom({
   open,
   draft,
+  answering,
   recipient,
   clarification,
   approvedContent,
@@ -724,6 +725,8 @@ function PrivateAgentRoom({
 }: {
   open: boolean;
   draft: PrivateDraftView | null;
+  /** The approved collaborator message this draft answers, on a reply. */
+  answering: SharedMessage | null;
   recipient: Collaborator;
   clarification: string;
   approvedContent: string;
@@ -748,7 +751,7 @@ function PrivateAgentRoom({
     <aside className={`workspace-private-room${open ? " open" : ""}`} aria-hidden={!open}>
       <header>
         <div>
-          <strong>{state === "ready" ? "Message Approval" : "Message Preparation"}</strong>
+          <strong>{state === "ready" ? (answering ? "Reply Approval" : "Message Approval") : (answering ? "Reply Preparation" : "Message Preparation")}</strong>
           <small>Private with {draft ? formatProvider(draft.provider) : "your agent"}. Not visible to {recipient.name}.</small>
         </div>
         <button type="button" onClick={onNo} disabled={busy}>No</button>
@@ -760,7 +763,14 @@ function PrivateAgentRoom({
       </div>
 
       <div className="workspace-private-thread" aria-live="polite">
-        {draft && (
+        {answering && (
+          <article className="private-bubble answering">
+            <span>{recipient.name} · approved message</span>
+            <p>{answering.body}</p>
+          </article>
+        )}
+
+        {draft?.roughMessage && (
           <article className="private-bubble user"><span>You</span><p>{draft.roughMessage}</p></article>
         )}
 
@@ -881,6 +891,9 @@ function ProjectChat({
   const [messageLoadState, setMessageLoadState] = useState<MessageLoadState>("loading");
   const [messageError, setMessageError] = useState<ApiError | null>(null);
   const [draft, setDraft] = useState<PrivateDraftView | null>(null);
+  // Set only while a reply draft is open, so the private room can show what is
+  // being answered and Retry can reopen the same reply.
+  const [answering, setAnswering] = useState<SharedMessage | null>(null);
   const [privateRoomOpen, setPrivateRoomOpen] = useState(false);
   const [clarification, setClarification] = useState("");
   const [approvedContent, setApprovedContent] = useState("");
@@ -918,6 +931,7 @@ function ProjectChat({
     let active = true;
     setPrivateRoomOpen(false);
     setDraft(null);
+    setAnswering(null);
     setActionError(null);
     if (configurationError || !isBoundConversation) {
       setMessages([]);
@@ -1018,11 +1032,45 @@ function ProjectChat({
     }
   }
 
+  /**
+   * Opens the recipient half of the round trip.
+   *
+   * The reply is an ordinary private draft: it stays owner-private and still
+   * leaves only through Send, so answering a collaborator faces the same gate
+   * as starting a message.
+   */
+  async function createAndRunReply(message: SharedMessage) {
+    setBusy(true);
+    setDraft(null);
+    setActionError(null);
+    setAnswering(message);
+    setRoughMessage("");
+    setClarification("");
+    setApprovedContent("");
+    setEditingCandidate(false);
+    try {
+      const created = await api.createConversationReply(conversationConfig.conversationId, {
+        githubRepositoryId: conversationConfig.githubRepositoryId,
+        provider: "codex",
+        incomingMessageId: message.id,
+      });
+      setDraft(created.draft);
+      setPrivateRoomOpen(true);
+      await runDraft(created.draft.draftId);
+    } catch (error) {
+      setActionError(normalizeApiError(error));
+      setPrivateRoomOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function submitRoughMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextMessage = composer.trim();
     if (!nextMessage || configurationError || !isBoundConversation) return;
     setRoughMessage(nextMessage);
+    setAnswering(null);
     setClarification("");
     setApprovedContent("");
     setEditingCandidate(false);
@@ -1057,6 +1105,7 @@ function ProjectChat({
       await api.cancelConversationDraft(draft.draftId);
       setPrivateRoomOpen(false);
       setDraft(null);
+      setAnswering(null);
       setComposer("");
     } catch (error) {
       setActionError(normalizeApiError(error));
@@ -1079,6 +1128,7 @@ function ProjectChat({
       setMessageLoadState("ready");
       setPrivateRoomOpen(false);
       setDraft(null);
+      setAnswering(null);
       setComposer("");
       await loadMessages();
     } catch (error) {
@@ -1093,6 +1143,10 @@ function ProjectChat({
       setBusy(true);
       await runDraft(draft.draftId);
       setBusy(false);
+      return;
+    }
+    if (answering) {
+      await createAndRunReply(answering);
       return;
     }
     if (roughMessage) await createAndRunDraft(roughMessage);
@@ -1142,6 +1196,16 @@ function ProjectChat({
             <span>{message.author} · {message.provider}</span>
             <p>{message.body}</p>
             <small>{message.meta}</small>
+            {message.side === "incoming" && (
+              <button
+                className="app-secondary-action shared-message-reply"
+                type="button"
+                onClick={() => void createAndRunReply(message)}
+                disabled={busy || privateRoomOpen}
+              >
+                Prepare reply
+              </button>
+            )}
           </article>
         ))}
       </div>
@@ -1172,6 +1236,7 @@ function ProjectChat({
       <PrivateAgentRoom
         open={privateRoomOpen}
         draft={draft}
+        answering={answering}
         recipient={selected}
         clarification={clarification}
         approvedContent={approvedContent}

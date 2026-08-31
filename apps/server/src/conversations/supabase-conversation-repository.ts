@@ -37,6 +37,7 @@ export const maximumSharedMessagesPerRead = 1_000;
 /** Every conversation RPC this adapter is permitted to call. */
 const conversationRpcFunctions = [
   "create_private_draft",
+  "create_recipient_draft",
   "get_private_draft",
   "mark_private_draft_running",
   "complete_private_draft",
@@ -132,7 +133,13 @@ const privateDraftSchema = z.strictObject({
   githubRepositoryId: githubRepositoryIdSchema,
   ownerUserId: uuidSchema,
   provider: providerSchema,
-  roughMessage: z.string().min(1).max(PROTOCOL_LIMITS.maxPrivateMessageChars),
+  role: z.enum(["sender", "recipient"]),
+  roughMessage: z
+    .string()
+    .min(1)
+    .max(PROTOCOL_LIMITS.maxPrivateMessageChars)
+    .nullable(),
+  incomingMessageId: uuidSchema.nullable(),
   privateTurns: z.array(privateTurnSchema).max(32),
   state: z.enum([
     "created",
@@ -229,6 +236,22 @@ export class SupabaseConversationRepository implements ConversationRepository {
       );
     }
     return created;
+  }
+
+  async createRecipientDraft(draft: PrivateDraft): Promise<PrivateDraft | null> {
+    return parseDraft(
+      await this.call("create_recipient_draft", {
+        p_draft_id: draft.draftId,
+        p_conversation_id: draft.conversationId,
+        p_github_repository_id: draft.githubRepositoryId,
+        p_owner_user_id: draft.ownerUserId,
+        p_provider: draft.provider,
+        p_incoming_message_id: draft.incomingMessageId,
+        p_owner_guidance: draft.roughMessage,
+        p_created_at: draft.createdAt,
+        p_updated_at: draft.updatedAt,
+      }),
+    );
   }
 
   async getDraft(draftId: string): Promise<PrivateDraft | null> {

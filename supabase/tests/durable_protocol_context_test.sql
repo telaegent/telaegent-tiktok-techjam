@@ -1,4 +1,4 @@
--- Durable sender context must be reconstructible without provider state.
+-- Durable context for both roles must be reconstructible without provider state.
 begin;
 
 do $$
@@ -10,8 +10,11 @@ declare
   v_binding uuid := '40000000-0000-4000-8000-000000000004';
   v_draft uuid := '50000000-0000-4000-8000-000000000005';
   v_message uuid := '60000000-0000-4000-8000-000000000006';
+  v_earlier uuid := '60000000-0000-4000-8000-000000000007';
+  v_reply uuid := '50000000-0000-4000-8000-000000000008';
   v_repo bigint := 9223372036854775807;
   v_context jsonb;
+  v_reply_row jsonb;
 begin
   insert into public.user_accounts (user_id, status)
   values (v_owner, 'active'), (v_peer, 'active');
@@ -56,6 +59,10 @@ begin
     message_id, conversation_id, github_repository_id, sender_user_id,
     body, origin, provider, sent_at
   ) values (
+    v_earlier, v_conversation, v_repo, v_owner,
+    'The relay is on feature/relay.', 'agent', 'claude',
+    statement_timestamp() - interval '5 minutes'
+  ), (
     v_message, v_conversation, v_repo, v_peer,
     'Use the approved transport contract.', 'agent', 'codex',
     statement_timestamp() - interval '1 minute'
@@ -71,7 +78,9 @@ begin
      v_context#>>'{facts,commit}' <> repeat('a', 40) or
      v_context#>>'{facts,ownerName}' <> 'phuong' or
      v_context#>>'{facts,collaboratorName}' <> 'justin' or
-     jsonb_array_length(v_context->'sharedHistory') <> 1 then
+     jsonb_array_length(v_context->'sharedHistory') <> 2 or
+     v_context#>>'{sharedHistory,0,id}' <> v_earlier::text or
+     v_context#>>'{sharedHistory,1,id}' <> v_message::text then
     raise exception 'T1 FAILED: durable protocol context was incomplete %', v_context;
   end if;
   if v_context::text ~* '(workspace|credential|sessionId|providerHome)' then
@@ -88,6 +97,74 @@ begin
     'authenticated', 'public.load_sender_protocol_context(uuid,bigint,uuid,uuid,integer)', 'EXECUTE'
   ) then
     raise exception 'T4 FAILED: browser roles can load private protocol context';
+  end if;
+
+  -- An owner answers a collaborator, never themselves.
+  if public.create_recipient_draft(
+    v_reply, v_conversation, v_repo, v_peer, 'codex', v_message,
+    null, statement_timestamp(), statement_timestamp()
+  ) is not null then
+    raise exception 'T5 FAILED: a user opened a reply to their own message';
+  end if;
+
+  v_reply_row := public.create_recipient_draft(
+    v_reply, v_conversation, v_repo, v_owner, 'codex', v_message,
+    'keep it short', statement_timestamp(), statement_timestamp()
+  );
+  if v_reply_row is null or
+     v_reply_row->>'role' <> 'recipient' or
+     v_reply_row->>'incomingMessageId' <> v_message::text or
+     v_reply_row->>'roughMessage' <> 'keep it short' then
+    raise exception 'T6 FAILED: recipient draft was not opened correctly %', v_reply_row;
+  end if;
+
+  v_context := public.load_recipient_protocol_context(
+    v_owner, v_repo, v_conversation, v_reply, 200
+  );
+  -- The collaborator's text is delivered once, through the envelope field. If it
+  -- also appeared in sharedHistory the untrusted data envelope would be
+  -- decorative, so history stops strictly before the message being answered.
+  if v_context->>'role' <> 'recipient' or
+     v_context->>'incomingMessage' <> 'Use the approved transport contract.' or
+     v_context#>>'{facts,collaboratorName}' <> 'justin' or
+     jsonb_array_length(v_context->'sharedHistory') <> 1 or
+     v_context#>>'{sharedHistory,0,id}' <> v_earlier::text then
+    raise exception 'T7 FAILED: recipient context was wrong %', v_context;
+  end if;
+
+  -- load_sender_protocol_context hardcodes 'role', 'sender' in its own result,
+  -- so a recipient row loaded through it would arrive claiming to be a sender
+  -- turn and no caller could tell. Each loader rejects the other role itself.
+  if public.load_sender_protocol_context(
+    v_owner, v_repo, v_conversation, v_reply, 200
+  ) is not null then
+    raise exception 'T8 FAILED: the sender loader returned a recipient draft';
+  end if;
+  if public.load_recipient_protocol_context(
+    v_owner, v_repo, v_conversation, v_draft, 200
+  ) is not null then
+    raise exception 'T9 FAILED: the recipient loader returned a sender draft';
+  end if;
+  if public.load_recipient_protocol_context(
+    v_peer, v_repo, v_conversation, v_reply, 200
+  ) is not null then
+    raise exception 'T10 FAILED: another user loaded the owner private reply';
+  end if;
+
+  if has_function_privilege(
+    'anon', 'public.load_recipient_protocol_context(uuid,bigint,uuid,uuid,integer)', 'EXECUTE'
+  ) or has_function_privilege(
+    'authenticated', 'public.load_recipient_protocol_context(uuid,bigint,uuid,uuid,integer)', 'EXECUTE'
+  ) or has_function_privilege(
+    'anon',
+    'public.create_recipient_draft(uuid,uuid,bigint,uuid,text,uuid,text,timestamptz,timestamptz)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'authenticated',
+    'public.create_recipient_draft(uuid,uuid,bigint,uuid,text,uuid,text,timestamptz,timestamptz)',
+    'EXECUTE'
+  ) then
+    raise exception 'T11 FAILED: browser roles can reach the recipient half';
   end if;
 end;
 $$;
