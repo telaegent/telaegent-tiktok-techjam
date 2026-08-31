@@ -84,14 +84,14 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 | Layer | Current direction |
 | --- | --- |
 | Browser product | React 19 + Vite, provisionally on Vercel |
-| Control plane | Node 22 + Fastify 5 + Zod behind Caddy, provisionally on Azure |
+| Control plane | Node 22 + Fastify 5 + Zod behind Caddy, provisionally on AWS EC2 |
 | Website identity | GitHub OAuth + opaque Telaegent sessions |
 | Product data | Supabase Postgres and Realtime in Singapore |
 | Repository access | Owner's local Git/GitHub CLI state |
 | Agent execution | Local connector binding per user × repository |
 | Coding providers | Locally authenticated Claude Code CLI and/or Codex CLI |
 
-Azure hosts only the control plane and connector relay. Connector packaging,
+The cloud host runs only the control plane and connector relay. Connector packaging,
 outbound transport, local binding enforcement, and provider probes remain
 research/implementation gates.
 

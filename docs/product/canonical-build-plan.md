@@ -103,7 +103,7 @@ No inbound port is opened on either developer machine.
 | Layer | Location |
 | --- | --- |
 | React 19 + Vite frontend | Vercel |
-| Node 22 + Fastify backend | Azure |
+| Node 22 + Fastify backend | AWS EC2 |
 | Postgres/Auth/Realtime | Supabase |
 | Telaegent connector | **LOCAL developer machine** |
 | GitHub CLI | **LOCAL developer machine** |
@@ -195,7 +195,7 @@ git rev-parse HEAD
 git branch --show-current
 ```
 
-Telaegent does **not** run `gh auth login` in Azure.
+Telaegent does **not** run `gh auth login` in the cloud control plane.
 
 ---
 
@@ -669,7 +669,7 @@ If these work, the core Telaegent architecture works.
 Backend + Telaegent/GitHub identity + project proof + collaborator authorization + capability/file-access policy.
 
 ### Thai
-Vercel/Azure/Supabase deployment + connector/cloud networking + cost + latency + persistence.
+Vercel/EC2/Supabase deployment + connector/cloud networking + cost + latency + persistence.
 
 ### Duy
 Landing, onboarding, repo/collaborator UI, shared conversation, private side-chat, scope-expansion approval UI, status/error UX.
