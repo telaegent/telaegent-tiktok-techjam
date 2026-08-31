@@ -104,7 +104,7 @@ No inbound port is opened on either developer machine.
 | --- | --- |
 | React 19 + Vite frontend | Vercel |
 | Node 22 + Fastify backend | AWS EC2 |
-| Postgres/Auth/Realtime | Supabase |
+| Postgres/session persistence/Realtime | Supabase |
 | Telaegent connector | **LOCAL developer machine** |
 | GitHub CLI | **LOCAL developer machine** |
 | Claude Code CLI | **LOCAL developer machine** |

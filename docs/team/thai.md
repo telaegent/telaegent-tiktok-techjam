@@ -14,7 +14,7 @@ Accepted infrastructure hypothesis:
 ```text
 Vercel frontend
 AWS EC2 backend/control plane
-Supabase Postgres/Auth/Realtime in Singapore
+Supabase Postgres/session persistence/Realtime in Singapore
 Outbound local connectors
 ```
 

@@ -119,7 +119,12 @@ token as a substitute. Only a SHA-256 token hash is durable. Each authenticated
 poll resolves the bound user and connector instance, and a repository proof
 must register the exact opaque user x repository binding before it can receive
 a job. Rotation/revocation removes that principal's live relay bindings, and
-stale presence cannot receive new jobs.
+stale presence cannot receive new jobs. Repository-loss events remove only the
+matching user x repository binding and cancel any leased job; a short-lived,
+principal-bound cancellation notice lets the owning connector stop local work
+without keeping the revoked binding authorized. Connector credentials are
+still validated for revocation, expiry, and account status on every request,
+while safe `last_seen_at` telemetry is written at most once per 30 seconds.
 
 ## Data handling
 

@@ -8,6 +8,8 @@ declare
   v_first_hash text := repeat('a', 64);
   v_second_hash text := repeat('b', 64);
   v_principal jsonb;
+  v_first_seen timestamptz;
+  v_throttled_seen timestamptz;
 begin
   insert into public.user_accounts (user_id, status) values (v_user, 'active');
 
@@ -31,6 +33,31 @@ begin
       and credential.last_seen_at is not null
   ) then
     raise exception 'T2 FAILED: authentication did not update safe presence';
+  end if;
+
+  select credential.last_seen_at into v_first_seen
+  from public.connector_credentials credential
+  where credential.token_hash = decode(v_first_hash, 'hex');
+  perform public.authenticate_connector_credential(v_first_hash);
+  select credential.last_seen_at into v_throttled_seen
+  from public.connector_credentials credential
+  where credential.token_hash = decode(v_first_hash, 'hex');
+  if v_throttled_seen is distinct from v_first_seen then
+    raise exception 'T2 FAILED: presence was rewritten inside throttle window';
+  end if;
+
+  update public.connector_credentials
+    set last_seen_at = statement_timestamp() - interval '31 seconds'
+  where token_hash = decode(v_first_hash, 'hex');
+  select credential.last_seen_at into v_first_seen
+  from public.connector_credentials credential
+  where credential.token_hash = decode(v_first_hash, 'hex');
+  perform public.authenticate_connector_credential(v_first_hash);
+  select credential.last_seen_at into v_throttled_seen
+  from public.connector_credentials credential
+  where credential.token_hash = decode(v_first_hash, 'hex');
+  if v_throttled_seen <= v_first_seen then
+    raise exception 'T2 FAILED: stale presence was not refreshed';
   end if;
 
   if not public.create_connector_credential(

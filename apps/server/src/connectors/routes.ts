@@ -128,7 +128,7 @@ export function registerConnectorTransportRoutes(
     app.post("/api/connectors/credentials", async (request, reply) => {
       const authenticatedUserId = await dependencies.authenticatedUserId!(request);
       const body = credentialBodySchema.parse(request.body);
-      dependencies.relay.unregisterPrincipal({
+      await dependencies.relay.unregisterPrincipal({
         authenticatedUserId,
         connectorInstanceId: body.connectorInstanceId,
       });
@@ -149,7 +149,7 @@ export function registerConnectorTransportRoutes(
           authenticatedUserId,
           params.connectorInstanceId,
         );
-        dependencies.relay.unregisterPrincipal({
+        await dependencies.relay.unregisterPrincipal({
           authenticatedUserId,
           connectorInstanceId: params.connectorInstanceId,
         });

@@ -132,6 +132,9 @@ if (config.telaegentIdentityProvider === "github") {
     onBindingRegistered: (principal, connectorBindingId, githubRepositoryId) => {
       relay.registerBinding(principal, connectorBindingId, githubRepositoryId);
     },
+    onBindingUnavailable: async (principal, githubRepositoryId) => {
+      await relay.unregisterRepositoryBinding(principal, githubRepositoryId);
+    },
   };
 
   if (

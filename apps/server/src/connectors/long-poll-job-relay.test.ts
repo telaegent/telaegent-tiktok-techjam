@@ -123,6 +123,13 @@ describe("LongPollConnectorJobRelay", () => {
       exitCode: 0,
       durationMs: 1,
     })).toBe(false);
+    // An idempotent proof replay must not erase cancellation while the local
+    // provider is still stopping.
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    await expect(relay.poll(principal, bindingId, 0)).resolves.toEqual({
+      kind: "cancel",
+      jobId: job.jobId,
+    });
   });
 
   it("times out jobs that never return", async () => {
@@ -156,12 +163,59 @@ describe("LongPollConnectorJobRelay", () => {
   it("removes proven bindings when the connector credential is rotated or revoked", async () => {
     const relay = new LongPollConnectorJobRelay();
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);
-    relay.unregisterPrincipal(principal);
+    await relay.unregisterPrincipal(principal);
     await expect(relay.poll(principal, bindingId, 0)).rejects.toMatchObject({
       code: "UNSUPPORTED_RUNTIME_POLICY",
     });
     await expect(relay.dispatch(job)).rejects.toMatchObject({
       code: "RUNTIME_UNAVAILABLE",
+    });
+  });
+
+  it("unregisters only the requested user x repository binding", async () => {
+    const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
+    const otherBindingId = "50000000-0000-4000-8000-000000000006";
+    const otherRepositoryId = "9223372036854775806";
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    relay.registerBinding(principal, otherBindingId, otherRepositoryId);
+
+    await expect(
+      relay.unregisterRepositoryBinding(principal, job.githubRepositoryId),
+    ).resolves.toBe(true);
+    await expect(relay.dispatch(job)).rejects.toMatchObject({
+      code: "RUNTIME_UNAVAILABLE",
+    });
+    await expect(relay.poll(principal, otherBindingId, 0)).resolves.toBeNull();
+    expect(relay.registeredRepository(principal, otherBindingId)).toBe(
+      otherRepositoryId,
+    );
+  });
+
+  it("preserves an authenticated cancellation after a leased binding is removed", async () => {
+    const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    const completion = relay.dispatch(job);
+    await relay.poll(principal, bindingId, 0);
+    const cancellation = expect(completion).rejects.toBeInstanceOf(
+      RunCancelledError,
+    );
+
+    await relay.unregisterRepositoryBinding(principal, job.githubRepositoryId);
+    await cancellation;
+
+    const otherPrincipal = {
+      ...principal,
+      connectorInstanceId: "connector_instance_0002",
+    };
+    await expect(relay.poll(otherPrincipal, bindingId, 0)).rejects.toMatchObject({
+      code: "UNSUPPORTED_RUNTIME_POLICY",
+    });
+    await expect(relay.poll(principal, bindingId, 0)).resolves.toEqual({
+      kind: "cancel",
+      jobId: job.jobId,
+    });
+    await expect(relay.poll(principal, bindingId, 0)).rejects.toMatchObject({
+      code: "UNSUPPORTED_RUNTIME_POLICY",
     });
   });
 
