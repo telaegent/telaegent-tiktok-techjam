@@ -127,13 +127,13 @@ Start here when you are evaluating or extending product behavior:
 
 The five next-phase briefs assign research and design ownership; they are not irreversible implementation boundaries:
 
-| Owner | Focus |
-| --- | --- |
-| [Khoa](docs/team/khoa.md) | Local GitHub proof, repository identity, collaborator trust, authorization, and revocation |
-| [Phuong](docs/team/phuong.md) | Local connector, Claude/Codex adapters, sessions, durable memory, and orchestration |
-| [Thai](docs/team/thai.md) | Cloud deployment, connector networking, storage, cost, and latency |
-| [Duy](docs/team/duy.md) | Product UX from landing through private and shared conversations |
-| [Hien](docs/team/hien.md) | Agent protocol experiments, safety evaluation, and test architecture |
+| Owner | Focus | Background |
+| --- | --- | --- |
+| [Khoa](docs/team/khoa.md) | Local GitHub proof, repository identity, collaborator trust, authorization, and revocation | Y2 CS @ NUS · ex-SWE Intern @ South Telecom · Incoming SWE Intern @ TikTok Trust & Safety |
+| [Phuong](docs/team/phuong.md) | Local connector, Claude/Codex adapters, sessions, durable memory, and orchestration | Y2 CS @ NUS · Autonomous Inc. · Ren Education |
+| [Thai](docs/team/thai.md) | Cloud deployment, connector networking, storage, cost, and latency | Y2 CS @ NUS · ex-SWE Intern @ Nexpando |
+| [Duy](docs/team/duy.md) | Product UX from landing through private and shared conversations | Y2 AI @ NUS · AI Research Intern @ Ren Education |
+| [Hien](docs/team/hien.md) | Agent protocol experiments, safety evaluation, and test architecture | Y2 CS @ NUS · ex-SWE Intern @ FPT Software |
 
 Additional technical evidence and decision records:
 
