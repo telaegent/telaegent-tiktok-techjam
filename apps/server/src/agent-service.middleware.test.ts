@@ -230,12 +230,19 @@ describe("AgentService middleware turns", () => {
 
   it("cancels a middleware turn without stopping the Agent", async () => {
     let rejectTurn!: (reason: unknown) => void;
+    let markRunnerStarted!: () => void;
+    const runnerStarted = new Promise<void>((resolve) => {
+      markRunnerStarted = resolve;
+    });
     const pending = new Promise<NormalizedRunResult>((_resolve, reject) => {
       rejectTurn = reject;
     });
     const runner: MiddlewareProviderRunner = {
       provider: "codex",
-      runStructured: () => pending,
+      runStructured: () => {
+        markRunnerStarted();
+        return pending;
+      },
       cancel: async (agentId) => {
         rejectTurn(new RunCancelledError());
         return Boolean(agentId);
@@ -247,13 +254,18 @@ describe("AgentService middleware turns", () => {
     const active = service.runMiddlewareTurn(
       middlewareRequest(agent.id, agent.workspacePath),
     );
-    // Attach the rejection handler before cancellation can synchronously reject
-    // the provider promise, avoiding an unhandled-rejection race in Vitest.
-    const activeExpectation = expect(active).rejects.toBeInstanceOf(RunCancelledError);
+    const activeResult = active.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     await expect.poll(() => service.getAgent(agent.id).status).toBe("busy");
+    // Busy is recorded before lifecycle hooks and provider dispatch. Wait for
+    // the mock provider itself so cancellation cannot reject an unobserved
+    // promise when the full suite delays this test between those steps.
+    await runnerStarted;
 
     await expect(service.cancelMiddlewareTurn(agent.id)).resolves.toBe(true);
-    await activeExpectation;
+    await expect(activeResult).resolves.toBeInstanceOf(RunCancelledError);
     expect(service.getAgent(agent.id).status).toBe("ready");
     expect(service.getRuns(agent.id)[0]).toMatchObject({
       status: "cancelled",
