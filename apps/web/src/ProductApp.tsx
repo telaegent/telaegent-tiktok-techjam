@@ -8,6 +8,7 @@ import settingsIcon from "../../../ui/icon/setting.svg";
 import {
   api,
   ApiError,
+  type ConnectorCredential,
   type ConversationMessage,
   type PrivateDraftView,
   type TelaegentWebUser,
@@ -17,7 +18,7 @@ import "./product-app.css";
 type Theme = "light" | "dark";
 type ProductRoute = "onboarding" | "projects" | "connections" | "settings" | "workspace";
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
-type GithubStage = "idle" | "connector" | "connected";
+type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
 type WorkspaceTab = "chat" | "people" | "settings";
 type MessageLoadState = "unconfigured" | "loading" | "ready" | "error";
 
@@ -44,7 +45,6 @@ const conversationConfig = {
   conversationId: import.meta.env.VITE_TELAEGENT_CONVERSATION_ID?.trim() ?? "",
   githubRepositoryId:
     import.meta.env.VITE_TELAEGENT_GITHUB_REPOSITORY_ID?.trim() ?? "",
-  currentUserId: import.meta.env.VITE_TELAEGENT_CURRENT_USER_ID?.trim() ?? "",
 };
 
 const uuidPattern =
@@ -229,6 +229,8 @@ function Onboarding({
 }) {
   const [step, setStep] = useState<OnboardingStep>("identity");
   const [githubStage, setGithubStage] = useState<GithubStage>("idle");
+  const [connectorCredential, setConnectorCredential] = useState<ConnectorCredential | null>(null);
+  const [connectorError, setConnectorError] = useState<ApiError | null>(null);
   const [connectedAgents, setConnectedAgents] = useState<string[]>([]);
   const steps: OnboardingStep[] = ["identity", "github", "agent", "ready"];
   const stepIndex = steps.indexOf(step);
@@ -237,6 +239,35 @@ function Onboarding({
     setConnectedAgents((current) =>
       current.includes(agent) ? current.filter((item) => item !== agent) : [...current, agent],
     );
+  }
+
+  async function createConnectorCredential() {
+    const connectorInstanceId = crypto.randomUUID().replaceAll("-", "");
+    setGithubStage("issuing");
+    setConnectorError(null);
+    try {
+      const result = await api.issueConnectorCredential(connectorInstanceId);
+      setConnectorCredential(result.connector);
+      setGithubStage("connector");
+    } catch (error) {
+      setConnectorError(normalizeApiError(error));
+      setGithubStage("error");
+    }
+  }
+
+  function connectorCommand(credential: ConnectorCredential): string {
+    return [
+      `$env:TELAEGENT_URL='${window.location.origin}'`,
+      `$env:TELAEGENT_CONNECTOR_INSTANCE_ID='${credential.connectorInstanceId}'`,
+      `$env:TELAEGENT_CONNECTOR_CREDENTIAL='${credential.credential}'`,
+      "npm run connector:connect -w @launchpad/server -- connect .",
+    ].join("; ");
+  }
+
+  async function copyConnectorCommand() {
+    if (connectorCredential) {
+      await navigator.clipboard.writeText(connectorCommand(connectorCredential));
+    }
   }
 
   return (
@@ -292,35 +323,57 @@ function Onboarding({
                     <strong>Local Telaegent connector</strong>
                     <small>Not connected for this repository</small>
                   </div>
-                  <button type="button" onClick={() => setGithubStage("connector")}>Connect</button>
+                  <button type="button" onClick={() => void createConnectorCredential()}>Connect</button>
                 </div>
               )}
 
-              {githubStage === "connector" && (
+              {githubStage === "issuing" && (
+                <div className="setup-row">
+                  <div>
+                    <strong>Preparing a connector credential</strong>
+                    <small>Bound to this Telaegent account and installation only</small>
+                  </div>
+                  <TypingDots label="Preparing connector credential" />
+                </div>
+              )}
+
+              {githubStage === "connector" && connectorCredential && (
                 <div className="device-flow">
                   <div>
                     <span>Run locally in your repository</span>
-                    <strong>telaegent connect .</strong>
+                    <strong>Connect this installation</strong>
                   </div>
                   <div>
                     <span>What remains local</span>
                     <code>repo · gh · Claude/Codex · sessions</code>
                   </div>
-                  <p>Waiting for the outbound connector…</p>
+                  <p>Run the command, then continue once the terminal confirms the connector is connected.</p>
+                  <div className="connector-command-block">
+                    <code className="connector-command">{connectorCommand(connectorCredential)}</code>
+                    <p>Paste this once in PowerShell at the repository root. It verifies your local GitHub CLI and starts the outbound connector. The credential expires {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(connectorCredential.expiresAt))}.</p>
+                  </div>
                   <div className="inline-actions">
-                    <button className="app-secondary-action" type="button">Copy command</button>
+                    <button className="app-secondary-action" type="button" onClick={() => void copyConnectorCommand()}>Copy command</button>
                     <button className="app-primary-action" type="button" onClick={() => setGithubStage("connected")}>
-                      Simulate connector online
+                      I&apos;ve connected it
                     </button>
                   </div>
+                </div>
+              )}
+
+              {githubStage === "error" && connectorError && (
+                <div className="api-state error" role="alert">
+                  <strong>{connectorError.code ?? "Connector setup unavailable"}</strong>
+                  <p>{apiErrorGuidance(connectorError)}</p>
+                  <button className="app-secondary-action" type="button" onClick={() => void createConnectorCredential()}>Try again</button>
                 </div>
               )}
 
               {githubStage === "connected" && (
                 <div className="setup-row connected">
                   <div>
-                    <strong><StatusMark /> Connector online · @phuong</strong>
-                    <small>telaegent/backend · feat/auth · 81ad2e</small>
+                    <strong><StatusMark /> Connector command completed</strong>
+                    <small>Your local connector verified this repository. Continue to select its agent.</small>
                   </div>
                   <button type="button" onClick={() => setStep("agent")}>Continue</button>
                 </div>
@@ -615,9 +668,13 @@ function WorkspaceSidebar({
   );
 }
 
-function mapConversationMessage(message: ConversationMessage, forceOutgoing = false): SharedMessage {
+function mapConversationMessage(
+  message: ConversationMessage,
+  currentUserId: string | null,
+  forceOutgoing = false,
+): SharedMessage {
   const outgoing = forceOutgoing ||
-    (!!conversationConfig.currentUserId && message.senderUserId === conversationConfig.currentUserId);
+    (!!currentUserId && message.senderUserId === currentUserId);
   return {
     id: message.messageId,
     side: outgoing ? "outgoing" : "incoming",
@@ -785,7 +842,13 @@ function PrivateAgentRoom({
   );
 }
 
-function ProjectChat({ selectedId }: { selectedId: string }) {
+function ProjectChat({
+  selectedId,
+  currentUserId,
+}: {
+  selectedId: string;
+  currentUserId: string | null;
+}) {
   const selected = collaborators.find((person) => person.id === selectedId) ?? collaborators[0];
   const [composer, setComposer] = useState("");
   const [roughMessage, setRoughMessage] = useState("");
@@ -817,7 +880,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
         conversationConfig.githubRepositoryId,
       );
       setMessages(result.messages.map((message) =>
-        mapConversationMessage(message, ownMessageIds.current.has(message.messageId)),
+        mapConversationMessage(message, currentUserId, ownMessageIds.current.has(message.messageId)),
       ));
       setMessageLoadState("ready");
     } catch (error) {
@@ -844,7 +907,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
     ).then((result) => {
       if (!active) return;
       setMessages(result.messages.map((message) =>
-        mapConversationMessage(message, ownMessageIds.current.has(message.messageId)),
+        mapConversationMessage(message, currentUserId, ownMessageIds.current.has(message.messageId)),
       ));
       setMessageLoadState("ready");
     }).catch((error: unknown) => {
@@ -853,7 +916,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
       setMessageLoadState("error");
     });
     return () => { active = false; };
-  }, [selectedId, configurationError, isBoundConversation]);
+  }, [selectedId, configurationError, isBoundConversation, currentUserId]);
 
   useEffect(() => {
     if (configurationError || !isBoundConversation || messageLoadState !== "ready") return;
@@ -865,7 +928,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
       ).then((result) => {
         if (!active) return;
         setMessages(result.messages.map((message) =>
-          mapConversationMessage(message, ownMessageIds.current.has(message.messageId)),
+          mapConversationMessage(message, currentUserId, ownMessageIds.current.has(message.messageId)),
         ));
       }).catch(() => {
         // Keep the last approved snapshot. An explicit load exposes connection errors.
@@ -987,7 +1050,7 @@ function ProjectChat({ selectedId }: { selectedId: string }) {
         idempotencyKey: `send:${draft.draftId}:${crypto.randomUUID()}`,
       });
       ownMessageIds.current.add(result.message.messageId);
-      setMessages((current) => [...current, mapConversationMessage(result.message, true)]);
+      setMessages((current) => [...current, mapConversationMessage(result.message, currentUserId, true)]);
       setMessageLoadState("ready");
       setPrivateRoomOpen(false);
       setDraft(null);
@@ -1168,7 +1231,13 @@ function ProjectSettings() {
   );
 }
 
-function Workspace({ onBack }: { onBack: () => void }) {
+function Workspace({
+  onBack,
+  currentUserId,
+}: {
+  onBack: () => void;
+  currentUserId: string | null;
+}) {
   const [tab, setTab] = useState<WorkspaceTab>("chat");
   const [selectedId, setSelectedId] = useState("justin");
 
@@ -1187,7 +1256,7 @@ function Workspace({ onBack }: { onBack: () => void }) {
           <button className={tab === item ? "selected" : ""} type="button" key={item} onClick={() => setTab(item)}>{item}</button>
         ))}
       </div>
-      {tab === "chat" && <ProjectChat selectedId={selectedId} />}
+      {tab === "chat" && <ProjectChat selectedId={selectedId} currentUserId={currentUserId} />}
       {tab === "people" && <ProjectPeople />}
       {tab === "settings" && <ProjectSettings />}
     </div>
@@ -1251,7 +1320,7 @@ export default function ProductApp({
           )}
           {route === "connections" && <ConnectionsScreen requestAccepted={requestAccepted} onAcceptRequest={() => setRequestAccepted(true)} />}
           {route === "settings" && <ToolsSettings />}
-          {route === "workspace" && <Workspace onBack={() => setRoute("projects")} />}
+          {route === "workspace" && <Workspace onBack={() => setRoute("projects")} currentUserId={user?.userId ?? null} />}
         </main>
       </div>
     </div>

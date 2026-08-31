@@ -94,6 +94,13 @@ export type TelaegentSession =
   | { enabled: true; authenticated: false }
   | { enabled: true; authenticated: true; user: TelaegentWebUser };
 
+/** A one-time-display local connector credential. Never persist this in browser storage. */
+export type ConnectorCredential = {
+  credential: string;
+  connectorInstanceId: string;
+  expiresAt: string;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -159,6 +166,11 @@ export const api = {
   auth: () => request<{ required: boolean; provider: "github" | "disabled" }>("/api/auth"),
   session: () => request<TelaegentSession>("/api/auth/session"),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  issueConnectorCredential: (connectorInstanceId: string) =>
+    request<{ connector: ConnectorCredential }>("/api/connectors/credentials", {
+      method: "POST",
+      body: JSON.stringify({ connectorInstanceId }),
+    }),
   system: () => request<SystemInfo>("/api/system"),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),
   createAgent: (body: {
