@@ -1016,6 +1016,30 @@ html[data-theme="dark"] .app-rail button > img {
   display: block;
 }
 
+.workspace-conversation-state {
+  margin: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--quiet);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workspace-conversation-state.error {
+  border-color: color-mix(in srgb, var(--caution) 42%, var(--line));
+}
+
+.workspace-conversation-state button {
+  width: auto;
+  min-height: 0;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+}
+
 .workspace-conversations strong {
   font-size: 15px;
 }
