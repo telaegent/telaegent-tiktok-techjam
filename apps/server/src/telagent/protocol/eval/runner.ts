@@ -245,11 +245,20 @@ export class CodexCliRunner implements ProtocolRunner {
 
   async run(request: RunnerRequest): Promise<RunnerResult> {
     const started = Date.now();
+    const runRoot = await mkdtemp(path.join(tmpdir(), "telaegent-codex-run-"));
+    const schemaPath = path.join(runRoot, "output-schema.json");
+    const outputPath = path.join(runRoot, "last-message.json");
     const combined = request.prompt.system + "\n\n---\n\n" + request.prompt.user;
-    const args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", combined];
+
+    await writeFile(
+      schemaPath,
+      JSON.stringify(codexCompatibleSchema(request.outputSchema)),
+      "utf8",
+    );
+    const args = codexStructuredArgs(schemaPath, outputPath, combined);
 
     try {
-      const { stdout } = await execFileNoStdin(this.binary, args, {
+      await execFileNoStdin(this.binary, args, {
         cwd: request.workspacePath,
         timeout: request.timeoutMs,
         maxBuffer: 8 * 1024 * 1024,
@@ -258,11 +267,66 @@ export class CodexCliRunner implements ProtocolRunner {
           HOME: process.env.HOME ?? "",
         },
       });
-      return { raw: stdout, durationMs: Date.now() - started, exitCode: 0 };
+      const raw = await readFile(outputPath, "utf8");
+      return { raw, durationMs: Date.now() - started, exitCode: 0 };
     } catch (error) {
       return toFailure(error, started);
+    } finally {
+      await rm(runRoot, { recursive: true, force: true });
     }
   }
+}
+
+/** Pure argument builder so CI proves native schema enforcement stays wired. */
+export function codexStructuredArgs(
+  schemaPath: string,
+  outputPath: string,
+  prompt: string,
+): string[] {
+  return [
+    "exec",
+    "--ephemeral",
+    "--sandbox",
+    "read-only",
+    "--skip-git-repo-check",
+    "--config",
+    "model_reasoning_effort=low",
+    "--output-schema",
+    schemaPath,
+    "--output-last-message",
+    outputPath,
+    prompt,
+  ];
+}
+
+/**
+ * OpenAI Structured Outputs accepts `anyOf` but rejects JSON Schema `oneOf`.
+ * Zod emits `oneOf` for the two resource-request variants, so translate that
+ * keyword without changing either alternative. The normal Zod parser remains
+ * the final local authority after the provider response returns.
+ */
+export function codexCompatibleSchema(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const visit = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(visit);
+    if (node === null || typeof node !== "object") return node;
+
+    const converted: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+      converted[key === "oneOf" ? "anyOf" : key] = visit(child);
+    }
+    if (
+      converted.properties !== null &&
+      typeof converted.properties === "object" &&
+      !Array.isArray(converted.properties)
+    ) {
+      converted.required = Object.keys(converted.properties as Record<string, unknown>);
+    }
+    return converted;
+  };
+
+  return visit(value) as Record<string, unknown>;
 }
 
 /* ========================================================================== *
@@ -381,6 +445,9 @@ function toFailure(error: unknown, started: number): RunnerResult {
     killed?: boolean;
     message?: string;
   };
+  const failureText = shaped.stderr?.trim()
+    ? shaped.stderr
+    : (shaped.message ?? "");
   return {
     raw: shaped.stdout ?? "",
     durationMs: Date.now() - started,
@@ -388,7 +455,7 @@ function toFailure(error: unknown, started: number): RunnerResult {
     error:
       shaped.killed === true
         ? "timed out"
-        : (shaped.stderr ?? shaped.message ?? "unknown runner failure").slice(0, 500),
+        : failureText || "unknown runner failure",
   };
 }
 

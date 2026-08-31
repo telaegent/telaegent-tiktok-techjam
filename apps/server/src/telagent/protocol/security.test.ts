@@ -22,6 +22,7 @@ import path from "node:path";
 import { checkAlwaysDenied, normalizeCandidatePath } from "../context-policy.js";
 import { nodeFileSystemPort } from "../ports.node.js";
 import { createMemoryFileSystem } from "../testing/memory-fs.js";
+import { PROTOCOL_LIMITS } from "./contract.js";
 import { findCase } from "./corpus/index.js";
 import { scanField, scanOutput } from "./evaluators/leakage.js";
 import { runCase, type HarnessConfig } from "./eval/harness.js";
@@ -144,6 +145,20 @@ describe("non-negotiable 1: .env is denied before it is opened", () => {
  * ========================================================================== */
 
 describe("non-negotiable 2: output cannot grant its own permission", () => {
+  it("blocks a candidate that exceeds the UTF-8 response-byte budget", () => {
+    const candidate = "界".repeat(1_500);
+    expect(candidate.length).toBeLessThan(PROTOCOL_LIMITS.maxSendCandidateChars);
+    expect(Buffer.byteLength(candidate, "utf8")).toBeGreaterThan(
+      PROTOCOL_LIMITS.maxSendCandidateBytes,
+    );
+
+    const verdict = inspectCandidate(candidate);
+    expect(verdict.sendable).toBe(false);
+    expect(verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_CANDIDATE_TOO_LARGE",
+    );
+  });
+
   it("blocks a candidate claiming the message was already sent", () => {
     // Nothing transmitted, and it is still a trust bug: the owner reads "I've
     // shared that" and stops paying attention to the boundary.
