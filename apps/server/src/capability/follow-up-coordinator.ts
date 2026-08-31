@@ -4,6 +4,8 @@ import { CapabilityRouteAuthorizationError } from "../authorization/capability-r
 import type {
   AuthorizeCapabilityRouteInput,
   AuthorizedCapabilityRoute,
+  ResolveCapabilityRouteInput,
+  ResolvedCapabilityRoute,
 } from "../authorization/capability-types.js";
 import type { RecordCapabilityScopeRequestOutcome } from "../authorization/capability-scope-requests.js";
 import type { GitHubRepositoryId } from "../authorization/types.js";
@@ -33,6 +35,9 @@ export interface CapabilityRouteAuthorizer {
   authorizeRoute(
     input: Readonly<AuthorizeCapabilityRouteInput>,
   ): Promise<AuthorizedCapabilityRoute>;
+  resolveRoute(
+    input: Readonly<ResolveCapabilityRouteInput>,
+  ): Promise<ResolvedCapabilityRoute>;
 }
 
 export interface CapabilityResourceRelay {
@@ -61,7 +66,6 @@ export interface CapabilityFollowUpContext {
   ownerUserId: string;
   /** Whose agent is asking. */
   peerUserId: string;
-  ownerConnectorBindingId: string;
   heldGrants?: readonly HeldCapabilityGrant[] | undefined;
 }
 
@@ -97,6 +101,12 @@ export type CapabilityFollowUpOutcome =
       spentGrantIds: string[];
     }
   | { outcome: "exhausted"; round: number }
+  /**
+   * The round was spent and there was nowhere to deliver it: the connection
+   * was revoked, the owner's connector is not ready, or the task no longer
+   * spans both people. Why is deliberately not said.
+   */
+  | { outcome: "unroutable"; round: number }
   | { outcome: "task_unavailable" };
 
 export class CapabilityFollowUpError extends Error {
@@ -174,15 +184,37 @@ export class CapabilityFollowUpCoordinator {
       return { outcome: "exhausted", round: round.round };
     }
 
+    // Where this batch may go is derived, never supplied. A caller that could
+    // name the connector could name someone else's, and a first ask - which
+    // reuses no grant at all - would otherwise have no route to travel.
+    let route: ResolvedCapabilityRoute;
+    try {
+      route = await this.#authorization.resolveRoute({
+        authenticatedUserId: context.peerUserId,
+        ownerUserId: context.ownerUserId,
+        githubRepositoryId: context.githubRepositoryId,
+        conversationId: context.conversationId,
+        taskId: context.taskId,
+      });
+    } catch (error) {
+      if (
+        error instanceof CapabilityRouteAuthorizationError &&
+        error.code === "CAPABILITY_ROUTE_FORBIDDEN"
+      ) {
+        return { outcome: "unroutable", round: round.round };
+      }
+      throw error;
+    }
+
     const held = new Map(
       (context.heldGrants ?? []).map((grant) => [grant.resourceId, grant]),
     );
-    const grants = await this.#assertGrants(context, requests, held);
+    const grants = await this.#assertGrants(context, requests, held, route);
 
     const response = await this.#relay.exchangeResources({
       requestId: this.#newRequestId(),
       taskId: context.taskId,
-      connectorBindingId: context.ownerConnectorBindingId,
+      connectorBindingId: route.ownerRuntimeBindingId,
       peerUserId: context.peerUserId,
       requests: [...requests],
       grants,
@@ -203,15 +235,16 @@ export class CapabilityFollowUpCoordinator {
     context: Readonly<CapabilityFollowUpContext>,
     requests: readonly ConnectorResourceRequest[],
     held: ReadonlyMap<string, HeldCapabilityGrant>,
+    route: Readonly<ResolvedCapabilityRoute>,
   ): Promise<AssertedGrant[]> {
     const grants: AssertedGrant[] = [];
     for (const item of requests) {
       if (item.kind !== "resource") continue;
       const grant = held.get(item.resourceId);
       if (!grant) continue;
-      let route: AuthorizedCapabilityRoute;
+      let authorized: AuthorizedCapabilityRoute;
       try {
-        route = await this.#authorization.authorizeRoute({
+        authorized = await this.#authorization.authorizeRoute({
           authenticatedUserId: context.peerUserId,
           ownerUserId: context.ownerUserId,
           githubRepositoryId: context.githubRepositoryId,
@@ -233,15 +266,15 @@ export class CapabilityFollowUpCoordinator {
       // The cloud must never hand a grant authorized for one machine to a
       // different machine. If the owner's binding moved, this round is refused
       // outright rather than routed to whoever is holding the socket now.
-      if (route.ownerRuntimeBindingId !== context.ownerConnectorBindingId) {
+      if (authorized.ownerRuntimeBindingId !== route.ownerRuntimeBindingId) {
         throw new CapabilityFollowUpError("CAPABILITY_BINDING_MISMATCH");
       }
       grants.push({
-        grantId: route.grantId,
-        resourceId: route.resourceId,
-        operation: route.operation,
-        mode: route.grantMode,
-        expiresAt: route.grantExpiresAt,
+        grantId: authorized.grantId,
+        resourceId: authorized.resourceId,
+        operation: authorized.operation,
+        mode: authorized.grantMode,
+        expiresAt: authorized.grantExpiresAt,
       });
     }
     return grants;

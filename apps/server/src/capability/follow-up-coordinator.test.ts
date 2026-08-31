@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CapabilityGrantRepository } from "../authorization/capability-grants.js";
 import { CapabilityRouteAuthorizationError } from "../authorization/capability-route-authorization.js";
-import type { AuthorizedCapabilityRoute } from "../authorization/capability-types.js";
+import type {
+  AuthorizedCapabilityRoute,
+  ResolvedCapabilityRoute,
+} from "../authorization/capability-types.js";
 import type { CapabilityScopeRequestRepository } from "../authorization/capability-scope-requests.js";
 import type {
   ConnectorResourceRequest,
@@ -33,7 +36,6 @@ const context: CapabilityFollowUpContext = {
   githubRepositoryId: "1345851084",
   ownerUserId: ownerId,
   peerUserId: peerId,
-  ownerConnectorBindingId: bindingId,
   heldGrants: [{ grantId, resourceId }],
 };
 
@@ -61,6 +63,17 @@ const route: AuthorizedCapabilityRoute = {
   ownerRuntimeBindingId: bindingId,
   grantMode: "once",
   grantExpiresAt: "2026-08-31T10:40:00.000Z",
+  requiresLocalAuthorization: true,
+};
+
+const resolved: ResolvedCapabilityRoute = {
+  taskId,
+  ownerUserId: ownerId,
+  peerUserId: peerId,
+  githubRepositoryId: "1345851084",
+  conversationId,
+  ownerRuntimeBindingId: bindingId,
+  taskExpiresAt: "2026-08-31T10:40:00.000Z",
   requiresLocalAuthorization: true,
 };
 
@@ -99,11 +112,15 @@ function scopeRepository(
 function build(parts: {
   scope?: Partial<CapabilityScopeRequestRepository>;
   authorizeRoute?: CapabilityRouteAuthorizer["authorizeRoute"];
+  resolveRoute?: CapabilityRouteAuthorizer["resolveRoute"];
   exchangeResources?: CapabilityResourceRelay["exchangeResources"];
   consumeGrant?: CapabilityGrantRepository["consumeGrant"];
 } = {}) {
   const authorizeRoute = vi.fn<CapabilityRouteAuthorizer["authorizeRoute"]>(
     parts.authorizeRoute ?? (async () => route),
+  );
+  const resolveRoute = vi.fn<CapabilityRouteAuthorizer["resolveRoute"]>(
+    parts.resolveRoute ?? (async () => resolved),
   );
   const exchangeResources = vi.fn<CapabilityResourceRelay["exchangeResources"]>(
     parts.exchangeResources ?? (async () => ({ requestId, outcomes: [] })),
@@ -116,12 +133,12 @@ function build(parts: {
       repository: scopeRepository(parts.scope),
       newId: () => scopeRequestId,
     }),
-    authorization: { authorizeRoute },
+    authorization: { authorizeRoute, resolveRoute },
     relay: { exchangeResources },
     grants: { consumeGrant },
     newRequestId: () => requestId,
   });
-  return { coordinator, authorizeRoute, exchangeResources, consumeGrant };
+  return { coordinator, authorizeRoute, resolveRoute, exchangeResources, consumeGrant };
 }
 
 describe("capability follow-up coordinator", () => {
@@ -382,6 +399,45 @@ describe("capability follow-up coordinator", () => {
     await expect(coordinator.runRound(context, [askForHeld])).rejects.toBeInstanceOf(
       CapabilityRouteAuthorizationError,
     );
+    expect(exchangeResources).not.toHaveBeenCalled();
+  });
+
+  it("takes the connector it delivers to from the task, never from the caller", async () => {
+    const { coordinator, resolveRoute, exchangeResources } = build();
+
+    await coordinator.runRound(context, [askByHint]);
+
+    // Nothing in the context names a machine. A caller that could name one
+    // could name somebody else's, and a first ask carries no grant to derive
+    // it from either.
+    expect(resolveRoute).toHaveBeenCalledWith({
+      authenticatedUserId: peerId,
+      ownerUserId: ownerId,
+      githubRepositoryId: "1345851084",
+      conversationId,
+      taskId,
+    });
+    expect(exchangeResources).toHaveBeenCalledWith(
+      expect.objectContaining({ connectorBindingId: bindingId, grants: [] }),
+    );
+  });
+
+  it("spends the round and says nothing when there is nowhere to deliver", async () => {
+    const { coordinator, exchangeResources, authorizeRoute } = build({
+      resolveRoute: async () => {
+        throw new CapabilityRouteAuthorizationError(
+          "CAPABILITY_ROUTE_FORBIDDEN",
+          "project_connection_unavailable",
+        );
+      },
+    });
+
+    const result = await coordinator.runRound(context, [askForHeld]);
+
+    // A revoked connection, an unready connector and a task that no longer
+    // spans both people are one outcome, so a peer cannot probe for which.
+    expect(result).toEqual({ outcome: "unroutable", round: 1 });
+    expect(authorizeRoute).not.toHaveBeenCalled();
     expect(exchangeResources).not.toHaveBeenCalled();
   });
 });

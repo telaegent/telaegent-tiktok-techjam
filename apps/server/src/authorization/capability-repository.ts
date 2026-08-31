@@ -1,6 +1,6 @@
 import type {
-  AuthorizeCapabilityRouteInput,
   CapabilityRouteAuthorizationSnapshot,
+  CapabilityRouteSnapshotQuery,
 } from "./capability-types.js";
 
 export interface CapabilityRouteAuthorizationReadOptions {
@@ -13,7 +13,7 @@ export interface CapabilityRouteAuthorizationReadOptions {
  */
 export interface CapabilityRouteAuthorizationRepository {
   loadCapabilityRouteAuthorizationSnapshot(
-    input: Readonly<AuthorizeCapabilityRouteInput>,
+    input: Readonly<CapabilityRouteSnapshotQuery>,
     options?: Readonly<CapabilityRouteAuthorizationReadOptions>,
   ): Promise<CapabilityRouteAuthorizationSnapshot>;
 }

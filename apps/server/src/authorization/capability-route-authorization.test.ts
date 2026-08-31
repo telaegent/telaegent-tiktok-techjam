@@ -7,6 +7,7 @@ import {
 import type {
   AuthorizeCapabilityRouteInput,
   CapabilityRouteAuthorizationSnapshot,
+  ResolveCapabilityRouteInput,
 } from "./capability-types.js";
 
 const NOW = "2026-08-31T09:00:00.000Z";
@@ -215,5 +216,71 @@ describe("CapabilityRouteAuthorizationService", () => {
       code: "CAPABILITY_ROUTE_AUTHORIZATION_UNAVAILABLE",
     });
     expect(String(error) + JSON.stringify(error)).not.toContain("secret.txt");
+  });
+});
+
+describe("resolving a route for an ask with no grant behind it", () => {
+  const query: ResolveCapabilityRouteInput = {
+    authenticatedUserId: input.authenticatedUserId,
+    ownerUserId: input.ownerUserId,
+    githubRepositoryId: input.githubRepositoryId,
+    conversationId: input.conversationId,
+    taskId: input.taskId,
+  };
+
+  it("names the owner's connector and nothing that resembles a permission", async () => {
+    const { service, load } = harness();
+
+    await expect(service.resolveRoute(query)).resolves.toEqual({
+      taskId: input.taskId,
+      ownerUserId: input.ownerUserId,
+      peerUserId: input.authenticatedUserId,
+      githubRepositoryId: input.githubRepositoryId,
+      conversationId: input.conversationId,
+      ownerRuntimeBindingId: "70000000-0000-4000-8000-000000000007",
+      taskExpiresAt: "2026-08-31T10:00:00.000Z",
+      requiresLocalAuthorization: true,
+    });
+    // No grant is looked up, because there is none to reuse.
+    expect(load).toHaveBeenCalledWith(
+      expect.objectContaining({ grantId: null }),
+      expect.anything(),
+    );
+  });
+
+  it("resolves nothing for a task with no grant in it at all", async () => {
+    const state = snapshot();
+    state.grant = null;
+    const { service } = harness(state);
+
+    // The whole point: a first ask has no grant, and must still route.
+    await expect(service.resolveRoute(query)).resolves.toMatchObject({
+      ownerRuntimeBindingId: "70000000-0000-4000-8000-000000000007",
+    });
+  });
+
+  it.each([
+    ["a revoked connection", (state: CapabilityRouteAuthorizationSnapshot) => {
+      state.projectConnection!.status = "revoked";
+    }],
+    ["a connector that is not ready", (state: CapabilityRouteAuthorizationSnapshot) => {
+      state.ownerRuntimeBinding!.status = "pending";
+    }],
+    ["a task in another repository", (state: CapabilityRouteAuthorizationSnapshot) => {
+      state.task!.githubRepositoryId = "1345851099";
+    }],
+    ["a membership that lapsed", (state: CapabilityRouteAuthorizationSnapshot) => {
+      state.ownerMembership!.status = "removed";
+    }],
+  ])("refuses to route around %s", async (_label, mutate) => {
+    const state = snapshot();
+    mutate(state);
+    const { service } = harness(state);
+
+    // Every scope check an authorized route makes is made here too: a batch
+    // that reaches the wrong machine is a leak whether or not it comes back.
+    await expect(service.resolveRoute(query)).rejects.toMatchObject({
+      code: "CAPABILITY_ROUTE_FORBIDDEN",
+    });
   });
 });

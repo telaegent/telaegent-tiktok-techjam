@@ -4,8 +4,18 @@ import type {
   AuthorizedCapabilityRoute,
   AuthorizeCapabilityRouteInput,
   CapabilityRouteAuthorizationSnapshot,
+  CapabilityRouteSnapshotQuery,
+  CollaborationTask,
+  ResolveCapabilityRouteInput,
+  ResolvedCapabilityRoute,
+  ResourceCapabilityGrant,
 } from "./capability-types.js";
-import type { ProjectConnection, UserId } from "./types.js";
+import type {
+  ProjectConnection,
+  RepositoryProject,
+  RuntimeBinding,
+  UserId,
+} from "./types.js";
 
 export type CapabilityRouteAuthorizationDenialReason =
   | "invalid_request"
@@ -86,10 +96,14 @@ export class CapabilityRouteAuthorizationService {
     input: Readonly<AuthorizeCapabilityRouteInput>,
   ): Promise<AuthorizedCapabilityRoute> {
     this.validateInput(input);
+    if (!identifier.test(input.grantId) || !resourceId.test(input.resourceId) ||
+        input.operation !== "read") {
+      throw forbidden("invalid_request");
+    }
     const snapshot = await this.loadSnapshot(input);
-    this.validateSnapshot(input, snapshot);
-    const grant = snapshot.grant!;
-    const binding = snapshot.ownerRuntimeBinding!;
+    const { task, project } = this.validateScope(input, snapshot);
+    const grant = this.validateGrant(input, snapshot, task);
+    const binding = this.validateBinding(input, snapshot, project);
     return {
       taskId: input.taskId,
       grantId: input.grantId,
@@ -106,24 +120,52 @@ export class CapabilityRouteAuthorizationService {
     };
   }
 
-  private validateInput(input: Readonly<AuthorizeCapabilityRouteInput>): void {
+  /**
+   * Answers where an ask with no grant behind it may be delivered.
+   *
+   * The first request of a task reuses nothing, so there is no grant to check
+   * and nothing here permits a read. Every scope check an authorized route
+   * makes is still made - the task is live, both people are still members,
+   * the connection still stands, the repository still matches - because a
+   * batch that reaches the wrong connector is a leak whether or not anything
+   * comes back. What arrives at the owner's machine carries no authority, and
+   * the only thing it can produce is a candidate for a person to approve.
+   */
+  async resolveRoute(
+    input: Readonly<ResolveCapabilityRouteInput>,
+  ): Promise<ResolvedCapabilityRoute> {
+    this.validateInput(input);
+    const query: CapabilityRouteSnapshotQuery = { ...input, grantId: null };
+    const snapshot = await this.loadSnapshot(query);
+    const { task, project } = this.validateScope(query, snapshot);
+    const binding = this.validateBinding(query, snapshot, project);
+    return {
+      taskId: input.taskId,
+      ownerUserId: input.ownerUserId,
+      peerUserId: input.authenticatedUserId,
+      githubRepositoryId: input.githubRepositoryId,
+      conversationId: input.conversationId,
+      ownerRuntimeBindingId: binding.runtimeBindingId,
+      taskExpiresAt: task.expiresAt,
+      requiresLocalAuthorization: true,
+    };
+  }
+
+  private validateInput(input: Readonly<ResolveCapabilityRouteInput>): void {
     if (
       !identifier.test(input.authenticatedUserId) ||
       !identifier.test(input.ownerUserId) ||
       input.authenticatedUserId === input.ownerUserId ||
       !identifier.test(input.conversationId) ||
       !identifier.test(input.taskId) ||
-      !identifier.test(input.grantId) ||
-      !resourceId.test(input.resourceId) ||
-      !isGitHubRepositoryId(input.githubRepositoryId) ||
-      input.operation !== "read"
+      !isGitHubRepositoryId(input.githubRepositoryId)
     ) {
       throw forbidden("invalid_request");
     }
   }
 
   private async loadSnapshot(
-    input: Readonly<AuthorizeCapabilityRouteInput>,
+    input: Readonly<CapabilityRouteSnapshotQuery>,
   ): Promise<CapabilityRouteAuthorizationSnapshot> {
     const controller = new AbortController();
     let timeout: NodeJS.Timeout | undefined;
@@ -149,10 +191,17 @@ export class CapabilityRouteAuthorizationService {
     }
   }
 
-  private validateSnapshot(
-    input: Readonly<AuthorizeCapabilityRouteInput>,
+  /**
+   * Everything true of the collaboration itself, with or without a grant.
+   *
+   * Repository, conversation, membership and connection are all checked here,
+   * so nothing that reuses no authority can reach a wider scope than
+   * something that does.
+   */
+  private validateScope(
+    input: Readonly<CapabilityRouteSnapshotQuery>,
     snapshot: Readonly<CapabilityRouteAuthorizationSnapshot>,
-  ): void {
+  ): { task: CollaborationTask; project: RepositoryProject } {
     const now = this.now().getTime();
     const task = snapshot.task;
     if (!task || task.status !== "active") throw forbidden("task_unavailable");
@@ -225,6 +274,15 @@ export class CapabilityRouteAuthorizationService {
       throw forbidden("inconsistent_scope");
     }
 
+    return { task, project };
+  }
+
+  private validateGrant(
+    input: Readonly<AuthorizeCapabilityRouteInput>,
+    snapshot: Readonly<CapabilityRouteAuthorizationSnapshot>,
+    task: Readonly<CollaborationTask>,
+  ): ResourceCapabilityGrant {
+    const now = this.now().getTime();
     const grant = snapshot.grant;
     if (!grant || grant.status !== "active") throw forbidden("grant_unavailable");
     if (
@@ -244,7 +302,14 @@ export class CapabilityRouteAuthorizationService {
     if (!activeAt(grant.grantedAt, grant.expiresAt, now, this.maximumClockSkewMs)) {
       throw forbidden("grant_expired");
     }
+    return grant;
+  }
 
+  private validateBinding(
+    input: Readonly<CapabilityRouteSnapshotQuery>,
+    snapshot: Readonly<CapabilityRouteAuthorizationSnapshot>,
+    project: Readonly<RepositoryProject>,
+  ): RuntimeBinding {
     const binding = snapshot.ownerRuntimeBinding;
     if (!binding || binding.status !== "ready") {
       throw forbidden("runtime_binding_unavailable");
@@ -256,6 +321,7 @@ export class CapabilityRouteAuthorizationService {
     ) {
       throw forbidden("inconsistent_scope");
     }
+    return binding;
   }
 }
 

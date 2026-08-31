@@ -5,8 +5,8 @@ import type {
   CapabilityRouteAuthorizationRepository,
 } from "./capability-repository.js";
 import type {
-  AuthorizeCapabilityRouteInput,
   CapabilityRouteAuthorizationSnapshot,
+  CapabilityRouteSnapshotQuery,
 } from "./capability-types.js";
 import type { GitHubRepositoryId } from "./types.js";
 
@@ -145,7 +145,8 @@ export interface SupabaseCapabilityRouteRpcRequest {
   githubRepositoryId: GitHubRepositoryId;
   conversationId: string;
   taskId: string;
-  grantId: string;
+  /** Null for the first ask of a task: no grant is being reused. */
+  grantId: string | null;
 }
 
 export interface SupabaseCapabilitySnapshotClient {
@@ -207,7 +208,7 @@ export class SupabaseCapabilityRouteAuthorizationRepository
   constructor(private readonly client: SupabaseCapabilitySnapshotClient) {}
 
   async loadCapabilityRouteAuthorizationSnapshot(
-    input: Readonly<AuthorizeCapabilityRouteInput>,
+    input: Readonly<CapabilityRouteSnapshotQuery>,
     options?: Readonly<CapabilityRouteAuthorizationReadOptions>,
   ): Promise<CapabilityRouteAuthorizationSnapshot> {
     throwIfAborted(options?.signal);

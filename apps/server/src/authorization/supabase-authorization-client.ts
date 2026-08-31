@@ -379,7 +379,8 @@ function validateCapabilityRequest(
     request.peerUserId === request.ownerUserId ||
     !uuidPattern.test(request.conversationId) ||
     !uuidPattern.test(request.taskId) ||
-    !uuidPattern.test(request.grantId) ||
+    // Null is the first ask of a task, which reuses nothing.
+    (request.grantId !== null && !uuidPattern.test(request.grantId)) ||
     !isGitHubRepositoryId(request.githubRepositoryId)
   ) {
     throw new Error("Supabase capability RPC request is invalid");

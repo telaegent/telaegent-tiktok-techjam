@@ -77,9 +77,12 @@ export type {
   CapabilityGrantStatus,
   CapabilityOperation,
   CapabilityRouteAuthorizationSnapshot,
+  CapabilityRouteSnapshotQuery,
   CollaborationTask,
   CollaborationTaskId,
   CollaborationTaskStatus,
+  ResolveCapabilityRouteInput,
+  ResolvedCapabilityRoute,
   ResourceCapabilityGrant,
   ResourceId,
 } from "./capability-types.js";
