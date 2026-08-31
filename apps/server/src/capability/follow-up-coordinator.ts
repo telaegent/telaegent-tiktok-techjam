@@ -78,6 +78,7 @@ export interface DeliveredResource {
 
 export interface QueuedScopeRequest {
   candidateResourceId: string;
+  resourceDisplayLabel: string;
   requestedHint: string | null;
   requestedReason: string;
   outcome: RecordCapabilityScopeRequestOutcome;
@@ -343,9 +344,11 @@ export class CapabilityFollowUpCoordinator {
           requestedHint,
           requestedReason: item.reason,
           candidateResourceId: outcome.candidate.resourceId,
+          resourceDisplayLabel: outcome.candidate.resourceDisplayLabel,
         });
         queued.push({
           candidateResourceId: outcome.candidate.resourceId,
+          resourceDisplayLabel: outcome.candidate.resourceDisplayLabel,
           requestedHint,
           requestedReason: item.reason,
           outcome: result,

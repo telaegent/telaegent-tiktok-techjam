@@ -1,3 +1,4 @@
+import path from "node:path";
 import { z } from "zod";
 import {
   LocalFileBroker,
@@ -14,6 +15,7 @@ import {
 } from "./resource-policy.js";
 import {
   connectorResourceRequestSchema,
+  resourceDisplayLabelSchema,
   type ConnectorResourceRequest,
 } from "./resource-request.js";
 import { resourceIdSchema, type ResourceRegistry } from "./resource-registry.js";
@@ -73,7 +75,7 @@ export type ResourceOutcome =
        * Holding this identifier is not authority. It becomes readable only if
        * the owning human approves and the cloud records a grant against it.
        */
-      candidate?: { resourceId: string } | undefined;
+      candidate?: { resourceId: string; resourceDisplayLabel: string } | undefined;
     }
   | { status: "refused" };
 
@@ -118,7 +120,12 @@ export const resourceExchangeResponseSchema = z.strictObject({
         z.strictObject({
           status: z.literal("pending_approval"),
           request: connectorResourceRequestSchema,
-          candidate: z.strictObject({ resourceId: resourceIdSchema }).optional(),
+          candidate: z
+            .strictObject({
+              resourceId: resourceIdSchema,
+              resourceDisplayLabel: resourceDisplayLabelSchema,
+            })
+            .optional(),
         }),
         // A refusal carries no reason on the wire, and none is accepted here
         // either: a connector must not be able to leak one by adding a field.
@@ -165,18 +172,44 @@ async function proposeCandidate(
   item: ConnectorResourceRequest,
   canonicalPath: string | null,
   deps: ResourceExchangeDeps,
-): Promise<{ resourceId: string } | null> {
+): Promise<{ resourceId: string; resourceDisplayLabel: string } | null> {
   // An identifier that escalated is one this task already minted and the policy
   // already screened; it needs no human-facing file, only a fresh grant.
   if (item.kind === "resource") {
-    return canonicalPath === null ? null : { resourceId: item.resourceId };
+    if (canonicalPath === null) return null;
+    const resourceDisplayLabel = projectRelativeDisplayLabel(
+      deps.workspacePath,
+      canonicalPath,
+    );
+    return resourceDisplayLabel === null
+      ? null
+      : { resourceId: item.resourceId, resourceDisplayLabel };
   }
   const located = await deps.broker.locate(item.hint);
   if (!isLocatedResource(located)) {
     deps.onRefusal?.(located.code, taskId);
     return null;
   }
-  return { resourceId: await deps.registry.mint(taskId, located.canonicalPath) };
+  const resourceDisplayLabel = projectRelativeDisplayLabel(
+    deps.workspacePath,
+    located.canonicalPath,
+  );
+  if (resourceDisplayLabel === null) return null;
+  return {
+    resourceId: await deps.registry.mint(taskId, located.canonicalPath),
+    resourceDisplayLabel,
+  };
+}
+
+function projectRelativeDisplayLabel(
+  workspacePath: string,
+  canonicalPath: string,
+): string | null {
+  const relative = path.relative(path.resolve(workspacePath), path.resolve(canonicalPath));
+  if (!relative || path.isAbsolute(relative)) return null;
+  const label = relative.split(path.sep).join("/");
+  const parsed = resourceDisplayLabelSchema.safeParse(label);
+  return parsed.success ? parsed.data : null;
 }
 
 export async function fulfilResourceRequests(

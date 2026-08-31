@@ -182,7 +182,10 @@ describe("preparing a scope expansion for the owning human", () => {
     expect(response.outcomes[0]).toEqual({
       status: "pending_approval",
       request: { kind: "hint", hint: "src/LandingPage.tsx", reason: "the page imports it" },
-      candidate: { resourceId: landingPageId },
+      candidate: {
+        resourceId: landingPageId,
+        resourceDisplayLabel: "src/LandingPage.tsx",
+      },
     });
     // A candidate is a handle, not authority. Nothing was read.
     expect(JSON.stringify(response)).not.toContain("export const page");
@@ -252,7 +255,10 @@ describe("preparing a scope expansion for the owning human", () => {
     expect(response.outcomes[0]).toEqual({
       status: "pending_approval",
       request: { kind: "resource", resourceId: landingPageId, reason: "again" },
-      candidate: { resourceId: landingPageId },
+      candidate: {
+        resourceId: landingPageId,
+        resourceDisplayLabel: "src/LandingPage.tsx",
+      },
     });
   });
 

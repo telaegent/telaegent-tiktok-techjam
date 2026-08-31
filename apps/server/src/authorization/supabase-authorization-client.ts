@@ -25,6 +25,7 @@ import type {
   RecordCapabilityScopeRequestInput,
   SupabaseCapabilityScopeRequestClient,
 } from "./capability-scope-requests.js";
+import { resourceDisplayLabelSchema } from "../connectors/resource-request.js";
 
 const rpcPath = "/rest/v1/rpc/load_private_runtime_authorization_snapshot";
 const capabilityRpcPath =
@@ -132,6 +133,7 @@ export class SupabaseAuthorizationRpcClient
       !uuidPattern.test(request.peerUserId) ||
       request.ownerUserId === request.peerUserId ||
       !resourceIdPattern.test(request.candidateResourceId) ||
+      !resourceDisplayLabelSchema.safeParse(request.resourceDisplayLabel).success ||
       !isPromptText(request.requestedReason, maximumReasonCharacters) ||
       (request.requestedHint !== null &&
         !isPromptText(request.requestedHint, maximumHintCharacters))
@@ -148,6 +150,7 @@ export class SupabaseAuthorizationRpcClient
         p_requested_hint: request.requestedHint,
         p_requested_reason: request.requestedReason,
         p_candidate_resource_id: request.candidateResourceId,
+        p_resource_display_label: request.resourceDisplayLabel,
       },
       options,
       maximumScopeResponseBytes,

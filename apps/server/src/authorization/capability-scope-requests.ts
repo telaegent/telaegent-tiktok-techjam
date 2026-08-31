@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resourceDisplayLabelSchema } from "../connectors/resource-request.js";
 import { isGitHubRepositoryId } from "./github-repository-id.js";
 import { SupabaseCapabilityRepositoryError } from "./supabase-capability-repository.js";
 import type { GitHubRepositoryId } from "./types.js";
@@ -12,8 +13,8 @@ import type { GitHubRepositoryId } from "./types.js";
  * still routes through `record_capability_grant`.
  *
  * Nothing in this module ever carries a canonical path or a byte of file
- * content. The cloud routes an opaque identifier the owner's connector minted,
- * precisely so the cloud cannot name a file nobody local agreed to expose.
+ * content. The cloud routes an opaque identifier and a safe project-relative
+ * display label the owner's connector derived from a file it resolved locally.
  */
 
 const uuidSchema = z.string().uuid();
@@ -54,6 +55,7 @@ const pendingScopeRequestSchema = z.strictObject({
   // authority is malformed, not merely unauthorized.
   operation: z.literal("read"),
   candidateResourceId: resourceIdSchema,
+  resourceDisplayLabel: resourceDisplayLabelSchema,
   requestedAt: isoTimestampSchema,
   taskExpiresAt: isoTimestampSchema,
 });
@@ -118,6 +120,8 @@ export interface RecordCapabilityScopeRequestInput {
   requestedReason: string;
   /** Minted on the owner's machine. The cloud can only ever route it. */
   candidateResourceId: string;
+  /** Connector-derived project-relative label; never a canonical local path. */
+  resourceDisplayLabel: string;
 }
 
 export interface DecideCapabilityScopeRequestInput {
