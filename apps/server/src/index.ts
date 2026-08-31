@@ -35,6 +35,9 @@ import type { ConversationApiFactoryOptions } from "./conversations/conversation
 import { AuthorizedProtocolDraftRuntime } from "./conversations/authorized-runtime-adapter.js";
 import { SupabaseProtocolContextLoader } from "./conversations/supabase-protocol-context-loader.js";
 import { createAuthorizedProtocolTurnRuntime } from "./telagent/protocol/authorized-turn-service.js";
+import type { ProjectRouteDependencies } from "./projects/routes.js";
+import { ProjectService } from "./projects/service.js";
+import { SupabaseProjectRepository } from "./projects/supabase-repository.js";
 
 const config = loadConfig();
 // Preserve the inherited Starter Kit only when its legacy Ark credentials are
@@ -69,6 +72,7 @@ await telagentService.reconcileOnStartup();
 let identityApi: IdentityRouteDependencies | undefined;
 let connectorTransportApi: ConnectorTransportRouteDependencies | undefined;
 let repositoryProofApi: RepositoryProofRouteDependencies | undefined;
+let projectApi: ProjectRouteDependencies | undefined;
 const conversationOptions: ConversationApiFactoryOptions = {};
 if (config.telaegentIdentityProvider === "github") {
   const secureCookies = config.telaegentPublicOrigin.startsWith("https://");
@@ -136,6 +140,16 @@ if (config.telaegentIdentityProvider === "github") {
       await relay.unregisterRepositoryBinding(principal, githubRepositoryId);
     },
   };
+  projectApi = {
+    service: new ProjectService(
+      new SupabaseProjectRepository(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        config.githubOAuthTimeoutMs,
+      ),
+    ),
+    authenticatedUserId,
+  };
 
   if (
     config.authorizationPersistence === "supabase" &&
@@ -180,6 +194,7 @@ const app = await createApp(
   identityApi,
   repositoryProofApi,
   connectorTransportApi,
+  projectApi,
 );
 
 const shutdown = async (signal: string) => {

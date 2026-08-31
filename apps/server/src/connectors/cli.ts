@@ -41,6 +41,11 @@ const githubRepositorySchema = z.object({
   }),
 });
 const bindingResponseSchema = z.strictObject({ binding: repositoryProofResultSchema });
+const probeResponseSchema = z.strictObject({
+  connected: z.literal(true),
+  provider: z.enum(["codex", "claude"]),
+  durationMs: z.number().nonnegative(),
+});
 
 async function main(): Promise<void> {
   const [command, workspaceCandidate = "."] = process.argv.slice(2);
@@ -111,25 +116,45 @@ async function main(): Promise<void> {
     { cancel: (bindingId) => providers.cancel(bindingId) },
   );
 
-  // The cloud injects authenticatedUserId into every job. The worker learns it
-  // only by validating the first leased job against its credential-bound
-  // principal, so use the principal-safe wrapper for that initial assignment.
-  const firstJob = worker.runOnce();
-  const probe = connectorRequest(
-    serverOrigin,
-    credential,
-    `/api/connectors/bindings/${registered.connectorBindingId}/probe`,
-    {},
+  const capabilities = await providers.capabilities();
+  const availableProviders = (["claude", "codex"] as const).filter(
+    (provider) => capabilities[provider].authenticated,
   );
-  const [probeResponse] = await Promise.all([probe, firstJob]);
-  const probeResult = z.strictObject({
-    connected: z.literal(true),
-    provider: z.literal("claude"),
-    durationMs: z.number().nonnegative(),
-  }).parse(await probeResponse.json());
-  process.stdout.write(
-    `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
-  );
+  if (availableProviders.length === 0) {
+    throw new Error(
+      "No authenticated Claude Code or Codex CLI is available; sign in locally and retry",
+    );
+  }
+
+  let successfulProbes = 0;
+  for (const provider of availableProviders) {
+    // Pair one bounded cloud probe with one connector poll. The provider is a
+    // local capability selected by this authenticated connector, never an
+    // executable or command supplied by the browser or a collaborator.
+    const firstJob = worker.runOnce();
+    const probe = connectorRequest(
+      serverOrigin,
+      credential,
+      `/api/connectors/bindings/${registered.connectorBindingId}/probe`,
+      { provider },
+    );
+    try {
+      const [probeResponse] = await Promise.all([probe, firstJob]);
+      const probeResult = probeResponseSchema.parse(await probeResponse.json());
+      if (probeResult.provider !== provider) {
+        throw new Error("Connector provider probe returned the wrong provider");
+      }
+      successfulProbes += 1;
+      process.stdout.write(
+        `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
+      );
+    } catch {
+      process.stderr.write(`TELAEGENT PROVIDER UNAVAILABLE (${provider})\n`);
+    }
+  }
+  if (successfulProbes === 0) {
+    throw new Error("No local coding provider passed the Telaegent live probe");
+  }
 
   for (;;) await worker.runOnce();
 }

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
+import { isGitHubRepositoryId } from "../authorization/github-repository-id.js";
 import { UserAuthenticationError } from "../authentication/types.js";
 import { isSafeSupabaseOrigin } from "../supabase-origin.js";
 import {
@@ -10,6 +11,54 @@ import {
 
 const connectorInstanceIdSchema = connectorPrincipalSchema.shape.connectorInstanceId;
 const credentialPattern = /^[A-Za-z0-9_-]{43}$/;
+const timestampSchema = z.string().datetime({ offset: true });
+
+export const connectorSetupStatusSchema = z.strictObject({
+  connectorInstanceId: connectorInstanceIdSchema,
+  credential: z
+    .strictObject({
+      status: z.enum(["active", "expired", "revoked"]),
+      expiresAt: timestampSchema,
+      lastSeenAt: timestampSchema.nullable(),
+    })
+    .nullable(),
+  bindings: z
+    .array(
+      z.strictObject({
+        connectorBindingId: z.string().uuid(),
+        projectId: z.string().uuid(),
+        githubRepositoryId: z.string().refine(isGitHubRepositoryId),
+        repositoryFullName: z.string().min(3).max(140),
+        visibility: z.enum(["public", "private", "internal"]),
+        defaultBranch: z.string().min(1).max(255),
+        currentBranch: z.string().min(1).max(255).nullable(),
+        commitSha: z.string().regex(/^[0-9a-f]{40}$/).nullable(),
+        repositoryPermission: z
+          .enum(["read", "triage", "write", "maintain", "admin"])
+          .nullable(),
+        repositoryAccessStatus: z.enum([
+          "verified",
+          "revalidation_required",
+          "revoked",
+        ]),
+        membershipStatus: z.enum(["active", "suspended", "revoked"]),
+        bindingStatus: z.enum([
+          "provisioning",
+          "ready",
+          "stopped",
+          "unavailable",
+          "revoked",
+        ]),
+        verifiedAt: timestampSchema.nullable(),
+        bindingLastSeenAt: timestampSchema.nullable(),
+        unavailableReason: z.string().min(1).max(64).nullable(),
+      }),
+    )
+    .max(25),
+  bindingsTruncated: z.boolean(),
+});
+
+export type ConnectorSetupStatus = z.infer<typeof connectorSetupStatusSchema>;
 
 export interface ConnectorCredentialRepository {
   create(input: Readonly<{
@@ -23,6 +72,10 @@ export interface ConnectorCredentialRepository {
     authenticatedUserId: string;
     connectorInstanceId: string;
   }>): Promise<boolean>;
+  loadSetupStatus(input: Readonly<{
+    authenticatedUserId: string;
+    connectorInstanceId: string;
+  }>): Promise<ConnectorSetupStatus | null>;
 }
 
 export class ConnectorCredentialService {
@@ -72,6 +125,18 @@ export class ConnectorCredentialService {
       authenticatedUserId: z.string().uuid().parse(authenticatedUserId),
       connectorInstanceId: connectorInstanceIdSchema.parse(connectorInstanceId),
     });
+  }
+
+  async setupStatus(
+    authenticatedUserId: string,
+    connectorInstanceId: unknown,
+  ): Promise<ConnectorSetupStatus> {
+    const status = await this.repository.loadSetupStatus({
+      authenticatedUserId: z.string().uuid().parse(authenticatedUserId),
+      connectorInstanceId: connectorInstanceIdSchema.parse(connectorInstanceId),
+    });
+    if (!status) throw unavailable();
+    return connectorSetupStatusSchema.parse(status);
   }
 }
 
@@ -134,6 +199,17 @@ export class SupabaseConnectorCredentialRepository
       p_user_id: input.authenticatedUserId,
       p_connector_instance_id: input.connectorInstanceId,
     }));
+  }
+  async loadSetupStatus(input: Readonly<{
+    authenticatedUserId: string;
+    connectorInstanceId: string;
+  }>): Promise<ConnectorSetupStatus | null> {
+    const value = await this.rpc("load_connector_setup_status", {
+      p_user_id: input.authenticatedUserId,
+      p_connector_instance_id: input.connectorInstanceId,
+      p_max_bindings: 25,
+    });
+    return value === null ? null : connectorSetupStatusSchema.parse(value);
   }
 
   private async rpc(name: string, body: Record<string, unknown>): Promise<unknown> {

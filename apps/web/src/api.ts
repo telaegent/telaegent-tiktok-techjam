@@ -101,6 +101,65 @@ export type ConnectorCredential = {
   expiresAt: string;
 };
 
+/** Owner-scoped, non-secret state used to verify connector onboarding. */
+export type ConnectorSetupStatus = {
+  connectorInstanceId: string;
+  credential: {
+    status: "active" | "expired" | "revoked";
+    expiresAt: string;
+    lastSeenAt: string | null;
+  } | null;
+  bindings: Array<{
+    connectorBindingId: string;
+    projectId: string;
+    githubRepositoryId: string;
+    repositoryFullName: string;
+    visibility: "public" | "private" | "internal";
+    defaultBranch: string;
+    currentBranch: string | null;
+    commitSha: string | null;
+    repositoryPermission: "read" | "triage" | "write" | "maintain" | "admin" | null;
+    repositoryAccessStatus: "verified" | "revalidation_required" | "revoked";
+    membershipStatus: "active" | "suspended" | "revoked";
+    bindingStatus: "provisioning" | "ready" | "stopped" | "unavailable" | "revoked";
+    verifiedAt: string | null;
+    bindingLastSeenAt: string | null;
+    unavailableReason: string | null;
+  }>;
+  bindingsTruncated: boolean;
+};
+
+export type ProjectSummary = {
+  projectId: string;
+  githubRepositoryId: string;
+  repositoryFullName: string;
+  visibility: "public" | "private" | "internal";
+  defaultBranch: string;
+  projectStatus: "active" | "archived";
+  membershipStatus: "active" | "suspended" | "revoked";
+  membershipJoinedAt: string;
+  githubConnectionStatus:
+    | "connecting"
+    | "connected"
+    | "reconnect_required"
+    | "unavailable"
+    | "revoked";
+  repositoryAccessStatus: "verified" | "revalidation_required" | "revoked";
+  repositoryVerifiedAt: string;
+  connectedCollaboratorCount: number;
+  binding: {
+    connectorBindingId: string;
+    connectorInstanceId: string | null;
+    status: "provisioning" | "ready" | "stopped" | "unavailable" | "revoked";
+    currentBranch: string | null;
+    commitSha: string | null;
+    repositoryPermission: "read" | "triage" | "write" | "maintain" | "admin" | null;
+    lastVerifiedAt: string | null;
+    lastSeenAt: string | null;
+    unavailableReason: string | null;
+  };
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -171,6 +230,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ connectorInstanceId }),
     }),
+  connectorSetupStatus: (connectorInstanceId: string) =>
+    request<{ connector: ConnectorSetupStatus }>(
+      `/api/connectors/installations/${encodeURIComponent(connectorInstanceId)}/status`,
+    ),
+  projects: (options: { limit?: number; cursor?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (options.limit !== undefined) query.set("limit", String(options.limit));
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return request<{ projects: ProjectSummary[]; nextCursor: string | null }>(
+      `/api/projects${suffix}`,
+    );
+  },
   system: () => request<SystemInfo>("/api/system"),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),
   createAgent: (body: {

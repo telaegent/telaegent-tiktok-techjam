@@ -157,10 +157,43 @@ The RPCs and proof audit table are available only to Supabase `service_role`;
 `anon` and `authenticated` have no table or function access. RLS is enabled
 with no browser policies.
 
+## Browser setup status
+
+After issuing a connector credential, the signed-in browser may poll:
+
+`GET /api/connectors/installations/:connectorInstanceId/status`
+
+The route derives the user from the opaque Telaegent session; it never accepts
+a user ID from the browser. Its backend-only RPC scopes by that user and the
+validated installation ID and returns at most 25 bindings. The response may
+contain safe repository identity, proof/access/membership/binding status, and
+last-seen timestamps. It cannot contain the connector bearer or hash, a local
+path, remote URL, GitHub/provider credential, provider session, or raw command
+output. Both credential issuance and setup status use `Cache-Control: no-store`.
+
+The durable status supports truthful onboarding after repository proof. It is
+not a durable delivery guarantee: the present long-poll relay remains
+process-local, and a timestamp cannot prove that a connector will stay online.
+
+## Project discovery
+
+The signed-in browser lists its durable, locally proven projects through:
+
+`GET /api/projects?limit=20&cursor=...`
+
+The service derives the user from the Telaegent session and uses stable GitHub
+repository ID keyset pagination rather than offsets. The backend-only RPC joins
+that exact user's membership, GitHub repository access, GitHub connection, and
+opaque runtime binding. It deliberately returns inactive/revoked states so the
+UI can explain recovery or revocation instead of silently presenting an old
+project as authorized. Another user's private project or binding cannot enter
+the result. Pages contain at most 50 projects, are non-cacheable, and expose no
+local path, credential, remote URL, repository contents, provider session, or
+private draft.
+
 ## Still open
 
-- connector registration credential format, rotation, reconnect, and revocation;
+- connector packaging, secure local credential storage, signed updates, and reconnect/backoff;
 - local `gh`/`git` parsing implementation and controlled live experiments;
-- connector packaging/update security;
 - safe repository metadata refresh and branch/worktree policy;
 - retention/pruning policy for accepted proof idempotency records.

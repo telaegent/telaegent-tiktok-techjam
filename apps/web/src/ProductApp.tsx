@@ -231,6 +231,7 @@ function Onboarding({
   const [githubStage, setGithubStage] = useState<GithubStage>("idle");
   const [connectorCredential, setConnectorCredential] = useState<ConnectorCredential | null>(null);
   const [connectorError, setConnectorError] = useState<ApiError | null>(null);
+  const [checkingConnector, setCheckingConnector] = useState(false);
   const [connectedAgents, setConnectedAgents] = useState<string[]>([]);
   const steps: OnboardingStep[] = ["identity", "github", "agent", "ready"];
   const stepIndex = steps.indexOf(step);
@@ -267,6 +268,51 @@ function Onboarding({
   async function copyConnectorCommand() {
     if (connectorCredential) {
       await navigator.clipboard.writeText(connectorCommand(connectorCredential));
+    }
+  }
+
+  async function verifyConnectorSetup() {
+    if (!connectorCredential || checkingConnector) return;
+    setCheckingConnector(true);
+    setConnectorError(null);
+    try {
+      const { connector } = await api.connectorSetupStatus(
+        connectorCredential.connectorInstanceId,
+      );
+      if (connector.credential?.status !== "active") {
+        throw new ApiError(
+          "The connector credential is no longer active. Create a new one and retry.",
+          409,
+          "CONNECTOR_CREDENTIAL_INACTIVE",
+        );
+      }
+      const verifiedBinding = connector.bindings.some(
+        (binding) =>
+          binding.bindingStatus === "ready" &&
+          binding.membershipStatus === "active" &&
+          binding.repositoryAccessStatus === "verified",
+      );
+      if (!verifiedBinding) {
+        throw new ApiError(
+          "The connector has not finished verifying this repository yet. Keep it running and check again.",
+          409,
+          "CONNECTOR_NOT_READY",
+          true,
+        );
+      }
+      // Remove the one-time bearer from React state as soon as onboarding no
+      // longer needs to render or copy it.
+      setConnectorCredential(null);
+      setGithubStage("connected");
+    } catch (error) {
+      const normalized = normalizeApiError(error);
+      setConnectorError(normalized);
+      if (normalized.code === "CONNECTOR_CREDENTIAL_INACTIVE") {
+        setConnectorCredential(null);
+        setGithubStage("error");
+      }
+    } finally {
+      setCheckingConnector(false);
     }
   }
 
@@ -354,10 +400,21 @@ function Onboarding({
                   </div>
                   <div className="inline-actions">
                     <button className="app-secondary-action" type="button" onClick={() => void copyConnectorCommand()}>Copy command</button>
-                    <button className="app-primary-action" type="button" onClick={() => setGithubStage("connected")}>
-                      I&apos;ve connected it
+                    <button
+                      className="app-primary-action"
+                      type="button"
+                      disabled={checkingConnector}
+                      onClick={() => void verifyConnectorSetup()}
+                    >
+                      {checkingConnector ? "Checking…" : "Check connection"}
                     </button>
                   </div>
+                  {connectorError && (
+                    <div className="api-state error" role="alert">
+                      <strong>{connectorError.code ?? "Connector not ready"}</strong>
+                      <p>{connectorError.message}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -372,8 +429,8 @@ function Onboarding({
               {githubStage === "connected" && (
                 <div className="setup-row connected">
                   <div>
-                    <strong><StatusMark /> Connector command completed</strong>
-                    <small>Your local connector verified this repository. Continue to select its agent.</small>
+                    <strong><StatusMark /> Repository connector verified</strong>
+                    <small>The backend confirmed an active membership, repository proof, and opaque local binding.</small>
                   </div>
                   <button type="button" onClick={() => setStep("agent")}>Continue</button>
                 </div>
@@ -386,8 +443,9 @@ function Onboarding({
               <span className="app-eyebrow">Your project agent</span>
               <h1>Choose who works privately with you.</h1>
               <p>
-                The connector probes your local Claude Code, Codex, or both.
-                Provider login and project sessions stay local; unrelated conversations are never imported.
+                Choose only a provider the connector terminal reported as
+                TELAEGENT IS CONNECTED. Provider login and project sessions stay
+                local; unrelated conversations are never imported.
               </p>
               <div className="provider-picker">
                 {["Claude Code", "Codex"].map((agent) => {
@@ -396,9 +454,9 @@ function Onboarding({
                     <button className={connected ? "connected" : ""} type="button" key={agent} onClick={() => toggleAgent(agent)}>
                       <span>
                         <strong>{agent}</strong>
-                        <small>{connected ? "Connected locally" : "Detected locally"}</small>
+                        <small>{connected ? "Selected for this project" : "Choose provider"}</small>
                       </span>
-                      <span>{connected ? "Connected" : "Connect"}</span>
+                      <span>{connected ? "Selected" : "Select"}</span>
                     </button>
                   );
                 })}
@@ -423,9 +481,9 @@ function Onboarding({
                 and approvals.
               </p>
               <div className="ready-summary">
-                <span><StatusMark /> Local connector online</span>
-                <span><StatusMark /> GitHub repository verified locally</span>
-                <span><StatusMark /> {connectedAgents.join(" + ")} connected locally</span>
+                <span><StatusMark /> Repository connector registered</span>
+                <span><StatusMark /> GitHub repository proof active</span>
+                <span><StatusMark /> {connectedAgents.join(" + ")} selected for this project</span>
               </div>
               <button className="app-primary-action" type="button" onClick={onComplete}>
                 Choose a repository
