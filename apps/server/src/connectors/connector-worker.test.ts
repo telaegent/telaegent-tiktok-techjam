@@ -11,7 +11,9 @@ import type {
   RuntimeProgressEvent,
 } from "../runtime-contract.js";
 import {
+  ConnectorCredentialRejectedError,
   ConnectorWorker,
+  HttpConnectorWorkerTransport,
   type ConnectorWorkerTransport,
 } from "./connector-worker.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
@@ -45,14 +47,17 @@ class FakeTransport implements ConnectorWorkerTransport {
   readonly progressEvents: RuntimeProgressEvent[] = [];
   readonly results: ConnectorJobResult[] = [];
   readonly failures: string[] = [];
-  private deliveries: ConnectorDelivery[];
+  readonly pollTimes: number[] = [];
+  private deliveries: Array<ConnectorDelivery | Error>;
 
-  constructor(...deliveries: ConnectorDelivery[]) {
+  constructor(...deliveries: Array<ConnectorDelivery | Error>) {
     this.deliveries = [...deliveries];
   }
 
   async poll(signal?: AbortSignal): Promise<ConnectorDelivery | null> {
+    this.pollTimes.push(Date.now());
     const delivery = this.deliveries.shift();
+    if (delivery instanceof Error) throw delivery;
     if (delivery) return delivery;
     if (!signal) return null;
     return await new Promise((resolve) => {
@@ -167,5 +172,82 @@ describe("ConnectorWorker", () => {
     expect(cancel).toHaveBeenCalledWith(binding.connectorBindingId);
     expect(transport.results).toHaveLength(0);
     expect(transport.failures).toHaveLength(0);
+  });
+
+  it.each(["claude", "codex"] as const)(
+    "cancels an active %s process and stops after credential revocation",
+    async (provider) => {
+      let rejectRun!: (error: unknown) => void;
+      const runtime = sessions(
+        async () => await new Promise<NormalizedRunResult>((_resolve, reject) => {
+          rejectRun = reject;
+        }),
+      );
+      const transport = new FakeTransport(
+        { kind: "job", job: { ...job, provider } },
+        new ConnectorCredentialRejectedError(),
+      );
+      const cancel = vi.fn(async () => {
+        rejectRun(new RunCancelledError());
+        return true;
+      });
+      const worker = new ConnectorWorker(binding, runtime, transport, { cancel });
+
+      await expect(worker.runOnce()).rejects.toThrow("Connector credential was rejected");
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledWith(binding.connectorBindingId);
+      expect(transport.pollTimes).toHaveLength(2);
+      expect(transport.results).toHaveLength(0);
+      expect(transport.failures).toHaveLength(0);
+    },
+  );
+
+  it("backs off transient cancellation-poll failures", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectRun!: (error: unknown) => void;
+      const runtime = sessions(
+        async () => await new Promise<NormalizedRunResult>((_resolve, reject) => {
+          rejectRun = reject;
+        }),
+      );
+      const transport = new FakeTransport(
+        { kind: "job", job },
+        new Error("temporary network failure"),
+        { kind: "cancel", jobId: job.jobId },
+      );
+      const cancel = vi.fn(async () => {
+        rejectRun(new RunCancelledError());
+        return true;
+      });
+      const worker = new ConnectorWorker(binding, runtime, transport, {
+        cancel,
+        pollRetryDelayMs: 1_000,
+      });
+
+      const run = worker.runOnce();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(transport.pollTimes).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(run).resolves.toBe("cancelled");
+      expect(transport.pollTimes).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("HttpConnectorWorkerTransport", () => {
+  it.each([401, 403])("classifies HTTP %s as terminal credential rejection", async (status) => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status }));
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+    );
+
+    await expect(transport.poll()).rejects.toBeInstanceOf(ConnectorCredentialRejectedError);
+    expect(fetchImplementation).toHaveBeenCalledOnce();
   });
 });
