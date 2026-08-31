@@ -22,6 +22,27 @@ export const RESOURCE_ID_PATTERN = /^resource_[A-Za-z0-9_-]{16,120}$/;
 
 export const resourceIdSchema = z.string().regex(RESOURCE_ID_PATTERN);
 
+/**
+ * Human-facing name for a resource the owner's connector resolved locally.
+ *
+ * This is deliberately narrower than an arbitrary path. It is normalized to
+ * forward slashes, must remain project-relative, and cannot contain control
+ * characters or traversal segments. The cloud may render this label, but it
+ * must never receive the canonical path it was derived from.
+ */
+export const resourceDisplayLabelSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine((value) => !/\p{Cc}/u.test(value))
+  .refine((value) => !value.includes("\\"))
+  .refine((value) => !value.startsWith("/") && !/^[A-Za-z]:/.test(value))
+  .refine((value) =>
+    value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+  );
+
+export type ResourceDisplayLabel = z.infer<typeof resourceDisplayLabelSchema>;
+
 const reason = z.string().min(1).max(2_000).refine((value) => !value.includes("\0"));
 
 /**

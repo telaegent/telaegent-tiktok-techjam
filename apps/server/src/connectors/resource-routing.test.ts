@@ -273,14 +273,24 @@ describe("connector resource HTTP transport", () => {
           {
             status: "pending_approval",
             request: { kind: "hint", hint: "src/theme.ts", reason: "the page imports it" },
-            candidate: { resourceId: `resource_${"b".repeat(24)}` },
+            candidate: {
+              resourceId: `resource_${"b".repeat(24)}`,
+              resourceDisplayLabel: "src/settings.ts",
+            },
           },
         ],
       },
     });
     expect(posted.statusCode).toBe(204);
     await expect(answer).resolves.toMatchObject({
-      outcomes: [{ candidate: { resourceId: `resource_${"b".repeat(24)}` } }],
+      outcomes: [
+        {
+          candidate: {
+            resourceId: `resource_${"b".repeat(24)}`,
+            resourceDisplayLabel: "src/settings.ts",
+          },
+        },
+      ],
     });
     await app.close();
   });
@@ -303,7 +313,10 @@ describe("connector resource HTTP transport", () => {
           {
             status: "pending_approval",
             request: { kind: "hint", hint: "src/theme.ts", reason: "config" },
-            candidate: { resourceId: "/home/owner/.env" },
+            candidate: {
+              resourceId: "/home/owner/.env",
+              resourceDisplayLabel: "src/settings.ts",
+            },
           },
         ],
       },

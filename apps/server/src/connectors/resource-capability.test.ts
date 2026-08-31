@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LocalFileBroker, isBrokerFailure } from "./file-broker.js";
 import {
@@ -20,6 +23,7 @@ const taskId = "task_one";
 const otherTaskId = "task_two";
 const peer = "10000000-0000-4000-8000-00000000b002";
 const now = new Date("2026-08-31T12:00:00.000Z");
+const execFileAsync = promisify(execFile);
 
 let workspace: string;
 let outside: string;
@@ -108,7 +112,92 @@ describe("resource registry", () => {
     expect(await reloaded.resolve(taskId, resourceId)).toBe(
       path.join(workspace, "src", "LandingPage.tsx"),
     );
-    await rm(file, { force: true });
+  });
+
+  it("preserves concurrent mappings from independent registry instances", async () => {
+    const file = path.join(workspace, "cross-process-registry.json");
+    const first = new FileResourceRegistry(file, () => now);
+    const second = new FileResourceRegistry(file, () => now);
+    const firstPath = path.join(workspace, "src", "first.ts");
+    const secondPath = path.join(workspace, "src", "second.ts");
+
+    const [firstId, secondId] = await Promise.all([
+      first.mint(taskId, firstPath),
+      second.mint(taskId, secondPath),
+    ]);
+    const restarted = new FileResourceRegistry(file, () => now);
+    await expect(restarted.resolve(taskId, firstId)).resolves.toBe(path.resolve(firstPath));
+    await expect(restarted.resolve(taskId, secondId)).resolves.toBe(path.resolve(secondPath));
+  });
+
+  it("preserves mappings written concurrently by separate connector processes", async () => {
+    const file = path.join(workspace, "multi-process-registry.json");
+    const firstPath = path.join(workspace, "src", "process-one.ts");
+    const secondPath = path.join(workspace, "src", "process-two.ts");
+    const child = fileURLToPath(
+      new URL("./test-fixtures/resource-registry-child.mjs", import.meta.url),
+    );
+    const tsxImport = new URL(
+      "../../../../node_modules/tsx/dist/loader.mjs",
+      import.meta.url,
+    ).href;
+
+    const [first, second] = await Promise.all([
+      execFileAsync(process.execPath, ["--import", tsxImport, child, file, taskId, firstPath]),
+      execFileAsync(process.execPath, ["--import", tsxImport, child, file, taskId, secondPath]),
+    ]);
+    const restarted = new FileResourceRegistry(file, () => now);
+    await expect(restarted.resolve(taskId, first.stdout.trim())).resolves.toBe(
+      path.resolve(firstPath),
+    );
+    await expect(restarted.resolve(taskId, second.stdout.trim())).resolves.toBe(
+      path.resolve(secondPath),
+    );
+  });
+
+  it("converges concurrent mints for the same task and path", async () => {
+    const file = path.join(workspace, "same-entry-registry.json");
+    const first = new FileResourceRegistry(file, () => now);
+    const second = new FileResourceRegistry(file, () => now);
+    const resourcePath = path.join(workspace, "src", "same.ts");
+
+    const [firstId, secondId] = await Promise.all([
+      first.mint(taskId, resourcePath),
+      second.mint(taskId, resourcePath),
+    ]);
+    expect(secondId).toBe(firstId);
+  });
+
+  it("removes every local handle when the task ends", async () => {
+    const file = path.join(workspace, "closed-task-registry.json");
+    const registry = new FileResourceRegistry(file, () => now);
+    const resourceId = await registry.mint(
+      taskId,
+      path.join(workspace, "src", "closed.ts"),
+    );
+
+    await registry.removeTask(taskId);
+
+    await expect(registry.resolve(taskId, resourceId)).resolves.toBeNull();
+  });
+
+  it("does not resurrect a removed task from the legacy import source", async () => {
+    const file = path.join(workspace, "legacy-closed-task.json");
+    const resourceId = `resource_${"l".repeat(24)}`;
+    const canonicalPath = path.join(workspace, "src", "legacy.ts");
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        entries: [{ taskId, resourceId, canonicalPath, issuedAt: now.toISOString() }],
+      }),
+    );
+    const registry = new FileResourceRegistry(file, () => now);
+    await expect(registry.resolve(taskId, resourceId)).resolves.toBe(canonicalPath);
+    await registry.removeTask(taskId);
+
+    const restarted = new FileResourceRegistry(file, () => now);
+    await expect(restarted.resolve(taskId, resourceId)).resolves.toBeNull();
   });
 
   it("refuses to treat a corrupt registry as an empty one", async () => {
@@ -121,14 +210,14 @@ describe("resource registry", () => {
 
   it("fails before a capacity limit can make durable state unreadable", async () => {
     const file = path.join(workspace, "full-registry.json");
-    const entries = Array.from({ length: 10_000 }, (_, index) => ({
+    const entries = Array.from({ length: 2 }, (_, index) => ({
       taskId,
       resourceId: `resource_${index.toString(36).padStart(24, "a")}`,
       canonicalPath: path.join(workspace, "src", `file-${index}.ts`),
       issuedAt: now.toISOString(),
     }));
     await writeFile(file, JSON.stringify({ version: 1, entries }));
-    const registry = new FileResourceRegistry(file, () => now);
+    const registry = new FileResourceRegistry(file, () => now, 2);
 
     await expect(
       registry.mint(taskId, path.join(workspace, "src", "overflow.ts")),
@@ -136,7 +225,6 @@ describe("resource registry", () => {
     await expect(registry.resolve(taskId, entries[0]!.resourceId)).resolves.toBe(
       entries[0]!.canonicalPath,
     );
-    await rm(file, { force: true });
   });
 });
 

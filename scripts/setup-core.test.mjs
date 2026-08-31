@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  connectorValuesInApplicationEnvironment,
+  inspectConnectorEnvironment,
   inspectEndToEndEnvironment,
   nodeMajor,
   parseEnvFile,
+  renderConnectorEnv,
   renderLocalEnv,
 } from "./setup-core.mjs";
 
@@ -42,4 +45,33 @@ SUPABASE_URL=https://example.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_${"c".repeat(24)}
 `);
   assert.deepEqual(inspectEndToEndEnvironment(values), []);
+});
+
+test("creates a stable connector installation file without inventing a bearer", () => {
+  const rendered = renderConnectorEnv(
+    "TELAEGENT_URL=http://localhost:3000\nTELAEGENT_CONNECTOR_INSTANCE_ID=replace-me\nTELAEGENT_CONNECTOR_CREDENTIAL=\n",
+    { instanceId: "local-connector-test" },
+  );
+  assert.match(rendered, /^TELAEGENT_CONNECTOR_INSTANCE_ID=local-connector-test$/mu);
+  assert.match(rendered, /^TELAEGENT_CONNECTOR_CREDENTIAL=$/mu);
+});
+
+test("validates connector configuration separately from application configuration", () => {
+  const complete = parseEnvFile(`
+TELAEGENT_URL=http://localhost:3000
+TELAEGENT_CONNECTOR_INSTANCE_ID=local-connector-test
+TELAEGENT_CONNECTOR_CREDENTIAL=${"a".repeat(40)}
+`);
+  assert.deepEqual(inspectConnectorEnvironment(complete), []);
+  assert.ok(
+    inspectConnectorEnvironment(parseEnvFile("TELAEGENT_URL=http://example.com\n"))
+      .includes("TELAEGENT_URL is not a safe connector origin"),
+  );
+});
+
+test("detects connector-only values misplaced in the application env", () => {
+  const values = parseEnvFile("PORT=3000\nTELAEGENT_CONNECTOR_CREDENTIAL=secret\n");
+  assert.deepEqual(connectorValuesInApplicationEnvironment(values), [
+    "TELAEGENT_CONNECTOR_CREDENTIAL",
+  ]);
 });

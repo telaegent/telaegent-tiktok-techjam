@@ -154,6 +154,42 @@ describe("SupabaseAuthorizationRpcClient", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
   });
 
+  it("sends connector-derived display metadata and rejects canonical paths", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      Response.json({ outcome: "recorded", scopeRequestId: request.conversationId }),
+    );
+    const rpc = client(fetchImplementation);
+    const scopeRequest = {
+      scopeRequestId: request.conversationId,
+      taskId: "cccccccc-0000-4000-8000-000000000003",
+      ownerUserId: request.authenticatedUserId,
+      peerUserId: "dddddddd-0000-4000-8000-000000000004",
+      requestedHint: null,
+      requestedReason: "The known file needs reapproval",
+      candidateResourceId: `resource_${"a".repeat(24)}`,
+      resourceDisplayLabel: "src/settings.ts",
+    };
+
+    await rpc.recordCapabilityScopeRequest(scopeRequest);
+
+    const [url, init] = fetchImplementation.mock.calls[0]!;
+    expect(url).toBe(
+      "https://example-project.supabase.co/rest/v1/rpc/record_capability_scope_request",
+    );
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      p_candidate_resource_id: scopeRequest.candidateResourceId,
+      p_resource_display_label: "src/settings.ts",
+    });
+
+    await expect(
+      rpc.recordCapabilityScopeRequest({
+        ...scopeRequest,
+        resourceDisplayLabel: "C:\\Users\\owner\\repo\\src\\settings.ts",
+      }),
+    ).rejects.toThrow("Supabase capability scope request is invalid");
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+  });
+
   it("rejects unsafe configuration and malformed RPC identifiers generically", async () => {
     expect(
       () =>

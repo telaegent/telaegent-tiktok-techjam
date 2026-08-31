@@ -145,6 +145,10 @@ describe("CapabilityRouteAuthorizationService", () => {
     ["a different resource", (state: CapabilityRouteAuthorizationSnapshot) => {
       state.grant!.resourceId = "resource_qrstuvwxyzabcdef";
     }],
+    ["a completed task", (state: CapabilityRouteAuthorizationSnapshot) => {
+      state.task!.status = "completed";
+      state.task!.endedAt = NOW;
+    }],
     ["a revoked grant", (state: CapabilityRouteAuthorizationSnapshot) => {
       state.grant!.status = "revoked";
       state.grant!.revokedAt = NOW;
@@ -268,6 +272,10 @@ describe("resolving a route for an ask with no grant behind it", () => {
     }],
     ["a task in another repository", (state: CapabilityRouteAuthorizationSnapshot) => {
       state.task!.githubRepositoryId = "1345851099";
+    }],
+    ["a cancelled task", (state: CapabilityRouteAuthorizationSnapshot) => {
+      state.task!.status = "cancelled";
+      state.task!.endedAt = NOW;
     }],
     ["a membership that lapsed", (state: CapabilityRouteAuthorizationSnapshot) => {
       state.ownerMembership!.status = "removed";

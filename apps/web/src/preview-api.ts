@@ -104,6 +104,7 @@ let scopeRequests: CapabilityScopeRequest[] = [
     requestedReason: "Check whether the server's rotation rule matches the client's refresh behavior.",
     operation: "read",
     candidateResourceId: "resource_preview_session_policy_01",
+    resourceDisplayLabel: "apps/server/src/auth/session-policy.ts",
     requestedAt: "2026-09-01T00:29:00.000Z",
     taskExpiresAt: "2026-09-01T01:29:00.000Z",
   },

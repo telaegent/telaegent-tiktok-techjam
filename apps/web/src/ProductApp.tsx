@@ -24,6 +24,7 @@ import {
   connectedCollaborators,
   selectConnectedPeer,
 } from "./project-conversation";
+import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -94,6 +95,22 @@ function normalizeApiError(error: unknown): ApiError {
   return error instanceof ApiError
     ? error
     : new ApiError("Unexpected conversation error", 500, null, true);
+}
+
+function startVisiblePolling(poller: AdaptivePoller, immediate = true): () => void {
+  const syncVisibility = () => poller.setPaused(document.hidden);
+  const refreshOnFocus = () => {
+    if (!document.hidden) poller.refresh();
+  };
+  poller.setPaused(document.hidden);
+  poller.start(immediate);
+  document.addEventListener("visibilitychange", syncVisibility);
+  window.addEventListener("focus", refreshOnFocus);
+  return () => {
+    document.removeEventListener("visibilitychange", syncVisibility);
+    window.removeEventListener("focus", refreshOnFocus);
+    poller.stop();
+  };
 }
 
 function apiErrorGuidance(error: ApiError): string {
@@ -1269,24 +1286,54 @@ function ProjectChat({
   // A network retry or double click reuses the same backend creation key. A
   // deliberate runtime retry clears it and opens a new private attempt.
   const replyCreationKeys = useRef(new Map<string, string>());
+  const messageRequests = useRef(new SingleFlightByKey<ConversationMessage[]>());
+  const scopeRequestsInFlight = useRef(new SingleFlightByKey<CapabilityScopeRequest[]>());
+  const scopeMutationEpoch = useRef(0);
   const configurationError = projectConfigurationError(
     project.githubRepositoryId,
   );
   const conversationId = conversation?.conversationId ?? null;
+  const messageScopeKey = `${project.githubRepositoryId}:${conversationId ?? "none"}`;
+  const activeMessageScope = useRef(messageScopeKey);
+  const activeRepositoryScope = useRef(project.githubRepositoryId);
+  activeMessageScope.current = messageScopeKey;
+  activeRepositoryScope.current = project.githubRepositoryId;
 
-  async function loadScopeRequests(showError = true) {
+  function requestScopeRequests(repositoryId: string, fresh = false) {
+    const request = async () => (await api.capabilityScopeRequests(repositoryId)).requests;
+    return fresh
+      ? scopeRequestsInFlight.current.runFresh(repositoryId, request)
+      : scopeRequestsInFlight.current.run(repositoryId, request);
+  }
+
+  function requestMessages(
+    scopeKey: string,
+    selectedConversationId: string,
+    repositoryId: string,
+    fresh = false,
+  ) {
+    const request = async () =>
+      (await api.conversationMessages(selectedConversationId, repositoryId)).messages;
+    return fresh
+      ? messageRequests.current.runFresh(scopeKey, request)
+      : messageRequests.current.run(scopeKey, request);
+  }
+
+  async function loadScopeRequests(showError = true, fresh = false) {
     if (configurationError) {
       setScopeRequests([]);
       return;
     }
+    const repositoryId = project.githubRepositoryId;
     try {
-      const result = await api.capabilityScopeRequests(
-        project.githubRepositoryId,
-      );
-      setScopeRequests(result.requests);
+      const requests = await requestScopeRequests(repositoryId, fresh);
+      if (activeRepositoryScope.current !== repositoryId) return;
+      setScopeRequests(requests);
       setScopeRequestError(null);
     } catch (error) {
-      if (showError) setScopeRequestError(normalizeApiError(error));
+      if (showError && activeRepositoryScope.current === repositoryId) {
+        setScopeRequestError(normalizeApiError(error));
+      }
     }
   }
 
@@ -1296,21 +1343,24 @@ function ProjectChat({
   ) {
     setDecidingScopeRequestId(scopeRequestId);
     setScopeRequestError(null);
+    scopeMutationEpoch.current += 1;
     try {
       await api.decideCapabilityScopeRequest(scopeRequestId, decision);
+      scopeMutationEpoch.current += 1;
       setScopeRequests((current) =>
         current.filter((request) => request.scopeRequestId !== scopeRequestId),
       );
-      await loadScopeRequests(false);
+      await loadScopeRequests(false, true);
     } catch (error) {
+      scopeMutationEpoch.current += 1;
       setScopeRequestError(normalizeApiError(error));
-      await loadScopeRequests(false);
+      await loadScopeRequests(false, true);
     } finally {
       setDecidingScopeRequestId(null);
     }
   }
 
-  async function loadMessages() {
+  async function loadMessages(fresh = false) {
     if (configurationError || !conversationId) {
       setMessages([]);
       setMessageLoadState("idle");
@@ -1318,13 +1368,19 @@ function ProjectChat({
     }
     setMessageLoadState("loading");
     setMessageError(null);
+    const scopeKey = messageScopeKey;
+    const selectedConversationId = conversationId;
+    const repositoryId = project.githubRepositoryId;
     try {
-      const result = await api.conversationMessages(
-        conversationId,
-        project.githubRepositoryId,
+      const nextMessages = await requestMessages(
+        scopeKey,
+        selectedConversationId,
+        repositoryId,
+        fresh,
       );
+      if (activeMessageScope.current !== scopeKey) return;
       setMessages(
-        result.messages.map((message) =>
+        nextMessages.map((message) =>
           mapConversationMessage(
             message,
             currentUserId,
@@ -1334,6 +1390,7 @@ function ProjectChat({
       );
       setMessageLoadState("ready");
     } catch (error) {
+      if (activeMessageScope.current !== scopeKey) return;
       setMessageError(normalizeApiError(error));
       setMessageLoadState("error");
     }
@@ -1358,12 +1415,12 @@ function ProjectChat({
     }
     setMessageLoadState("loading");
     setMessageError(null);
-    void api
-      .conversationMessages(conversationId, project.githubRepositoryId)
-      .then((result) => {
-        if (!active) return;
+    const scopeKey = messageScopeKey;
+    void requestMessages(scopeKey, conversationId, project.githubRepositoryId)
+      .then((nextMessages) => {
+        if (!active || activeMessageScope.current !== scopeKey) return;
         setMessages(
-          result.messages.map((message) =>
+          nextMessages.map((message) =>
             mapConversationMessage(
               message,
               currentUserId,
@@ -1392,35 +1449,30 @@ function ProjectChat({
     if (configurationError || !conversationId || messageLoadState !== "ready")
       return;
     let active = true;
-    const timer = window.setInterval(() => {
-      void api
-        .conversationMessages(conversationId, project.githubRepositoryId)
-        .then((result) => {
-          if (!active) return;
-          setMessages(
-            result.messages.map((message) =>
-              mapConversationMessage(
-                message,
-                currentUserId,
-                ownMessageIds.current.has(message.messageId),
-              ),
-            ),
-          );
-        })
-        .catch(() => {
-          // Keep the last approved snapshot. An explicit load exposes connection errors.
-        });
-    }, 3000);
+    const scopeKey = messageScopeKey;
+    const poller = new AdaptivePoller({
+      poll: async () => {
+        const nextMessages = await requestMessages(
+          scopeKey,
+          conversationId,
+          project.githubRepositoryId,
+        );
+        if (!active || activeMessageScope.current !== scopeKey) return false;
+        setMessages(nextMessages.map((message) =>
+          mapConversationMessage(message, currentUserId, ownMessageIds.current.has(message.messageId)),
+        ));
+        return nextMessages.length > 0;
+      },
+      onError: () => {
+        // Keep the last approved snapshot. An explicit load exposes connection errors.
+      },
+    });
+    const stop = startVisiblePolling(poller, false);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      stop();
     };
-  }, [
-    configurationError,
-    conversationId,
-    messageLoadState,
-    project.githubRepositoryId,
-  ]);
+  }, [configurationError, conversationId, currentUserId, messageLoadState, project.githubRepositoryId]);
 
   useEffect(() => {
     if (configurationError) {
@@ -1431,23 +1483,30 @@ function ProjectChat({
     let active = true;
     setScopeRequests([]);
     setScopeRequestError(null);
-    const poll = () => {
-      void api
-        .capabilityScopeRequests(project.githubRepositoryId)
-        .then((result) => {
-          if (!active) return;
-          setScopeRequests(result.requests);
-          setScopeRequestError(null);
-        })
-        .catch((error: unknown) => {
-          if (active) setScopeRequestError(normalizeApiError(error));
-        });
-    };
-    poll();
-    const timer = window.setInterval(poll, 3000);
+    const repositoryId = project.githubRepositoryId;
+    const poller = new AdaptivePoller({
+      poll: async () => {
+        const requestEpoch = scopeMutationEpoch.current;
+        const requests = await requestScopeRequests(repositoryId);
+        if (
+          !active ||
+          activeRepositoryScope.current !== repositoryId ||
+          scopeMutationEpoch.current !== requestEpoch
+        ) return false;
+        setScopeRequests(requests);
+        setScopeRequestError(null);
+        return requests.length > 0;
+      },
+      onError: (error) => {
+        if (active && activeRepositoryScope.current === repositoryId) {
+          setScopeRequestError(normalizeApiError(error));
+        }
+      },
+    });
+    const stop = startVisiblePolling(poller);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      stop();
     };
   }, [configurationError, project.githubRepositoryId]);
 
@@ -1622,7 +1681,7 @@ function ProjectChat({
       setDraft(null);
       setAnswering(null);
       setComposer("");
-      await loadMessages();
+      await loadMessages(true);
     } catch (error) {
       setActionError(normalizeApiError(error));
     } finally {
@@ -1700,10 +1759,14 @@ function ProjectChat({
                   key={request.scopeRequestId}
                 >
                   <header>
-                    <h2>File access request</h2>
-                    <span className="scope-pending-state">
-                      <i aria-hidden="true" /> Pending
-                    </span>
+                    <div>
+                      <span className="scope-approval-kicker">Your decision is needed</span>
+                      <h2>{request.resourceDisplayLabel}</h2>
+                      <small className="scope-resource-id">
+                        Resource {request.candidateResourceId}
+                      </small>
+                    </div>
+                    <span className="scope-read-badge">Read only</span>
                   </header>
                   <div
                     className="scope-access-route"

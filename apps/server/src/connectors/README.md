@@ -42,8 +42,9 @@ legacy shared API token is not connector authentication.
 2. `POST /api/connectors/credentials` with a stable, random installation ID.
    Save the returned credential locally; the backend stores only its hash. The
    response is explicitly non-cacheable and the browser must not persist it.
-3. Set `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
-   `TELAEGENT_CONNECTOR_CREDENTIAL` in the local shell.
+3. Put `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
+   `TELAEGENT_CONNECTOR_CREDENTIAL` in the ignored, connector-only `connector.env`.
+   Do not put the bearer in the root `.env`, which application processes load.
 4. Run `npm.cmd run connector:connect -- connect .` from the Telaegent source
    root in PowerShell. The script builds the connector before starting it, so
    it does not depend on the development-time TypeScript loader.
@@ -52,6 +53,9 @@ Use `--provider codex` or `--provider claude` to allow only one locally chosen
 provider for this connector process. The default, `--provider auto`, allows all
 locally authenticated providers; a cloud job still names its provider
 explicitly and the connector never silently substitutes another one.
+Add `--probe-only` to exercise the real repository/provider/relay path and exit
+after `TELAEGENT LIVE READINESS VERIFIED`; unlike the static `npm run doctor`,
+this may spend a provider call.
 
 The connector canonicalizes the Git root, collects an allowlisted `gh`/`git`
 repository proof, receives an opaque binding, detects locally authenticated
@@ -102,6 +106,14 @@ decision function, `file-broker.ts` performs the contained read, and
 provider: delivering a file is a reference-monitor operation, not an agent turn.
 A connector with no registry configured refuses everything.
 
+The registry is binding-scoped and cross-process safe. Each mapping is an
+immutable owner-only record installed with an atomic no-overwrite filesystem
+link, so two connector processes cannot lose one another's mappings through a
+shared JSON read/modify/write race. Existing version-1 JSON registries are
+imported as a read-only compatibility source. The connector also derives a
+normalized project-relative `resourceDisplayLabel` for the human approval card;
+the canonical path remains only in the local record.
+
 The asking half starts in the model's own answer. A recipient turn may emit
 `resourceRequests`, the same two forms defined here and reused by the protocol
 schema rather than restated, so the shape an agent is allowed to ask in is the
@@ -149,3 +161,19 @@ Automatic service requires all of: same task, same peer, same exact resource,
 read-only, an unexpired grant, and a canonical path inside the registered
 project. Anything else returns a scope-expansion prompt to the owning human.
 The follow-up loop is bounded by rounds, requests per round, and total bytes.
+
+### Task closure hand-off (Khoa / Phuong seam)
+
+`end_collaboration_task` is the durable authorization boundary. Its transaction
+closes the task and revokes every active grant together; the SQL contract test
+also proves that late approval, grant consumption, route authorization, and a
+new round all fail closed afterward.
+
+The connector-local half is `ResourceRegistry.removeTask(taskId)`. Phuong's
+orchestration/lifecycle integration must call it only after durable closure has
+returned `ended` (and may call it again on a replay). It must also cancel any
+in-flight round for that task. Cleanup is deliberately idempotent. It must not
+run before the database closure, because deleting a local mapping is not a
+substitute for revoking cloud authority; and a failure to deliver cleanup must
+never make the cloud grant usable again. On reconnect, expired/closed tasks
+should be reconciled through the same method.

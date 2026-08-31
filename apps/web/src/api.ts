@@ -217,6 +217,8 @@ export type CapabilityScopeRequest = {
   requestedReason: string;
   operation: "read";
   candidateResourceId: string;
+  /** Safe project-relative label derived by the repository owner's connector. */
+  resourceDisplayLabel: string;
   requestedAt: string;
   taskExpiresAt: string;
 };

@@ -6,6 +6,7 @@ describe("connector CLI options", () => {
     expect(parseConnectorCliOptions(["connect"])).toEqual({
       workspaceCandidate: ".",
       provider: "auto",
+      probeOnly: false,
     });
   });
 
@@ -17,9 +18,19 @@ describe("connector CLI options", () => {
         "D:\\repo",
         "--provider",
         provider,
-      ])).toEqual({ workspaceCandidate: "D:\\repo", provider });
+      ])).toEqual({ workspaceCandidate: "D:\\repo", provider, probeOnly: false });
     },
   );
+
+  it("supports an explicit live-probe-only run", () => {
+    expect(parseConnectorCliOptions([
+      "connect",
+      "--probe-only",
+      "/repo",
+      "--provider",
+      "codex",
+    ])).toEqual({ workspaceCandidate: "/repo", provider: "codex", probeOnly: true });
+  });
 
   it.each([
     [],
