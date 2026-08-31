@@ -191,6 +191,43 @@ describe("LongPollConnectorJobRelay", () => {
     );
   });
 
+  it("browser disconnect removes every installation for only one user and repository", async () => {
+    const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
+    const secondInstance = {
+      ...principal,
+      connectorInstanceId: "connector_instance_0002",
+    };
+    const otherUser = {
+      authenticatedUserId: "10000000-0000-4000-8000-000000000002",
+      connectorInstanceId: "connector_instance_0003",
+    };
+    const secondBinding = "50000000-0000-4000-8000-000000000006";
+    const otherUserBinding = "50000000-0000-4000-8000-000000000007";
+    const otherRepositoryBinding = "50000000-0000-4000-8000-000000000008";
+    const otherRepositoryId = "9223372036854775806";
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    relay.registerBinding(secondInstance, secondBinding, job.githubRepositoryId);
+    relay.registerBinding(otherUser, otherUserBinding, job.githubRepositoryId);
+    relay.registerBinding(principal, otherRepositoryBinding, otherRepositoryId);
+
+    await expect(relay.unregisterUserRepositoryBindings(
+      principal.authenticatedUserId,
+      job.githubRepositoryId,
+    )).resolves.toBe(true);
+
+    for (const [owner, id] of [[principal, bindingId], [secondInstance, secondBinding]] as const) {
+      await expect(relay.poll(owner, id, 0)).rejects.toMatchObject({
+        code: "UNSUPPORTED_RUNTIME_POLICY",
+      });
+    }
+    expect(relay.registeredRepository(otherUser, otherUserBinding)).toBe(
+      job.githubRepositoryId,
+    );
+    expect(relay.registeredRepository(principal, otherRepositoryBinding)).toBe(
+      otherRepositoryId,
+    );
+  });
+
   it("preserves an authenticated cancellation after a leased binding is removed", async () => {
     const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);

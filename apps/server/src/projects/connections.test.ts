@@ -5,7 +5,11 @@ import { loadConfig } from "../config.js";
 import type { ProjectRepository } from "./repository.js";
 import { ProjectService } from "./service.js";
 import { SupabaseProjectRepository } from "./supabase-repository.js";
-import type { ProjectConnection, ProjectConversation } from "./types.js";
+import type {
+  ProjectConnection,
+  ProjectConversation,
+  ProjectDisconnect,
+} from "./types.js";
 
 const alice = "10000000-0000-4000-8000-00000000a001";
 const bob = "10000000-0000-4000-8000-00000000b002";
@@ -23,6 +27,7 @@ function stubRepository(overrides: Partial<ProjectRepository> = {}): ProjectRepo
     requestConnection: refuse,
     respondToConnection: refuse,
     revokeConnection: refuse,
+    disconnectRepository: refuse,
     createConversation: refuse,
     ...overrides,
   };
@@ -63,9 +68,23 @@ function conversation(
   };
 }
 
+function disconnect(overrides: Partial<ProjectDisconnect> = {}): ProjectDisconnect {
+  return {
+    projectId,
+    githubRepositoryId: "910",
+    repositoryAccessStatus: "revalidation_required",
+    membershipStatus: "suspended",
+    bindingStatus: "stopped",
+    disconnectedAt: now.toISOString(),
+    changed: true,
+    ...overrides,
+  };
+}
+
 async function appWith(
   repository: ProjectRepository,
   authenticatedUserId: () => Promise<string> = async () => alice,
+  onRepositoryDisconnected?: (userId: string, repositoryId: string) => Promise<void>,
 ) {
   return createApp(
     loadConfig({ NODE_ENV: "test", APP_AUTH_TOKEN: "legacy-admin-token" }),
@@ -81,6 +100,7 @@ async function appWith(
         createId: () => connectionId,
       }),
       authenticatedUserId,
+      ...(onRepositoryDisconnected ? { onRepositoryDisconnected } : {}),
     },
   );
 }
@@ -157,6 +177,7 @@ describe("ProjectService connection lifecycle", () => {
         authenticatedUserId: alice,
         projectConnectionId: connectionId,
       }),
+      refused.disconnectRepository({ authenticatedUserId: alice, projectId }),
       refused.createConversation({
         authenticatedUserId: alice,
         projectId,
@@ -175,6 +196,53 @@ describe("ProjectService connection lifecycle", () => {
 });
 
 describe("project connection routes", () => {
+  it("disconnects only the web-session owner's project and awaits relay removal", async () => {
+    const disconnectRepository = vi.fn<ProjectRepository["disconnectRepository"]>(
+      async () => disconnect(),
+    );
+    const onRepositoryDisconnected = vi.fn(async () => undefined);
+    const app = await appWith(
+      stubRepository({ disconnectRepository }),
+      async () => alice,
+      onRepositoryDisconnected,
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/disconnect`,
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(response.json()).toEqual({ disconnect: disconnect() });
+    expect(disconnectRepository).toHaveBeenCalledWith({
+      authenticatedUserId: alice,
+      projectId,
+    });
+    expect(onRepositoryDisconnected).toHaveBeenCalledWith(alice, "910");
+    await app.close();
+  });
+
+  it("keeps durable disconnect effective when relay cleanup fails", async () => {
+    const disconnectRepository = vi.fn<ProjectRepository["disconnectRepository"]>(
+      async () => disconnect({ changed: false }),
+    );
+    const app = await appWith(
+      stubRepository({ disconnectRepository }),
+      async () => alice,
+      async () => { throw new Error("relay cleanup failed"); },
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/disconnect`,
+      payload: {},
+    });
+    expect(response.statusCode).toBe(500);
+    expect(disconnectRepository).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
   it("opens a conversation for a connected pair and is idempotent afterwards", async () => {
     const createConversation = vi.fn<ProjectRepository["createConversation"]>(
       async () => conversation(),
@@ -248,6 +316,7 @@ describe("project connection routes", () => {
         { decision: "accept" },
       ],
       ["POST", `/api/projects/${projectId}/connections/${connectionId}/revoke`, {}],
+      ["POST", `/api/projects/${projectId}/disconnect`, {}],
       ["POST", `/api/projects/${projectId}/conversations`, { peerUserId: bob }],
     ];
     for (const [method, url, payload] of routes) {
@@ -277,6 +346,7 @@ describe("project connection routes", () => {
         { decision: "maybe" },
       ],
       ["POST", `/api/projects/${projectId}/conversations`, { peerUserId: "nope" }],
+      ["POST", `/api/projects/${projectId}/disconnect`, { unexpected: true }],
     ];
     for (const [method, url, payload] of rejected) {
       const response = await app.inject({
@@ -339,5 +409,23 @@ describe("SupabaseProjectRepository connection calls", () => {
         requestedAt: now.toISOString(),
       }),
     ).rejects.toMatchObject({ statusCode: 503 });
+  });
+
+  it("calls the disconnect RPC with only session-derived user and project scope", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(
+      JSON.stringify(disconnect()),
+      { status: 200 },
+    ));
+    await expect(repository(fetchImplementation as unknown as typeof fetch)
+      .disconnectRepository({ authenticatedUserId: alice, projectId }))
+      .resolves.toEqual(disconnect());
+    const [url, request] = fetchImplementation.mock.calls[0]!;
+    expect(url).toBe(
+      "https://example.supabase.co/rest/v1/rpc/disconnect_user_repository",
+    );
+    expect(JSON.parse(String((request as RequestInit | undefined)?.body))).toEqual({
+      p_user_id: alice,
+      p_project_id: projectId,
+    });
   });
 });

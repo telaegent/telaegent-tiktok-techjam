@@ -2,6 +2,7 @@ import type {
   ProjectCollaborator,
   ProjectConnection,
   ProjectConversation,
+  ProjectDisconnect,
   ProjectSummary,
 } from "./types.js";
 
@@ -47,6 +48,11 @@ export interface ProjectRepository {
     authenticatedUserId: string;
     revokedAt: string;
   }>): Promise<ProjectConnection | null>;
+
+  disconnectRepository(input: Readonly<{
+    authenticatedUserId: string;
+    projectId: string;
+  }>): Promise<ProjectDisconnect | null>;
 
   createConversation(input: Readonly<{
     conversationId: string;

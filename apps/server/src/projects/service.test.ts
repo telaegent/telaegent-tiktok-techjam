@@ -39,6 +39,7 @@ const refusesConnections = {
   requestConnection: async () => null,
   respondToConnection: async () => null,
   revokeConnection: async () => null,
+  disconnectRepository: async () => null,
   createConversation: async () => null,
 } as const;
 
@@ -50,6 +51,7 @@ class MemoryProjects implements ProjectRepository {
   requestConnection = refusesConnections.requestConnection;
   respondToConnection = refusesConnections.respondToConnection;
   revokeConnection = refusesConnections.revokeConnection;
+  disconnectRepository = refusesConnections.disconnectRepository;
   createConversation = refusesConnections.createConversation;
 
   async listForUser(
