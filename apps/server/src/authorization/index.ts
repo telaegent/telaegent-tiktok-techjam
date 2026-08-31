@@ -135,3 +135,21 @@ export type {
   RecordCapabilityScopeRequestOutcome,
   SupabaseCapabilityScopeRequestClient,
 } from "./capability-scope-requests.js";
+export { SupabaseCapabilityGrantRepository } from "./capability-grants.js";
+export type {
+  CapabilityGrantRepository,
+  ConsumeCapabilityGrantInput,
+  ConsumeCapabilityGrantOutcome,
+  SupabaseCapabilityGrantClient,
+} from "./capability-grants.js";
+export { SupabaseCollaborationTaskRepository } from "./collaboration-tasks.js";
+export type {
+  CollaborationTaskEndStatus,
+  CollaborationTaskOptions,
+  CollaborationTaskRepository,
+  EndCollaborationTaskInput,
+  EndCollaborationTaskOutcome,
+  OpenCollaborationTaskInput,
+  OpenCollaborationTaskOutcome,
+  SupabaseCollaborationTaskClient,
+} from "./collaboration-tasks.js";

@@ -9,6 +9,15 @@ import type {
   SupabaseCapabilityRouteRpcRequest,
 } from "./supabase-capability-repository.js";
 import type {
+  EndCollaborationTaskInput,
+  OpenCollaborationTaskInput,
+  SupabaseCollaborationTaskClient,
+} from "./collaboration-tasks.js";
+import type {
+  ConsumeCapabilityGrantInput,
+  SupabaseCapabilityGrantClient,
+} from "./capability-grants.js";
+import type {
   BeginCapabilityFollowUpRoundInput,
   DecideCapabilityScopeRequestInput,
   ListPendingCapabilityScopeRequestsInput,
@@ -48,7 +57,9 @@ export class SupabaseAuthorizationRpcClient
   implements
     SupabaseAuthorizationSnapshotClient,
     SupabaseCapabilitySnapshotClient,
-    SupabaseCapabilityScopeRequestClient
+    SupabaseCapabilityScopeRequestClient,
+    SupabaseCapabilityGrantClient,
+    SupabaseCollaborationTaskClient
 {
   readonly #origin: string;
   readonly #endpoint: string;
@@ -209,6 +220,93 @@ export class SupabaseAuthorizationRpcClient
         p_task_id: request.taskId,
         p_owner_user_id: request.ownerUserId,
         p_peer_user_id: request.peerUserId,
+      },
+      options,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  /**
+   * Redeems one grant the owning human already delegated.
+   *
+   * Called after the bytes are already in hand, because the read happened on
+   * the owner's machine under its own reference monitor. What this settles is
+   * whether the authority survives for a second round.
+   */
+  async consumeCapabilityGrant(
+    request: Readonly<ConsumeCapabilityGrantInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.grantId) ||
+      !uuidPattern.test(request.ownerUserId) ||
+      !uuidPattern.test(request.peerUserId) ||
+      request.ownerUserId === request.peerUserId ||
+      !resourceIdPattern.test(request.resourceId)
+    ) {
+      throw new Error("Supabase capability grant redemption is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("consume_capability_grant"),
+      {
+        p_grant_id: request.grantId,
+        p_owner_user_id: request.ownerUserId,
+        p_peer_user_id: request.peerUserId,
+        p_resource_id: request.resourceId,
+      },
+      options,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  /**
+   * Opens the bounded collaboration one approved message starts.
+   *
+   * Only the message identifier and the peer being asked are sent. The
+   * conversation, project and repository are derived in the database from the
+   * message itself, so this call cannot widen a task's scope by asserting one.
+   */
+  async openCollaborationTask(
+    request: Readonly<OpenCollaborationTaskInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.taskId) ||
+      !uuidPattern.test(request.originSharedMessageId) ||
+      !uuidPattern.test(request.responderUserId)
+    ) {
+      throw new Error("Supabase collaboration task request is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("open_collaboration_task"),
+      {
+        p_task_id: request.taskId,
+        p_origin_shared_message_id: request.originSharedMessageId,
+        p_responder_user_id: request.responderUserId,
+      },
+      options,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  /** Ends a collaboration, retiring every grant made inside it. */
+  async endCollaborationTask(
+    request: Readonly<EndCollaborationTaskInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.taskId) ||
+      !uuidPattern.test(request.actorUserId) ||
+      (request.status !== "completed" && request.status !== "cancelled")
+    ) {
+      throw new Error("Supabase collaboration task closure is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("end_collaboration_task"),
+      {
+        p_task_id: request.taskId,
+        p_actor_user_id: request.actorUserId,
+        p_status: request.status,
       },
       options,
       maximumScopeResponseBytes,
