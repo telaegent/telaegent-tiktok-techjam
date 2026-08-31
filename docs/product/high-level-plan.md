@@ -924,7 +924,10 @@ for those exact files, from that same peer, read-only, without interrupting the
 owner again. Anything outside that set returns to the human.
 
 Full specification in [canonical build plan section 8](canonical-build-plan.md).
-It is a design commitment; no code implements it yet.
+Task/grant records and cloud route authorization now have implementation
+contracts. The local registry/file broker, approval workflow, resource transfer
+and bounded follow-up rounds remain a design commitment rather than working
+product behaviour.
 
 The rule underneath it:
 

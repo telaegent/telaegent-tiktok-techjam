@@ -55,6 +55,8 @@ export interface AuthorizedPrivateRuntimeTurnInput {
   authorization: Readonly<AuthorizePrivateRuntimeInput>;
   provider: AgentProvider;
   turn: Readonly<BackendPreparedPrivateTurn>;
+  /** Optional backend-owned turn ID already claimed in durable draft state. */
+  turnId?: string;
 }
 
 export interface AuthorizedPrivateRuntimeTurnPolicy {
@@ -140,7 +142,7 @@ export class AuthorizedPrivateRuntimeTurnStarter {
           "runtime_binding_unavailable",
         );
       }
-    });
+    }, input.turnId);
   }
 }
 
@@ -199,7 +201,9 @@ function validateInput(
     typeof input.turn.outputSchemaName !== "string" ||
     !outputSchemaNamePattern.test(input.turn.outputSchemaName) ||
     typeof input.turn.correlationId !== "string" ||
-    !correlationIdPattern.test(input.turn.correlationId)
+    !correlationIdPattern.test(input.turn.correlationId) ||
+    (input.turnId !== undefined &&
+      (typeof input.turnId !== "string" || !correlationIdPattern.test(input.turnId)))
   ) {
     throw new InvalidPrivateRuntimeTurnError();
   }

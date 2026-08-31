@@ -85,7 +85,8 @@ Only approved content belongs to the shared conversation. Provider sessions are 
 ## Capability-scoped resource requests
 
 Specified in [canonical build plan section 8](../product/canonical-build-plan.md).
-Design commitment; nothing in `apps/` implements it.
+Task/grant contracts and cloud route checks exist. Resource delivery, local
+grant enforcement, scope expansion and autonomous rounds are not implemented.
 
 A recipient's agent often needs a file it does not own. The request path keeps
 the cloud out of the decision:

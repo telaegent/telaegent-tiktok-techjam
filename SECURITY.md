@@ -35,7 +35,9 @@ The agent may recommend a safe alternative such as environment-variable names or
 ## Capability-scoped autonomous collaboration
 
 Specified in [canonical build plan section 8](docs/product/canonical-build-plan.md).
-**Not implemented.** No code in `apps/` enforces any of it yet.
+**Not operationally implemented.** Task/grant records and a fail-closed cloud
+routing contract exist, but no connector-local registry/file broker, resource
+delivery, scope-expansion flow or autonomous follow-up rounds exist yet.
 
 The governing rule:
 
@@ -164,8 +166,8 @@ Do not claim:
 - perfect local sandboxing across every supported provider/tool
 - that a fresh shell creates a fresh identity/session
 - that provider terms permit every connector-driven automation pattern
-- that capability-scoped collaboration is implemented, tested, or enforced; it
-  is a design commitment with no code behind it yet
+- that capability-scoped collaboration is operationally implemented or
+  end-to-end enforced; only its task/grant and cloud-routing foundation exists
 
 Use controlled demo accounts and repositories until connector authentication,
 local isolation, retention, revocation, and provider-policy questions are

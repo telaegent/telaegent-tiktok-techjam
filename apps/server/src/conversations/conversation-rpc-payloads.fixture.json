@@ -442,25 +442,30 @@
     ]
   },
   "recipientCreated": {
-    "role": "recipient",
-    "state": "created",
-    "turnId": null,
-    "draftId": "a4000000-0000-4000-8000-000000000005",
-    "failure": null,
-    "provider": "codex",
-    "createdAt": "2026-08-31T09:03:00.000Z",
-    "riskFlags": [],
-    "updatedAt": "2026-08-31T09:03:00.000Z",
-    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
-    "privateTurns": [],
-    "roughMessage": "keep it short",
-    "guardFindings": [],
-    "sendCandidate": null,
-    "sentMessageId": null,
-    "conversationId": "a3000000-0000-4000-8000-000000000001",
-    "privateMessage": null,
-    "incomingMessageId": "a6000000-0000-4000-8000-000000000002",
-    "githubRepositoryId": "9223372036854775807"
+    "draft": {
+      "role": "recipient",
+      "state": "created",
+      "turnId": null,
+      "draftId": "a4000000-0000-4000-8000-000000000005",
+      "failure": null,
+      "provider": "codex",
+      "createdAt": "2026-08-31T09:03:00.000Z",
+      "riskFlags": [],
+      "updatedAt": "2026-08-31T09:03:00.000Z",
+      "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+      "privateTurns": [
+        { "speaker": "owner", "text": "keep it short" }
+      ],
+      "roughMessage": "keep it short",
+      "guardFindings": [],
+      "sendCandidate": null,
+      "sentMessageId": null,
+      "conversationId": "a3000000-0000-4000-8000-000000000001",
+      "privateMessage": null,
+      "incomingMessageId": "a6000000-0000-4000-8000-000000000002",
+      "githubRepositoryId": "9223372036854775807"
+    },
+    "replayed": false
   },
   "recipientContext": {
     "role": "recipient",
@@ -472,7 +477,9 @@
       "githubRepositoryId": "9223372036854775807",
       "repositoryFullName": "acme/storefront"
     },
-    "privateTurns": [],
+    "privateTurns": [
+      { "speaker": "owner", "text": "keep it short" }
+    ],
     "projectFacts": [
       "Repository: acme/storefront",
       "Default branch: main",
