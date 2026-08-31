@@ -18,6 +18,7 @@
  *   --timeout 120000    per turn
  *   --skip-turns 0      skip this many format/case combinations
  *   --max-turns 100     hard cap for this invocation
+ *   --metadata full     full | no-revision | repository-only
  *   --out <dir>         default: ./src/telagent/protocol/eval/results (gitignored)
  */
 
@@ -32,7 +33,12 @@ import process from "node:process";
 import { nodeFileSystemPort, nodeGitPort } from "../../ports.node.js";
 import { PROTOCOL_FORMATS, type MemoryStrategyId, type ProtocolFormatId } from "../contract.js";
 import { ALL_CASES } from "../corpus/index.js";
-import { runCorpus, type HarnessConfig, type HarnessRunResult } from "./harness.js";
+import {
+  runCorpus,
+  type HarnessConfig,
+  type HarnessRunResult,
+  type MetadataProfile,
+} from "./harness.js";
 import { renderReport } from "./report.js";
 import { renderReviewSheet, selectForReview } from "./review-sheet.js";
 import {
@@ -54,6 +60,7 @@ interface Options {
   timeoutMs: number;
   skipTurns: number;
   maxTurns: number;
+  metadataProfile: MetadataProfile;
   outDir: string;
 }
 
@@ -83,6 +90,7 @@ function parseArgs(argv: readonly string[]): Options {
     timeoutMs: Number(get("--timeout") ?? "120000"),
     skipTurns: Number(get("--skip-turns") ?? "0"),
     maxTurns: Number(get("--max-turns") ?? String(Number.MAX_SAFE_INTEGER)),
+    metadataProfile: (get("--metadata") ?? "full") as MetadataProfile,
     outDir:
       get("--out") ??
       path.resolve(process.cwd(), "src/telagent/protocol/eval/results"),
@@ -138,6 +146,12 @@ function fakeResponder(request: RunnerRequest): string {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+
+  if (!["full", "no-revision", "repository-only"].includes(options.metadataProfile)) {
+    console.error("Invalid --metadata profile: " + options.metadataProfile);
+    process.exitCode = 1;
+    return;
+  }
 
   if (options.runner !== "fake" && !liveEvalEnabled()) {
     // Fail before doing any work, with the fix in the message.
@@ -197,6 +211,7 @@ async function main(): Promise<void> {
       // produces byte-identical prompts and a rerun is comparable.
       commit: "0000000000000000000000000000000000000000",
       branch: "main",
+      metadataProfile: options.metadataProfile,
     };
 
     process.stderr.write(

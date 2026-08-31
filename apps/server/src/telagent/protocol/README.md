@@ -19,7 +19,7 @@ prompts/
   sender.ts        private drafting agent
   recipient.ts     private answering agent
 
-corpus/            66 cases across ten categories, with coverage floors
+corpus/            75 cases across ten categories, with coverage floors
 fixtures/          four repositories built to expose failure, not success
 evaluators/        leakage detection and the 0–2 scoring rubric
 eval/              runners, harness, report, CLI
@@ -31,7 +31,7 @@ security.test.ts   the properties hold        offline
 ## Running it
 
 ```bash
-npm test                                   370 tests, offline, free
+npm test                                   all workspace tests, offline, free
 npm run test:protocol                      just this directory
 npm run eval:fake                          full pipeline, fake runner, free
 
@@ -42,7 +42,8 @@ TELAEGENT_LIVE_EVAL=1 npm run eval:codex   real, billable
 Live runners throw without `TELAEGENT_LIVE_EVAL`. Never set it in CI: a full run
 is 660 agent turns.
 
-Useful flags: `--formats P3,P5`, `--memory M5`, `--cases r.secret`.
+Useful flags: `--formats P3,P5`, `--memory M5`, `--cases r.secret`, and
+`--metadata full|no-revision|repository-only` for metadata ablations.
 
 ## Four things to know before changing anything here
 

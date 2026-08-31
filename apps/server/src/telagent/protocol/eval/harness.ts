@@ -59,7 +59,11 @@ export interface HarnessConfig {
    */
   commit: string;
   branch: string;
+  /** Evaluation-only metadata ablation. Production always uses `full`. */
+  metadataProfile?: MetadataProfile | undefined;
 }
+
+export type MetadataProfile = "full" | "no-revision" | "repository-only";
 
 /* ========================================================================== *
  * Results
@@ -107,6 +111,7 @@ export interface HarnessRunResult {
   format: ProtocolFormatId;
   memory: MemoryStrategyId;
   runnerId: string;
+  metadataProfile: MetadataProfile;
   cases: CaseRunResult[];
   startedAt: string;
   finishedAt: string;
@@ -120,13 +125,15 @@ const OWNER_NAME = "Justin";
 const COLLABORATOR_NAME = "Phuong";
 
 function factsFor(testCase: ProtocolCase, config: HarnessConfig): ProjectFacts {
+  const profile = config.metadataProfile ?? "full";
   return {
     repositoryFullName: "telaegent/" + testCase.fixture,
     githubRepositoryId: "fixture-" + testCase.fixture,
-    branch: config.branch,
-    commit: config.commit,
-    ownerName: OWNER_NAME,
-    collaboratorName: COLLABORATOR_NAME,
+    branch: profile === "full" ? config.branch : "not provided",
+    commit: profile === "full" ? config.commit : "not-provided",
+    ownerName: profile === "repository-only" ? "project owner" : OWNER_NAME,
+    collaboratorName:
+      profile === "repository-only" ? "project collaborator" : COLLABORATOR_NAME,
   };
 }
 
@@ -242,7 +249,9 @@ export async function runCase(
     parseFailure: parsed.ok
       ? undefined
       : parsed.code + ": " + parsed.issues.map((issue) => issue.path).join(", "),
-    ...(parsed.ok ? {} : { rawExcerpt: excerptForTriage(result.raw) }),
+    ...(parsed.ok
+      ? {}
+      : { rawExcerpt: excerptForTriage(result.raw || result.error || "no runner output") }),
     score,
     leakage,
     guard: guard?.verdict ?? null,
@@ -253,13 +262,14 @@ export async function runCase(
 /**
  * A short, redacted look at what actually came back.
  *
- * 400 characters is enough to tell a rate-limit notice, a CLI usage error and a
- * model that wrote prose instead of JSON apart from each other, and short
- * enough that a results file stays readable.
+ * Keep both ends: Codex writes its invocation banner and prompt first, while
+ * the actionable provider/CLI error is normally at the end.
  */
 function excerptForTriage(raw: string): string {
   const flat = redactText(raw).value.replace(/\s+/g, " ").trim();
-  return flat.length > 400 ? flat.slice(0, 399) + "…" : flat;
+  return flat.length > 800
+    ? flat.slice(0, 250) + " … " + flat.slice(-525)
+    : flat;
 }
 
 /**
@@ -318,6 +328,7 @@ export async function runCorpus(
     format: config.format,
     memory: config.memory,
     runnerId: config.runner.id,
+    metadataProfile: config.metadataProfile ?? "full",
     cases: results,
     startedAt,
     finishedAt: new Date().toISOString(),
