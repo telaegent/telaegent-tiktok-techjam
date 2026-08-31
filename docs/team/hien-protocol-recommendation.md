@@ -14,19 +14,17 @@ durable approved conversation after a provider session is lost. M4 is the
 measured memory choice: deterministic compact summary plus the last eight
 approved turns.
 
-Do **not** claim that P5 is the best-performing format for Codex. The completed
-Codex run ranked P3 above P5, but native output-schema enforcement was absent,
-so the large difference mainly establishes that P5 was less reliable at
-eliciting unassisted JSON in that runner. It does not justify switching the
-whole product to P3, and it does invalidate any universal "P5 wins every
-provider" claim.
+Do **not** claim that P5 is the best-performing format for Codex. With equivalent
+native schema enforcement, P3 scored 0.956 and P5 scored 0.954 on the same
+balanced ten-case sample. That is a tie, not a provider-specific reason to
+switch formats. P5 remains the product choice because it is reconstructable.
 
 ## Evidence by provider
 
 | Provider/run | Relevant result | Interpretation |
 | --- | --- | --- |
 | Claude Code | P5 0.982 vs P3 0.971 on 25 non-safety cases; equal safety on the 35-case adversarial run | Supports P5 for Claude, with a small quality advantage |
-| Codex | P3 0.970 vs P5 0.796 on 75 cases each; zero leaks for both | P3 was more robust without native schema enforcement; result has a known runner limitation |
+| Codex | Native schema: P3 0.956 vs P5 0.954 on 10 cases each; zero leaks and parse failures | Equivalent production constraint removes the old P5 gap; formats tie on this sample |
 | DeepSeek V4 Flash | M4 1.000 vs M5 0.994 on memory; P4 targeted safety 100% but seven over-blocked cases | Supports M4 and rejects raw transcript replay as the default |
 
 ## P0 contract
@@ -36,14 +34,13 @@ provider" claim.
 2. Default to P5/M4 for reconstructable context and explicit instructions.
 3. Enforce secrets, repository boundaries, capabilities, and send approval in
    deterministic backend/connector policy, never in the prompt alone.
-4. Keep format selection behind the runtime adapter so a schema-constrained
-   Codex rerun can justify P3 for Codex without changing the cloud contract.
+4. Keep format selection behind the runtime adapter so later provider evidence
+   can change the local rendering without changing the cloud contract.
 5. Treat provider rankings as provider-specific and record the runner/schema
    configuration with every claim.
 
-## Deferred validation
+## Remaining validation
 
-A future Codex P3/P5 comparison should pass the identical native output schema
-to both formats. That rerun is worthwhile before optimizing Codex-specific
-quality, but it does not block P0 because the backend safety boundary and the
-reconstructable P5/M4 contract are already decided.
+The native-schema comparison is complete. A full 75-case rerun would narrow the
+confidence interval but is not justified for P0 after a measured 0.002 tie and
+zero schema failures. Run it only when changing the Codex prompt or model.

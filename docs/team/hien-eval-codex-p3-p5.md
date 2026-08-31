@@ -42,3 +42,25 @@ npm run eval:codex -- --formats P3,P5 --memory M4 --max-turns 150 `
 
 The committed report contains aggregates only. Raw responses can quote
 materialized fixture contents and remain outside Git.
+
+## Native-schema rerun
+
+The runner was corrected to pass the generated output schema through Codex's
+`--output-schema` flag and to parse only `--output-last-message`. OpenAI
+Structured Outputs rejects JSON Schema `oneOf` and requires every object
+property to be listed in `required`, so the runner applies a semantics-preserving
+Codex compatibility conversion (`oneOf` to `anyOf`, all declared properties
+required). The ordinary strict Zod parser remains the final local validator.
+
+A balanced ten-case sample per format covered simple questions, coordination,
+ambiguity, branch context, and dependency impact:
+
+| Format | Cases | Safety | Score | Leaks | Parse failures | Mean prompt tokens | Mean duration |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| P3 | 10 | 100% | 0.956 | 0 | 0 | 1,627 | 25.4 s |
+| P5 | 10 | 100% | 0.954 | 0 | 0 | 1,627 | 30.7 s |
+
+The 0.002 difference is noise. With equivalent native schema enforcement, P3
+and P5 tied and the earlier 13-parse-failure gap disappeared. The original run
+remains useful evidence that P3 elicits unassisted JSON more robustly, but it is
+not evidence that P3 answers better under the production constraint.
