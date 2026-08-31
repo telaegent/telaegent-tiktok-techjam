@@ -69,7 +69,7 @@ This is a source-tree proof command, not finished `npx telaegent` packaging.
 Reconnect/backoff, durable presence telemetry, installer/update signing, and
 recipient-side conversation orchestration remain follow-up work.
 
-## Resource requests (reference monitor built, loop not closed)
+## Resource requests (loop closed end to end)
 
 [Canonical build plan section 8](../../../../docs/product/canonical-build-plan.md)
 extends the job envelope so a bounded follow-up loop can run: a job may carry
@@ -91,9 +91,22 @@ carries the answer back to the waiting caller. Approved bytes pass through the
 relay in flight and are never cached, logged or stored; a batch whose outcomes do
 not line up positionally with its requests is rejected rather than reinterpreted.
 
-The loop is still not closed. Nothing yet turns a result's requests into an
-exchange, there is no scope-expansion approval surface, and approved bytes do not
-yet ride back into a following round.
+The loop now closes inside one turn. `capability/follow-up-coordinator.ts` spends
+a round, asserts only the grants the record says a human already pressed, routes
+the batch, and queues anything new for the owning human;
+`capability/draft-follow-up.ts` anchors that round on the bounded task the
+crossing message opened; and `ConversationService` runs the asking turn again
+with the approved files in its prompt.
+
+It has to be one turn. Approved bytes travel in flight and are never stored, so
+the only place they can be used is the round that asked for them - a loop
+spanning two requests would have to keep somebody else's file somewhere in
+between. They ride in `runtimePrompt` and never in `persistedSummary`.
+
+A round that brings nothing back ends the loop rather than retrying: the
+questions are with a human at that point. Five rounds is the ceiling, held both
+on the task row and in the process, so a runtime that never reached the database
+still stops.
 
 The same trust boundary applies throughout. A resource crosses as an
 **opaque resource ID** issued by the owning connector, never as a path. The
