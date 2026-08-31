@@ -18,7 +18,8 @@
     "eval": "tsx src/telagent/protocol/eval/cli.ts",
     "eval:fake": "tsx src/telagent/protocol/eval/cli.ts --runner fake",
     "eval:claude": "tsx src/telagent/protocol/eval/cli.ts --runner claude",
-    "eval:codex": "tsx src/telagent/protocol/eval/cli.ts --runner codex"
+    "eval:codex": "tsx src/telagent/protocol/eval/cli.ts --runner codex",
+    "eval:deepseek": "tsx src/telagent/protocol/eval/cli.ts --runner deepseek"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

@@ -32,7 +32,12 @@ import { getFixtureRepo, type FixtureRepo, type FixtureRepoId } from "./repos.js
  * ours, they are already normalised, and joining them is string work.
  */
 function joinPosix(root: string, relative: string): string {
-  const left = root.endsWith("/") ? root.slice(0, -1) : root;
+  // Node accepts forward slashes on Windows, while the in-memory port keeps
+  // POSIX fixture keys. Normalising only the caller-provided root gives both
+  // ports one representation and avoids treating `C:\\...` as a relative
+  // directory during the segment walk below.
+  const portableRoot = root.replace(/\\/g, "/");
+  const left = portableRoot.endsWith("/") ? portableRoot.slice(0, -1) : portableRoot;
   const right = relative.startsWith("/") ? relative.slice(1) : relative;
   return left + "/" + right;
 }
@@ -99,10 +104,15 @@ export async function materializeFixtureById(
  * normal case on re-run, not an error.
  */
 async function ensureDirectory(fs: FileSystemPort, absolutePath: string): Promise<void> {
-  const segments = absolutePath.split("/").filter((segment) => segment.length > 0);
-  const isAbsolute = absolutePath.startsWith("/");
+  const portablePath = absolutePath.replace(/\\/g, "/");
+  const windowsDrive = /^([A-Za-z]:)(?:\/|$)/.exec(portablePath);
+  const pathWithoutRoot = windowsDrive
+    ? portablePath.slice(windowsDrive[0].length)
+    : portablePath;
+  const segments = pathWithoutRoot.split("/").filter((segment) => segment.length > 0);
+  const isAbsolute = portablePath.startsWith("/");
 
-  let current = isAbsolute ? "" : ".";
+  let current = windowsDrive ? windowsDrive[1] : isAbsolute ? "" : ".";
   for (const segment of segments) {
     current = current === "" ? "/" + segment : current + "/" + segment;
     if (await fs.exists(current)) continue;
