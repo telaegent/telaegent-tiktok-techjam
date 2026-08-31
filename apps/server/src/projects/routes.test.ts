@@ -7,6 +7,20 @@ import { ProjectService } from "./service.js";
 
 const userId = "10000000-0000-4000-8000-000000000001";
 
+/** Refuses every connection operation unless a test opts one in. */
+function stubRepository(overrides: Partial<ProjectRepository> = {}): ProjectRepository {
+  const refuse = async () => null;
+  return {
+    listForUser: async () => [],
+    listCollaborators: refuse,
+    requestConnection: refuse,
+    respondToConnection: refuse,
+    revokeConnection: refuse,
+    createConversation: refuse,
+    ...overrides,
+  };
+}
+
 describe("project discovery routes", () => {
   it("uses the web-session owner and returns a non-cacheable bounded page", async () => {
     const listForUser = vi.fn<ProjectRepository["listForUser"]>(async () => []);
@@ -19,7 +33,10 @@ describe("project discovery routes", () => {
       undefined,
       undefined,
       undefined,
-      { service: new ProjectService({ listForUser }), authenticatedUserId },
+      {
+        service: new ProjectService(stubRepository({ listForUser })),
+        authenticatedUserId,
+      },
     );
     const response = await app.inject({ method: "GET", url: "/api/projects?limit=7" });
     expect(response.statusCode).toBe(200);
@@ -36,7 +53,7 @@ describe("project discovery routes", () => {
   });
 
   it("requires the Telaegent browser session and rejects unknown query fields", async () => {
-    const repository: ProjectRepository = { listForUser: async () => [] };
+    const repository = stubRepository();
     const app = await createApp(
       loadConfig({ NODE_ENV: "test" }),
       undefined,

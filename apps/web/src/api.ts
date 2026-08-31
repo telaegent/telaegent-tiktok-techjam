@@ -164,6 +164,47 @@ export type ProjectSummary = {
   };
 };
 
+/**
+ * A project member who independently proved access to the same repository.
+ *
+ * `connectionStatus` is reported from the viewer's own vantage point:
+ * `pending_outgoing` means you asked, `pending_incoming` means you were asked
+ * and hold the decision.
+ */
+export type ProjectCollaborator = {
+  userId: string;
+  githubLogin: string;
+  connectionStatus:
+    | "none"
+    | "pending_outgoing"
+    | "pending_incoming"
+    | "connected"
+    | "revoked";
+  projectConnectionId: string | null;
+};
+
+export type ProjectConnection = {
+  projectConnectionId: string;
+  projectId: string;
+  requesterUserId: string;
+  recipientUserId: string;
+  status: "pending" | "connected" | "revoked";
+  requestedAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+};
+
+/** The shared conversation for one connected pair. */
+export type ProjectConversation = {
+  conversationId: string;
+  projectId: string;
+  githubRepositoryId: string;
+  status: "active";
+  participantUserIds: string[];
+  /** False when the pair's conversation was already open. */
+  created: boolean;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -247,6 +288,52 @@ export const api = {
       `/api/projects${suffix}`,
     );
   },
+  /**
+   * Project members who could be asked to connect, and where each pair stands.
+   *
+   * Not a GitHub collaborator listing: everyone here connected their own GitHub
+   * identity and proved this same repository themselves.
+   */
+  projectCollaborators: (projectId: string, options: { limit?: number } = {}) => {
+    const suffix =
+      options.limit === undefined ? "" : `?limit=${String(options.limit)}`;
+    return request<{ collaborators: ProjectCollaborator[] }>(
+      `/api/projects/${encodeURIComponent(projectId)}/collaborators${suffix}`,
+    );
+  },
+  /** Asks a peer to connect. The recipient still holds the decision. */
+  requestProjectConnection: (projectId: string, recipientUserId: string) =>
+    request<{ connection: ProjectConnection }>(
+      `/api/projects/${encodeURIComponent(projectId)}/connections`,
+      { method: "POST", body: JSON.stringify({ recipientUserId }) },
+    ),
+  /** Accepts or declines a request addressed to you. */
+  respondToProjectConnection: (
+    projectId: string,
+    connectionId: string,
+    decision: "accept" | "decline",
+  ) =>
+    request<{ connection: ProjectConnection }>(
+      `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/respond`,
+      { method: "POST", body: JSON.stringify({ decision }) },
+    ),
+  /** Withdraws or revokes a connection. Either side may do this at any time. */
+  revokeProjectConnection: (projectId: string, connectionId: string) =>
+    request<{ connection: ProjectConnection }>(
+      `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/revoke`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
+  /**
+   * Opens, or returns, the shared conversation for a connected pair.
+   *
+   * Idempotent, so it is safe to call whenever a collaborator's thread is
+   * entered rather than tracking whether one exists.
+   */
+  createProjectConversation: (projectId: string, peerUserId: string) =>
+    request<{ conversation: ProjectConversation }>(
+      `/api/projects/${encodeURIComponent(projectId)}/conversations`,
+      { method: "POST", body: JSON.stringify({ peerUserId }) },
+    ),
   system: () => request<SystemInfo>("/api/system"),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),
   createAgent: (body: {
