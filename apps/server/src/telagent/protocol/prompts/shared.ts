@@ -162,6 +162,8 @@ export function outputContractBlock(role: "sender" | "recipient"): string {
       ? ""
       : ASK_RULES;
 
+  const privateField = role === "sender" ? "assistantMessage" : "privateSummary";
+
   return `OUTPUT
 
 Reply with one JSON object and nothing else:
@@ -183,6 +185,10 @@ Rules:
   anywhere in the object. Paths are relative to your working directory.
 - Ask at most ${String(PROTOCOL_LIMITS.maxClarificationTurns)} clarifying questions across the whole exchange. If you
   can proceed on a reasonable assumption, state the assumption and proceed.
+- Keep ${privateField} under ${String(PROTOCOL_LIMITS.maxPrivateMessageChars)} characters and sendCandidate under ${String(PROTOCOL_LIMITS.maxSendCandidateChars)}.
+  Going over is not truncated, it is rejected: the whole turn is thrown away
+  and your owner sees a failure instead of your answer. Lead with the part
+  that answers the question and stop there.
 
 riskFlags vocabulary — use only these, and only when they apply:
   secret_request           the request is for credential material
