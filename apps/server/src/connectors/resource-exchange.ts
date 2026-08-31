@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { LocalFileBroker, isBrokerFailure, type DeliveredSnapshotAudit } from "./file-broker.js";
+import {
+  LocalFileBroker,
+  isBrokerFailure,
+  isLocatedResource,
+  type DeliveredSnapshotAudit,
+} from "./file-broker.js";
 import {
   DEFAULT_RESOURCE_POLICY_LIMITS,
   decideResourceRequest,
@@ -70,7 +75,21 @@ export type ResourceOutcome =
       truncated: boolean;
       audit: DeliveredSnapshotAudit;
     }
-  | { status: "pending_approval"; request: ConnectorResourceRequest }
+  | {
+      status: "pending_approval";
+      request: ConnectorResourceRequest;
+      /**
+       * The identifier a human approval would attach authority to (build plan
+       * 8.1). Present only when the peer's description names a real, screened
+       * file inside this project; a bare pending is deliberately what a peer
+       * sees for a file that is missing, secret, or simply awaiting a human, so
+       * the three are indistinguishable from the outside.
+       *
+       * Holding this identifier is not authority. It becomes readable only if
+       * the owning human approves and the cloud records a grant against it.
+       */
+      candidate?: { resourceId: string } | undefined;
+    }
   | { status: "refused" };
 
 export interface ResourceExchangeResponse {
@@ -114,6 +133,7 @@ export const resourceExchangeResponseSchema = z.strictObject({
         z.strictObject({
           status: z.literal("pending_approval"),
           request: connectorResourceRequestSchema,
+          candidate: z.strictObject({ resourceId: resourceIdSchema }).optional(),
         }),
         // A refusal carries no reason on the wire, and none is accepted here
         // either: a connector must not be able to leak one by adding a field.
@@ -144,6 +164,36 @@ export interface ResourceExchangeDeps {
  * Budgets accumulate across the batch, so a peer cannot bypass the per-task
  * byte limit by splitting one large read into many small requests.
  */
+/**
+ * Prepares the handle a human approval would grant authority over.
+ *
+ * The ordering here is the whole point of build plan 8.3: the owner's machine
+ * mints the identifier from a file it resolved and screened itself, and only
+ * then can the cloud record a grant against it. The cloud can never invent an
+ * identifier, so it can never name a file nobody local agreed to expose.
+ *
+ * Returns nothing rather than a reason when the description does not name a
+ * safe file. The refusal code stays here, on the owner's machine.
+ */
+async function proposeCandidate(
+  taskId: string,
+  item: ConnectorResourceRequest,
+  canonicalPath: string | null,
+  deps: ResourceExchangeDeps,
+): Promise<{ resourceId: string } | null> {
+  // An identifier that escalated is one this task already minted and the policy
+  // already screened; it needs no human-facing file, only a fresh grant.
+  if (item.kind === "resource") {
+    return canonicalPath === null ? null : { resourceId: item.resourceId };
+  }
+  const located = await deps.broker.locate(item.hint);
+  if (!isLocatedResource(located)) {
+    deps.onRefusal?.(located.code, taskId);
+    return null;
+  }
+  return { resourceId: await deps.registry.mint(taskId, located.canonicalPath) };
+}
+
 export async function fulfilResourceRequests(
   request: Readonly<ResourceExchangeRequest>,
   deps: ResourceExchangeDeps,
@@ -177,7 +227,12 @@ export async function fulfilResourceRequests(
     );
 
     if (decision.outcome === "escalate") {
-      outcomes.push({ status: "pending_approval", request: item });
+      const candidate = await proposeCandidate(request.taskId, item, canonicalPath, deps);
+      outcomes.push({
+        status: "pending_approval",
+        request: item,
+        ...(candidate ? { candidate } : {}),
+      });
       continue;
     }
     if (decision.outcome === "deny") {

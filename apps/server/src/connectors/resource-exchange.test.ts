@@ -159,6 +159,117 @@ class ServingTransport implements ConnectorWorkerTransport {
   }
 }
 
+describe("preparing a scope expansion for the owning human", () => {
+  // Written without escapes so a shell that eats one backslash cannot quietly
+  // turn a traversal case into a harmless relative path.
+  const backslash = String.fromCharCode(92);
+  const windowsAbsolute = ["C:", "Windows", "win.ini"].join(backslash);
+  const windowsTraversal = ["..", "..", "secrets.txt"].join(backslash);
+
+  it("mints the identifier a human approval would attach authority to", async () => {
+    const response = await fulfilResourceRequests(
+      exchange({
+        requests: [
+          { kind: "hint", hint: "src/LandingPage.tsx", reason: "the page imports it" },
+        ],
+        grants: [],
+      }),
+      deps(),
+    );
+    // Build plan 8.3: the owner's machine mints, the cloud only records. The
+    // identifier is the same one this task already holds for that file, so
+    // approving twice cannot fragment one file into two authorities.
+    expect(response.outcomes[0]).toEqual({
+      status: "pending_approval",
+      request: { kind: "hint", hint: "src/LandingPage.tsx", reason: "the page imports it" },
+      candidate: { resourceId: landingPageId },
+    });
+    // A candidate is a handle, not authority. Nothing was read.
+    expect(JSON.stringify(response)).not.toContain("export const page");
+  });
+
+  it("offers no candidate for a secret, and the peer cannot tell it apart from a missing file", async () => {
+    const refusals: string[] = [];
+    const response = await fulfilResourceRequests(
+      exchange({
+        requests: [
+          { kind: "hint", hint: ".env", reason: "config" },
+          { kind: "hint", hint: "src/settings.ts", reason: "config" },
+        ],
+        grants: [],
+      }),
+      deps((code) => refusals.push(code)),
+    );
+    // A hard-denied file and a file that does not exist answer identically, so
+    // a peer cannot use the shape of the answer to map the repository.
+    expect(response.outcomes[0]).toEqual({
+      status: "pending_approval",
+      request: { kind: "hint", hint: ".env", reason: "config" },
+    });
+    expect(response.outcomes[1]).toEqual({
+      status: "pending_approval",
+      request: { kind: "hint", hint: "src/settings.ts", reason: "config" },
+    });
+    // Both reasons exist, and both stay here. A file that is not there cannot
+    // be proven to lie inside the workspace either, so it is refused with the
+    // containment code rather than an existence code the peer might learn from.
+    expect(refusals).toEqual(["SECRET_PATH", "OUTSIDE_WORKSPACE"]);
+    expect(JSON.stringify(response)).not.toContain("SECRET_PATH");
+  });
+
+  it("never resolves a hint that tries to name a file instead of describing one", async () => {
+    const response = await fulfilResourceRequests(
+      exchange({
+        requests: [
+          { kind: "hint", hint: "../../etc/passwd", reason: "one" },
+          { kind: "hint", hint: windowsTraversal, reason: "two" },
+          { kind: "hint", hint: "/etc/passwd", reason: "three" },
+          { kind: "hint", hint: windowsAbsolute, reason: "four" },
+          { kind: "hint", hint: "src/../.env", reason: "five" },
+        ],
+        grants: [],
+      }),
+      deps(),
+    );
+    // An agent may only ever describe a file. None of these become a candidate,
+    // so no human is ever offered a button that reaches outside the project.
+    for (const outcome of response.outcomes) {
+      expect(outcome).toMatchObject({ status: "pending_approval" });
+      expect(outcome).not.toHaveProperty("candidate");
+    }
+  });
+
+  it("offers the same identifier back when authority over a known file has lapsed", async () => {
+    const response = await fulfilResourceRequests(
+      exchange({
+        requests: [{ kind: "resource", resourceId: landingPageId, reason: "again" }],
+        grants: [],
+      }),
+      deps(),
+    );
+    // The peer still holds an identifier this task minted; what it no longer
+    // holds is a grant. Re-approval renews the grant, never the identifier.
+    expect(response.outcomes[0]).toEqual({
+      status: "pending_approval",
+      request: { kind: "resource", resourceId: landingPageId, reason: "again" },
+      candidate: { resourceId: landingPageId },
+    });
+  });
+
+  it("offers no candidate for an identifier this task never minted", async () => {
+    const response = await fulfilResourceRequests(
+      exchange({
+        requests: [{ kind: "resource", resourceId: `resource_${"z".repeat(24)}`, reason: "guess" }],
+        grants: [],
+      }),
+      deps(),
+    );
+    // An unknown identifier is refused outright: escalating it would let a peer
+    // put a file it invented in front of the owning human.
+    expect(response.outcomes[0]).toEqual({ status: "refused" });
+  });
+});
+
 describe("connector worker serving resource requests", () => {
   function worker(transport: ConnectorWorkerTransport, run = vi.fn(), withRegistry = true) {
     const sessions = new ProviderSessionManager(

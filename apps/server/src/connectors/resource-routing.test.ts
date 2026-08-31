@@ -255,6 +255,66 @@ describe("connector resource HTTP transport", () => {
     await app.close();
   });
 
+  it("carries a mintable candidate back so a human can be asked about a real file", async () => {
+    const relay = relayWithBinding();
+    const app = await appWith(relay);
+    const answer = relay.exchangeResources(exchange);
+    await app.inject({
+      method: "GET",
+      url: `/api/connectors/jobs/next?connectorBindingId=${bindingId}&waitMs=0`,
+    });
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/connectors/jobs/${exchange.requestId}/resources`,
+      payload: {
+        requestId: exchange.requestId,
+        outcomes: [
+          {
+            status: "pending_approval",
+            request: { kind: "hint", hint: "src/theme.ts", reason: "the page imports it" },
+            candidate: { resourceId: `resource_${"b".repeat(24)}` },
+          },
+        ],
+      },
+    });
+    expect(posted.statusCode).toBe(204);
+    await expect(answer).resolves.toMatchObject({
+      outcomes: [{ candidate: { resourceId: `resource_${"b".repeat(24)}` } }],
+    });
+    await app.close();
+  });
+
+  it("rejects a candidate that is a path rather than a minted identifier", async () => {
+    const relay = relayWithBinding();
+    const app = await appWith(relay);
+    void relay.exchangeResources(exchange).catch(() => undefined);
+    await app.inject({
+      method: "GET",
+      url: `/api/connectors/jobs/next?connectorBindingId=${bindingId}&waitMs=0`,
+    });
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/connectors/jobs/${exchange.requestId}/resources`,
+      payload: {
+        requestId: exchange.requestId,
+        outcomes: [
+          {
+            status: "pending_approval",
+            request: { kind: "hint", hint: "src/theme.ts", reason: "config" },
+            candidate: { resourceId: "/home/owner/.env" },
+          },
+        ],
+      },
+    });
+    // The cloud is about to attach a human's approval to this identifier. It
+    // must be something a registry minted, never text that looks like a file.
+    expect(posted.statusCode).toBe(400);
+    await relay.unregisterRepositoryBinding(principal, githubRepositoryId);
+    await app.close();
+  });
+
   it("accepts a job result that asks a peer for resources", async () => {
     const relay = relayWithBinding();
     const app = await appWith(relay);
