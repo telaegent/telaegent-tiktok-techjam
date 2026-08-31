@@ -205,6 +205,27 @@ export type ProjectConversation = {
   created: boolean;
 };
 
+/** A new exact-file read waiting for the repository owner's decision. */
+export type CapabilityScopeRequest = {
+  scopeRequestId: string;
+  taskId: string;
+  conversationId: string;
+  githubRepositoryId: string;
+  peerUserId: string;
+  requestedHint: string | null;
+  requestedReason: string;
+  operation: "read";
+  candidateResourceId: string;
+  requestedAt: string;
+  taskExpiresAt: string;
+};
+
+export type CapabilityScopeDecision = "deny" | "once" | "task";
+
+export type CapabilityScopeDecisionResult =
+  | { outcome: "denied" }
+  | { outcome: "approved"; grantId: string; mode: "once" | "task" };
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -333,6 +354,20 @@ export const api = {
     request<{ conversation: ProjectConversation }>(
       `/api/projects/${encodeURIComponent(projectId)}/conversations`,
       { method: "POST", body: JSON.stringify({ peerUserId }) },
+    ),
+  /** Lists exact-file read requests that only this repository owner may answer. */
+  capabilityScopeRequests: (githubRepositoryId: string) =>
+    request<{ requests: CapabilityScopeRequest[] }>(
+      `/api/capability/scope-requests?githubRepositoryId=${encodeURIComponent(githubRepositoryId)}`,
+    ),
+  /** Records one of the three human decisions offered by build plan section 8.1. */
+  decideCapabilityScopeRequest: (
+    scopeRequestId: string,
+    decision: CapabilityScopeDecision,
+  ) =>
+    request<CapabilityScopeDecisionResult>(
+      `/api/capability/scope-requests/${encodeURIComponent(scopeRequestId)}/decision`,
+      { method: "POST", body: JSON.stringify({ decision }) },
     ),
   system: () => request<SystemInfo>("/api/system"),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),
