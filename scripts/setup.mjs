@@ -4,9 +4,12 @@ import { chmod, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  connectorValuesInApplicationEnvironment,
+  inspectConnectorEnvironment,
   inspectEndToEndEnvironment,
   nodeMajor,
   parseEnvFile,
+  renderConnectorEnv,
   renderLocalEnv,
 } from "./setup-core.mjs";
 
@@ -33,6 +36,7 @@ if (!new Set(["win32", "darwin", "linux"]).has(process.platform)) {
 
 process.stdout.write(`[setup] Telaegent on ${process.platform}/${process.arch}, Node ${process.version}\n`);
 const envContents = await ensureLocalEnvironment();
+const connectorEnvContents = await ensureConnectorEnvironment();
 
 if (!checkOnly) {
   runNpm(["ci"], "install locked dependencies");
@@ -40,11 +44,20 @@ if (!checkOnly) {
 }
 
 const envProblems = inspectEndToEndEnvironment(parseEnvFile(envContents));
-const externalProblems = skipExternal ? [] : inspectExternalTools();
-const e2eProblems = [...envProblems, ...externalProblems];
+const connectorProblems = inspectConnectorEnvironment(parseEnvFile(connectorEnvContents));
+const misplacedConnectorValues = connectorValuesInApplicationEnvironment(
+  parseEnvFile(envContents),
+).map((name) => `${name} must move from .env to connector.env`);
+const external = skipExternal ? { problems: [], notes: [] } : inspectExternalTools();
+const e2eProblems = [
+  ...envProblems,
+  ...connectorProblems,
+  ...misplacedConnectorValues,
+  ...external.problems,
+];
 
 if (e2eProblems.length === 0) {
-  process.stdout.write("[setup] Full end-to-end prerequisites are configured.\n");
+  process.stdout.write("[setup] Static configuration and command checks passed.\n");
 } else {
   process.stdout.write("[setup] Local application setup is complete.\n");
   process.stdout.write("[setup] Full two-user end-to-end mode still needs:\n");
@@ -52,6 +65,11 @@ if (e2eProblems.length === 0) {
   process.stdout.write("[setup] See docs/setup.md; rerun npm run doctor after completing these explicit external steps.\n");
   if (strictEndToEnd) process.exitCode = 2;
 }
+for (const note of external.notes) process.stdout.write(`[setup] ${note}\n`);
+process.stdout.write(
+  "[setup] Live repository/provider/relay readiness is NOT verified by this command.\n" +
+  "[setup] Run npm run doctor:live -- [workspace] for the real connector-mediated probe.\n",
+);
 
 if (startAfterSetup && process.exitCode === undefined) {
   process.stdout.write("[setup] Starting Telaegent at http://localhost:5173\n");
@@ -83,8 +101,38 @@ async function ensureLocalEnvironment() {
   return rendered;
 }
 
+async function ensureConnectorEnvironment() {
+  const destination = path.join(repoRoot, "connector.env");
+  try {
+    const contents = await readFile(destination, "utf8");
+    process.stdout.write("[setup] Keeping existing connector.env (never overwritten).\n");
+    return contents;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const template = await readFile(path.join(repoRoot, "connector.env.example"), "utf8");
+  const rendered = renderConnectorEnv(template);
+  if (checkOnly) {
+    process.stdout.write(
+      "[setup] connector.env is absent; validating generated connector defaults without writing.\n",
+    );
+    return rendered;
+  }
+  await writeFile(destination, rendered, {
+    encoding: "utf8",
+    mode: 0o600,
+    flag: "wx",
+  });
+  if (process.platform !== "win32") await chmod(destination, 0o600);
+  process.stdout.write(
+    "[setup] Created private connector.env; only connector commands load it.\n",
+  );
+  return rendered;
+}
+
 function inspectExternalTools() {
   const problems = [];
+  const notes = [];
   if (!commandSucceeds("git", ["--version"])) problems.push("install Git");
   if (!commandSucceeds("gh", ["--version"])) {
     problems.push("install GitHub CLI (gh)");
@@ -94,9 +142,16 @@ function inspectExternalTools() {
   const codexInstalled = commandSucceeds("codex", ["--version"]);
   const claudeInstalled = commandSucceeds("claude", ["--version"]);
   if (!codexInstalled && !claudeInstalled) {
-    problems.push("install and locally sign in to Codex CLI or Claude Code CLI");
+    problems.push("install Codex CLI or Claude Code CLI");
+  } else {
+    const installed = [codexInstalled ? "Codex" : "", claudeInstalled ? "Claude" : ""]
+      .filter(Boolean)
+      .join(" and ");
+    notes.push(
+      `${installed} CLI installation detected; authentication and model access remain live-unverified.`,
+    );
   }
-  return problems;
+  return { problems, notes };
 }
 
 function commandSucceeds(command, commandArgs) {

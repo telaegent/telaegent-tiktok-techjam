@@ -152,7 +152,9 @@ npm run setup
 To set up and start the local browser plus API in one command, run
 `npm run up`. The setup creates safe local defaults, installs locked
 dependencies, builds the application, and reports every missing external
-end-to-end prerequisite. It never hides provider, GitHub, or Supabase sign-in.
+static prerequisite. It never hides provider, GitHub, or Supabase sign-in, and
+never mistakes installed/configured for live-ready. Use `npm run doctor:live`
+for the real connector-mediated repository/provider/relay probe.
 
 See [the cross-platform setup guide](docs/setup.md) for full two-user connector
 setup, exact environment values, diagnostics, and the boundary between

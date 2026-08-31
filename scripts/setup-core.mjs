@@ -38,6 +38,14 @@ export function renderLocalEnv(template, random = {}) {
     .replace(/^RUNTIME_INSTANCE_ID=.*$/mu, `RUNTIME_INSTANCE_ID=${instanceId}`);
 }
 
+export function renderConnectorEnv(template, random = {}) {
+  const instanceId = random.instanceId ?? `local-${randomUUID()}`;
+  return template.replace(
+    /^TELAEGENT_CONNECTOR_INSTANCE_ID=.*$/mu,
+    `TELAEGENT_CONNECTOR_INSTANCE_ID=${instanceId}`,
+  );
+}
+
 export function inspectEndToEndEnvironment(values) {
   const problems = [];
   if (values.get("TELAEGENT_IDENTITY_PROVIDER") !== "github") {
@@ -60,4 +68,40 @@ export function inspectEndToEndEnvironment(values) {
     if (!hasConfiguredValue(values.get(name))) problems.push(`${name} is not configured`);
   }
   return problems;
+}
+
+export function inspectConnectorEnvironment(values) {
+  const problems = [];
+  const rawUrl = values.get("TELAEGENT_URL")?.trim() ?? "";
+  try {
+    const url = new URL(rawUrl);
+    const loopback = new Set(["localhost", "127.0.0.1", "::1"]).has(url.hostname);
+    if (
+      (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error("unsafe origin");
+    }
+  } catch {
+    problems.push("TELAEGENT_URL is not a safe connector origin");
+  }
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(values.get("TELAEGENT_CONNECTOR_INSTANCE_ID") ?? "")) {
+    problems.push("TELAEGENT_CONNECTOR_INSTANCE_ID is not configured");
+  }
+  if (!/^[A-Za-z0-9_-]{40,128}$/.test(values.get("TELAEGENT_CONNECTOR_CREDENTIAL") ?? "")) {
+    problems.push("TELAEGENT_CONNECTOR_CREDENTIAL is not configured");
+  }
+  return problems;
+}
+
+export function connectorValuesInApplicationEnvironment(values) {
+  return [
+    "TELAEGENT_URL",
+    "TELAEGENT_CONNECTOR_INSTANCE_ID",
+    "TELAEGENT_CONNECTOR_CREDENTIAL",
+  ].filter((name) => (values.get(name)?.trim() ?? "").length > 0);
 }

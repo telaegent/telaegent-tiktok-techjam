@@ -14,6 +14,7 @@ build/
 # `env.template` files ARE tracked on purpose: they carry variable names only.
 .env
 .env.*
+connector.env
 !.env.example
 !.env.template
 *.pem
