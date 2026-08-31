@@ -43,7 +43,11 @@ export type PrivateDraftView = {
   conversationId: string;
   githubRepositoryId: string;
   provider: AgentProvider;
-  roughMessage: string;
+  role: "sender" | "recipient";
+  /** The owner's rough input on a sender draft; optional steering on a reply. */
+  roughMessage: string | null;
+  /** The approved collaborator message this draft answers. Replies only. */
+  incomingMessageId: string | null;
   privateTurns: PrivateDraftTurn[];
   state: PrivateDraftState;
   turnId: string | null;
@@ -301,6 +305,29 @@ export const api = {
   ) =>
     request<{ draft: PrivateDraftView }>(
       `/api/conversations/${encodeURIComponent(conversationId)}/drafts`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+  /**
+   * Opens a private draft answering a collaborator's approved message.
+   *
+   * The reply it returns is owner-private and still leaves only through
+   * `sendConversationDraft`, so it faces the same Send/Edit/No gate as a
+   * draft the owner started themselves.
+   */
+  createConversationReply: (
+    conversationId: string,
+    body: {
+      githubRepositoryId: string;
+      provider: AgentProvider;
+      incomingMessageId: string;
+      ownerGuidance?: string;
+    },
+  ) =>
+    request<{ draft: PrivateDraftView }>(
+      `/api/conversations/${encodeURIComponent(conversationId)}/replies`,
       {
         method: "POST",
         body: JSON.stringify(body),

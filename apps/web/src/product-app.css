@@ -1172,6 +1172,18 @@ html[data-theme="dark"] .app-rail button > img {
   font-size: 10px;
 }
 
+.shared-message-reply {
+  min-height: 31px;
+  margin-top: 11px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.shared-message-reply:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
 .shared-code-list {
   margin-top: 10px;
   display: flex;
@@ -1433,6 +1445,14 @@ html[data-theme="dark"] .app-rail button > img {
   border: 1px solid var(--line);
   border-radius: 9px 3px 9px 9px;
   background: var(--surface-selected);
+}
+
+.private-bubble.answering {
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px 9px 9px 9px;
+  background: var(--surface);
 }
 
 .private-bubble.agent {

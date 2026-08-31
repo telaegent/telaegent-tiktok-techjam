@@ -15,6 +15,18 @@ const createDraftBody = z.strictObject({
   provider: z.enum(["codex", "claude"]),
   roughMessage: z.string().trim().min(1).max(PROTOCOL_LIMITS.maxPrivateMessageChars),
 });
+const createReplyBody = z.strictObject({
+  githubRepositoryId: repositoryId,
+  provider: z.enum(["codex", "claude"]),
+  incomingMessageId: uuid,
+  // Optional steering the owner adds on top of the incoming message.
+  ownerGuidance: z
+    .string()
+    .trim()
+    .min(1)
+    .max(PROTOCOL_LIMITS.maxPrivateMessageChars)
+    .optional(),
+});
 const emptyBody = z.strictObject({}).optional();
 const clarificationBody = z.strictObject({
   content: z.string().trim().min(1).max(PROTOCOL_LIMITS.maxPrivateMessageChars),
@@ -54,6 +66,21 @@ export function registerConversationRoutes(
     const { conversationId } = conversationParams.parse(request.params);
     const body = createDraftBody.parse(request.body);
     const draft = await dependencies.service.createDraft({
+      authenticatedUserId: await user(request),
+      conversationId,
+      ...body,
+    });
+    return reply.code(201).send({ draft });
+  });
+
+  // Opens a private draft answering a collaborator's approved message. The
+  // reply it produces is owner-private until it leaves through /send, exactly
+  // like a sender draft.
+  app.post("/api/conversations/:conversationId/replies", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const { conversationId } = conversationParams.parse(request.params);
+    const body = createReplyBody.parse(request.body);
+    const draft = await dependencies.service.createRecipientDraft({
       authenticatedUserId: await user(request),
       conversationId,
       ...body,
