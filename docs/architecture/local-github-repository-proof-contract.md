@@ -139,6 +139,13 @@ GitHub-auth and SSO reasons additionally change the user's GitHub connection to
 `reconnect_required`. A stale event cannot undo a newer proof. A new valid proof
 recovers non-revoked state and preserves the opaque binding ID.
 
+After the durable transition succeeds, the HTTP boundary awaits a relay event
+that unregisters only the same connector principal x repository binding and
+cancels its active cloud job. Idempotent loss-event replays emit the event again
+so a retry can repair process-local relay state after an interrupted callback.
+Cancellation delivery is principal-bound and expires; it does not restore or
+extend the unavailable binding.
+
 ## Deployment seam
 
 The route module is intentionally optional. The cloud bootstrap must not mount
@@ -157,4 +164,3 @@ with no browser policies.
 - connector packaging/update security;
 - safe repository metadata refresh and branch/worktree policy;
 - retention/pruning policy for accepted proof idempotency records.
-

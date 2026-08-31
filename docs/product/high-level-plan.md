@@ -119,7 +119,7 @@ The current infrastructure hypothesis to validate is:
 | --- | --- |
 | Frontend | React/Vite on Vercel |
 | Backend/control plane | Node 22 + Fastify 5 behind Caddy on AWS EC2 |
-| Database/Auth/Realtime | Supabase Postgres in Southeast Asia/Singapore |
+| Database/session persistence/Realtime | Supabase Postgres in Southeast Asia/Singapore |
 | Connector presence/job relay | AWS EC2 backend using outbound WebSocket, long-polling, or equivalent |
 | Agent execution | local connector binding per user × repository |
 | Repository access | developer's local Git/GitHub CLI state |

@@ -27,7 +27,11 @@ export interface RepositoryProofRouteDependencies {
     principal: Readonly<ConnectorPrincipal>,
     connectorBindingId: string,
     githubRepositoryId: string,
-  ) => void;
+  ) => void | Promise<void>;
+  onBindingUnavailable?: (
+    principal: Readonly<ConnectorPrincipal>,
+    githubRepositoryId: string,
+  ) => void | Promise<void>;
 }
 
 export const connectorAuthenticatedRepositoryProofRoutes = new Set([
@@ -42,7 +46,7 @@ export function registerRepositoryProofRoutes(
   app.post("/api/connectors/repository-proofs", async (request, reply) => {
     const principal = await dependencies.resolveConnectorPrincipal(request);
     const result = await dependencies.service.register(principal, request.body);
-    dependencies.onBindingRegistered?.(
+    await dependencies.onBindingRegistered?.(
       principal,
       result.connectorBindingId,
       result.githubRepositoryId,
@@ -55,13 +59,20 @@ export function registerRepositoryProofRoutes(
     async (request) => {
       const principal = await dependencies.resolveConnectorPrincipal(request);
       const params = repositoryParamsSchema.parse(request.params);
-      return {
-        binding: await dependencies.service.markUnavailable(
-          principal,
-          params.githubRepositoryId,
-          request.body,
-        ),
-      };
+      const binding = await dependencies.service.markUnavailable(
+        principal,
+        params.githubRepositoryId,
+        request.body,
+      );
+      // Await the relay boundary so a successful response means both durable
+      // authorization and transient execution have been revoked. The callback
+      // is also invoked for idempotent replays, allowing a retry to heal an
+      // earlier process-local callback failure.
+      await dependencies.onBindingUnavailable?.(
+        principal,
+        binding.githubRepositoryId,
+      );
+      return { binding };
     },
   );
 }

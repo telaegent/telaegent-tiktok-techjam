@@ -46,6 +46,8 @@ describe("repository proof HTTP boundary", () => {
       changed: true,
     }));
     const resolveConnectorPrincipal = vi.fn(async () => principal);
+    const onBindingRegistered = vi.fn(async () => undefined);
+    const onBindingUnavailable = vi.fn(async () => undefined);
     const app = await createApp(
       loadConfig({ NODE_ENV: "test", APP_AUTH_TOKEN: "legacy-token" }),
       undefined,
@@ -55,6 +57,8 @@ describe("repository proof HTTP boundary", () => {
       {
         service: { register, markUnavailable } as unknown as RepositoryProofService,
         resolveConnectorPrincipal,
+        onBindingRegistered,
+        onBindingUnavailable,
       },
     );
 
@@ -68,6 +72,11 @@ describe("repository proof HTTP boundary", () => {
     expect(register).toHaveBeenCalledWith(principal, proof);
     expect(response.json().binding.connectorBindingId).toBe(
       "50000000-0000-4000-8000-000000000005",
+    );
+    expect(onBindingRegistered).toHaveBeenCalledWith(
+      principal,
+      "50000000-0000-4000-8000-000000000005",
+      proof.repository.id,
     );
 
     const unavailable = await app.inject({
@@ -89,6 +98,10 @@ describe("repository proof HTTP boundary", () => {
         observedAt: proof.observedAt,
         reason: "repository_access_lost",
       },
+    );
+    expect(onBindingUnavailable).toHaveBeenCalledWith(
+      principal,
+      proof.repository.id,
     );
     await app.close();
   });
