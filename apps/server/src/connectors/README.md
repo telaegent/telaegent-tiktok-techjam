@@ -69,16 +69,26 @@ This is a source-tree proof command, not finished `npx telaegent` packaging.
 Reconnect/backoff, durable presence telemetry, installer/update signing, and
 recipient-side conversation orchestration remain follow-up work.
 
-## Resource requests (design commitment, not built)
+## Resource requests (reference monitor built, loop not closed)
 
 [Canonical build plan section 8](../../../../docs/product/canonical-build-plan.md)
 extends the job envelope so a bounded follow-up loop can run: a job may carry
 resource references, and a result may carry a request for resources the agent
-does not yet hold. Nothing in this directory implements that yet;
-`ConnectorJobRequest` has no resource field and `ConnectorJobResult` has no
-request field.
+does not yet hold.
 
-When it is built, the same trust boundary applies. A resource crosses as an
+The owner's half of that exists here. `resource-registry.ts` mints and resolves
+opaque IDs on the local machine only, `resource-policy.ts` is the deterministic
+decision function, `file-broker.ts` performs the contained read, and
+`resource-exchange.ts` answers each request in a batch independently.
+`ConnectorWorker` serves a `resource_request` delivery without ever launching a
+provider: delivering a file is a reference-monitor operation, not an agent turn.
+A connector with no registry configured refuses everything.
+
+The loop is not closed. The cloud does not yet route a result's resource
+requests to the owning connector, there is no scope-expansion approval surface,
+and approved bytes do not yet ride back into a following round.
+
+The same trust boundary applies throughout. A resource crosses as an
 **opaque resource ID** issued by the owning connector, never as a path. The
 requesting side names an ID it was given; it cannot name a file. The owning
 connector resolves the ID against its own registry, and its local policy engine

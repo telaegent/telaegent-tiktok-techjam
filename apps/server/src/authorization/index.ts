@@ -109,3 +109,14 @@ export type {
   SupabasePrivateRuntimeAuthorizationRpcRequest,
   SupabasePrivateRuntimeAuthorizationSnapshotDto,
 } from "./supabase-authorization-repository.js";
+export {
+  mapSupabaseCapabilityRouteSnapshot,
+  SupabaseCapabilityRepositoryError,
+  SupabaseCapabilityRouteAuthorizationRepository,
+} from "./supabase-capability-repository.js";
+export type {
+  SupabaseCapabilityRepositoryErrorCode,
+  SupabaseCapabilityRouteRpcRequest,
+  SupabaseCapabilityRouteSnapshotDto,
+  SupabaseCapabilitySnapshotClient,
+} from "./supabase-capability-repository.js";
