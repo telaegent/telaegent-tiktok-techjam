@@ -26,6 +26,7 @@
 
 import { z } from "zod";
 
+import { connectorResourceRequestSchema } from "../../connectors/resource-request.js";
 import { redactText } from "../redaction.js";
 import {
   PROTOCOL_LIMITS,
@@ -136,6 +137,23 @@ export const recipientOutputSchema = z
     sendCandidate: sendCandidateSchema,
     riskFlags: riskFlagsSchema,
     sourcePaths: z.array(claimedPathSchema).max(PROTOCOL_LIMITS.maxReferencedPaths),
+    /**
+     * The ask half of the capability loop (build plan 8.2).
+     *
+     * Reused from the connector rather than restated, for the same reason
+     * `claimedPathSchema` refuses to re-decide authorization: a second
+     * definition of what an agent may ask for would eventually disagree
+     * with the one the owner's machine enforces, and the disagreement
+     * would be the security hole.
+     *
+     * Optional, and its absence is the ordinary case. A turn that asks is
+     * not thereby unfinished: it still has to produce a usable answer from
+     * what it can already see, because the question may go unanswered.
+     */
+    resourceRequests: z
+      .array(connectorResourceRequestSchema)
+      .max(PROTOCOL_LIMITS.maxResourceRequests)
+      .optional(),
   })
   .superRefine(applyStateInvariants);
 

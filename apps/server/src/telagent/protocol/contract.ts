@@ -21,6 +21,7 @@
  * never influence them.
  */
 
+import type { ConnectorResourceRequest } from "../../connectors/resource-request.js";
 import { TELAGENT_LIMITS } from "../constants.js";
 
 /* ========================================================================== *
@@ -142,6 +143,16 @@ export interface RecipientTurnOutput {
   riskFlags: RiskFlag[];
   /** Paths only. Provenance is attached by the backend, never by the model. */
   sourcePaths: string[];
+  /**
+   * Files on the asking collaborator's machine this turn needs (build plan
+   * 8.2).
+   *
+   * Absent on an ordinary turn, and never a claim to anything. A request
+   * names an identifier that machine already minted, or describes the file
+   * in words for its owner to read; either way a person there decides, and
+   * nothing here reaches a file.
+   */
+  resourceRequests?: ConnectorResourceRequest[] | undefined;
 }
 
 export type ProtocolTurnOutput = SenderTurnOutput | RecipientTurnOutput;
@@ -291,6 +302,13 @@ export const PROTOCOL_LIMITS = Object.freeze({
    * 8.6). A second clamp: the owner's connector already bounded the read.
    */
   maxDeliveredResourceChars: 200_000,
+  /**
+   * Files one turn may ask a collaborator for (build plan 8.7).
+   *
+   * Matches the bound the connector result route enforces, so a turn cannot
+   * be parsed here and then rejected in transport for being too curious.
+   */
+  maxResourceRequests: 16,
 });
 
 /* ========================================================================== *

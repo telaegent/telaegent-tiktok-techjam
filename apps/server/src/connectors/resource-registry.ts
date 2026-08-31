@@ -2,17 +2,12 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { RESOURCE_ID_PATTERN, resourceIdSchema } from "./resource-request.js";
 
-/**
- * Shape of an identifier the cloud is allowed to store and route.
- *
- * Kept byte-for-byte compatible with the `resource_capability_grants.resource_id`
- * check constraint so a locally minted identifier can never be rejected by the
- * routing layer it was minted for.
- */
-export const RESOURCE_ID_PATTERN = /^resource_[A-Za-z0-9_-]{16,120}$/;
-
-export const resourceIdSchema = z.string().regex(RESOURCE_ID_PATTERN);
+// Re-exported from the leaf that also defines the request shape, so the
+// identifier a connector mints and the identifier an agent may name are one
+// definition rather than two that drift.
+export { RESOURCE_ID_PATTERN, resourceIdSchema };
 
 const entrySchema = z.strictObject({
   taskId: z.string().min(1).max(256),

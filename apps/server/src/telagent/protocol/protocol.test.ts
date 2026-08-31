@@ -225,6 +225,76 @@ describe("output schema invariants", () => {
     );
     expect(withProvenance.ok).toBe(false);
   });
+
+  /* ---------------------------------------------------------------- *
+   * Asking (build plan 8.2)
+   * ---------------------------------------------------------------- */
+
+  const asking = (resourceRequests: unknown) =>
+    parseRecipientOutput(
+      JSON.stringify({
+        state: "ready",
+        privateSummary: "Answered from what I can see.",
+        sendCandidate: "Our rotation window is one hour.",
+        riskFlags: [],
+        sourcePaths: ["src/auth/session.ts"],
+        resourceRequests,
+      }),
+    );
+
+  it("accepts a turn that asks its collaborator for a file", () => {
+    const parsed = asking([
+      { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+      {
+        kind: "resource",
+        resourceId: "resource_" + "a".repeat(24),
+        reason: "to re-read what I was handed",
+      },
+    ]);
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.value.resourceRequests).toHaveLength(2);
+  });
+
+  it("still accepts the ordinary turn, which asks for nothing", () => {
+    // The field is absent on almost every turn. If its absence were an error
+    // the loop would have made every existing conversation unparseable.
+    const parsed = parseRecipientOutput(
+      JSON.stringify({
+        state: "ready",
+        privateSummary: "Found the rotation logic.",
+        sendCandidate: "Rotation marks the previous token consumed.",
+        riskFlags: [],
+        sourcePaths: ["src/auth/session.ts"],
+      }),
+    );
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.value.resourceRequests).toBeUndefined();
+  });
+
+  it("refuses a request that names a path in somebody else\u0027s repository", () => {
+    // The whole point of the two forms is that neither can express a location.
+    // A model that reaches for a path is refused here rather than having the
+    // path quietly ignored somewhere further down.
+    expect(asking([{ kind: "path", path: "src/auth/session.ts", reason: "x" }]).ok).toBe(
+      false,
+    );
+    expect(asking([{ kind: "hint", hint: "the auth module" }]).ok).toBe(false);
+    expect(asking([{ kind: "resource", resourceId: "src/auth/session.ts", reason: "x" }]).ok).toBe(
+      false,
+    );
+  });
+
+  it("caps how much one turn may ask for", () => {
+    // Matched to the bound the connector result route enforces, so a turn
+    // cannot be accepted here and then rejected in transport.
+    const tooMany = Array.from(
+      { length: PROTOCOL_LIMITS.maxResourceRequests + 1 },
+      (_, index) => ({ kind: "hint", hint: "file " + String(index), reason: "why" }),
+    );
+    expect(asking(tooMany).ok).toBe(false);
+  });
 });
 
 /* ========================================================================== *

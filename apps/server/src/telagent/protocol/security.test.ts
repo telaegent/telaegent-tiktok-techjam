@@ -221,6 +221,24 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
     expect(PERMISSION_BLOCK).toContain("You may not");
     expect(PERMISSION_BLOCK).toContain("send, deliver or transmit");
   });
+
+  it("only the answering role is told it may ask for a file", () => {
+    // Asking opens a bounded collaboration on somebody else's machine, and
+    // only a recipient holds one: it is answering a message a human already
+    // approved. A sender is still composing that message, so offering it the
+    // field would invite a question nobody has agreed to answer.
+    expect(recipientSystemPrompt()).toContain("resourceRequests");
+    expect(senderSystemPrompt()).not.toContain("resourceRequests");
+  });
+
+  it("the answering role is told to answer even when its question goes unheard", () => {
+    // The failure this guards is a turn that returns nothing while it waits.
+    // A request may simply never be approved, and the owner is the person
+    // left with an empty draft.
+    const prompt = recipientSystemPrompt();
+    expect(prompt).toContain("Never invent a resourceId");
+    expect(prompt).toContain("Answer anyway");
+  });
 });
 
 /* ========================================================================== *

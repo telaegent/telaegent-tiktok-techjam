@@ -14,6 +14,10 @@ import type {
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
 import { LocalFileBroker } from "./file-broker.js";
 import type { ResourcePolicyLimits } from "./resource-policy.js";
+import {
+  connectorResourceRequestSchema,
+  type ConnectorResourceRequest,
+} from "./resource-request.js";
 import type { ResourceRegistry } from "./resource-registry.js";
 import {
   fulfilResourceRequests,
@@ -21,6 +25,13 @@ import {
   type ResourceExchangeRequest,
   type ResourceExchangeResponse,
 } from "./resource-exchange.js";
+
+/**
+ * The bound the connector result route enforces. Applied here too so an
+ * over-curious turn is trimmed on the machine that produced it rather than
+ * rejected in transport, which would lose the answer along with the questions.
+ */
+const MAX_LIFTED_RESOURCE_REQUESTS = 16;
 
 const idPart = z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/);
 const jobSchema = z.strictObject({
@@ -148,7 +159,11 @@ export class ConnectorWorker {
     try {
       const result = await Promise.race([execution, cancellationFailure]);
       if (cancelled) return "cancelled";
-      await this.transport.result(job.jobId, result);
+      const asks = liftResourceRequests(result.final);
+      await this.transport.result(job.jobId, {
+        ...result,
+        ...(asks.length > 0 ? { resourceRequests: asks } : {}),
+      });
       return "completed";
     } catch (error) {
       if (credentialRejection) throw credentialRejection;
@@ -373,4 +388,35 @@ async function waitForRetry(signal: AbortSignal, delayMs: number): Promise<void>
     const timer = setTimeout(finish, delayMs);
     signal.addEventListener("abort", finish, { once: true });
   });
+}
+
+/**
+ * Pulls a turn's questions out of the answer it wrote them in.
+ *
+ * A model has exactly one channel back: the JSON object it was told to
+ * produce. Its questions arrive inside that object and the cloud reads them
+ * from the result envelope, so somebody has to move them across - and this is
+ * the last place that is still on the asking developer's own machine.
+ *
+ * It is a copy, not a promotion. Nothing here is trusted: every entry is
+ * re-validated against the same schema the owner's connector will enforce, a
+ * shape that does not parse is dropped in silence rather than failing the
+ * turn, and a request that survives still names either an identifier that
+ * other machine minted or a sentence for its owner to read. Neither reaches a
+ * file.
+ *
+ * The answer itself is passed on exactly as the model wrote it. The cloud
+ * parses that against the protocol schema, and editing it here would be a
+ * claim about somebody's turn that this function is not entitled to make.
+ */
+function liftResourceRequests(final: unknown): ConnectorResourceRequest[] {
+  if (typeof final !== "object" || final === null) return [];
+  const asks = (final as { resourceRequests?: unknown }).resourceRequests;
+  if (!Array.isArray(asks)) return [];
+  const lifted: ConnectorResourceRequest[] = [];
+  for (const ask of asks.slice(0, MAX_LIFTED_RESOURCE_REQUESTS)) {
+    const parsed = connectorResourceRequestSchema.safeParse(ask);
+    if (parsed.success) lifted.push(parsed.data);
+  }
+  return lifted;
 }

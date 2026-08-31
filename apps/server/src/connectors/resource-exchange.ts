@@ -12,33 +12,18 @@ import {
   type ResourceDenyCode,
   type ResourcePolicyLimits,
 } from "./resource-policy.js";
+import {
+  connectorResourceRequestSchema,
+  type ConnectorResourceRequest,
+} from "./resource-request.js";
 import { resourceIdSchema, type ResourceRegistry } from "./resource-registry.js";
 
-const reason = z.string().min(1).max(2_000).refine((value) => !value.includes("\0"));
-
-/**
- * What a peer's agent may say.
- *
- * Either it names an identifier it was already given, or it describes the file
- * it believes it needs. There is deliberately no third form: an agent can never
- * express a canonical path, so it can never reach outside what it was handed.
- */
-export const connectorResourceRequestSchema = z.discriminatedUnion("kind", [
-  z.strictObject({
-    kind: z.literal("resource"),
-    resourceId: resourceIdSchema,
-    reason,
-  }),
-  z.strictObject({
-    kind: z.literal("hint"),
-    // Bounded project-relative text (build plan 8.3). Never resolved locally;
-    // it exists to be shown to the owning human, who chooses the file.
-    hint: z.string().min(1).max(512).refine((value) => !value.includes("\0")),
-    reason,
-  }),
-]);
-
-export type ConnectorResourceRequest = z.infer<typeof connectorResourceRequestSchema>;
+// The request shape lives in a leaf module because a private agent's turn now
+// emits it too, and the protocol layer must not import a filesystem to say so.
+export {
+  connectorResourceRequestSchema,
+  type ConnectorResourceRequest,
+} from "./resource-request.js";
 
 export const assertedGrantSchema = z.strictObject({
   grantId: z.string().uuid(),

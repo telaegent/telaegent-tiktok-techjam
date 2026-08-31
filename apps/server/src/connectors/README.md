@@ -84,6 +84,18 @@ decision function, `file-broker.ts` performs the contained read, and
 provider: delivering a file is a reference-monitor operation, not an agent turn.
 A connector with no registry configured refuses everything.
 
+The asking half starts in the model's own answer. A recipient turn may emit
+`resourceRequests`, the same two forms defined here and reused by the protocol
+schema rather than restated, so the shape an agent is allowed to ask in is the
+shape the owner's machine enforces. `ConnectorWorker` lifts those onto the
+result envelope while still on the asking developer's own machine: each entry is
+re-validated, one that does not parse is dropped rather than failing the turn,
+and the answer itself is passed on exactly as written. Nothing there reaches a
+file - a request names an identifier that other machine already minted, or
+describes the file in words for its owner to read. The prompt also tells the
+answering agent to answer anyway, because a question may go unapproved and a
+turn that waited instead leaves its owner with nothing.
+
 The cloud half routes. A job result may carry `resourceRequests`,
 `LongPollConnectorJobRelay.exchangeResources` delivers a batch to the owning
 connector ahead of any queued job, and `POST /api/connectors/jobs/:jobId/resources`
