@@ -181,6 +181,43 @@ describe("resource registry", () => {
     await expect(registry.resolve(taskId, resourceId)).resolves.toBeNull();
   });
 
+  it("retires new mappings at the cloud task's authoritative expiry", async () => {
+    const file = path.join(workspace, "expiring-task-registry.json");
+    const registry = new FileResourceRegistry(file, () => now);
+    const resourceId = await registry.mint(
+      taskId,
+      path.join(workspace, "src", "expiring.ts"),
+      "2026-08-31T12:05:00.000Z",
+    );
+
+    await expect(registry.pruneExpired(new Date("2026-08-31T12:04:59.999Z"))).resolves.toBe(0);
+    await expect(registry.resolve(taskId, resourceId)).resolves.not.toBeNull();
+    await expect(registry.pruneExpired(new Date("2026-08-31T12:05:00.000Z"))).resolves.toBe(1);
+    await expect(registry.resolve(taskId, resourceId)).resolves.toBeNull();
+  });
+
+  it("retires upgraded legacy mappings after a conservative compatibility window", async () => {
+    const file = path.join(workspace, "legacy-expiry-registry.json");
+    const resourceId = `resource_${"e".repeat(24)}`;
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        entries: [{
+          taskId,
+          resourceId,
+          canonicalPath: path.join(workspace, "src", "legacy-expiring.ts"),
+          issuedAt: now.toISOString(),
+        }],
+      }),
+    );
+    const registry = new FileResourceRegistry(file, () => now);
+
+    await expect(registry.pruneExpired(new Date("2026-09-01T11:59:59.999Z"))).resolves.toBe(0);
+    await expect(registry.pruneExpired(new Date("2026-09-01T12:00:00.000Z"))).resolves.toBe(1);
+    await expect(registry.resolve(taskId, resourceId)).resolves.toBeNull();
+  });
+
   it("does not resurrect a removed task from the legacy import source", async () => {
     const file = path.join(workspace, "legacy-closed-task.json");
     const resourceId = `resource_${"l".repeat(24)}`;

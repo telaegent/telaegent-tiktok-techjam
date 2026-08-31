@@ -90,6 +90,9 @@ export interface ConnectorWorkerOptions {
     registry: ResourceRegistry;
     limits?: ResourcePolicyLimits;
   };
+  /** Local-only maintenance cadence; never causes a cloud/database request. */
+  resourceCleanupIntervalMs?: number;
+  now?: () => number;
 }
 
 export interface ConnectorTransportRetryOptions {
@@ -118,6 +121,7 @@ export class ConnectorTransportUnavailableError extends Error {
 /** Connector-side reference monitor for one user x repository binding. */
 export class ConnectorWorker {
   private readonly binding: LocalConnectorBinding;
+  private nextResourceCleanupAt = 0;
 
   constructor(
     binding: Readonly<LocalConnectorBinding>,
@@ -129,6 +133,7 @@ export class ConnectorWorker {
   }
 
   async runOnce(): Promise<"idle" | "completed" | "cancelled"> {
+    await this.pruneExpiredResources();
     const untrustedDelivery = await this.transport.poll();
     if (untrustedDelivery === null) return "idle";
     const delivery = deliverySchema.parse(untrustedDelivery);
@@ -204,6 +209,19 @@ export class ConnectorWorker {
         await execution.catch(() => undefined);
       }
     }
+  }
+
+  private async pruneExpiredResources(): Promise<void> {
+    const registry = this.options.resources?.registry;
+    if (!registry) return;
+    const now = (this.options.now ?? Date.now)();
+    const interval = this.options.resourceCleanupIntervalMs ?? 300_000;
+    if (!Number.isInteger(interval) || interval < 1 || interval > 3_600_000) {
+      throw new Error("Connector resource cleanup interval is invalid");
+    }
+    if (now < this.nextResourceCleanupAt) return;
+    await registry.pruneExpired(new Date(now));
+    this.nextResourceCleanupAt = now + interval;
   }
 
   /**

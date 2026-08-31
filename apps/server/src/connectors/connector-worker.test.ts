@@ -21,6 +21,7 @@ import {
 import type { ResourceExchangeResponse } from "./resource-exchange.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
+import type { ResourceRegistry } from "./resource-registry.js";
 
 const binding = {
   connectorBindingId: "50000000-0000-4000-8000-000000000005",
@@ -94,6 +95,39 @@ function sessions(run: (request: MiddlewareRunRequest) => Promise<NormalizedRunR
     async (_scope, request) => request,
   );
 }
+
+describe("connector-local registry maintenance", () => {
+  it("prunes on startup and then at a bounded local-only cadence", async () => {
+    let currentTime = 1_000;
+    const registry: ResourceRegistry = {
+      mint: vi.fn(async () => "resource_aaaaaaaaaaaaaaaaaaaaaaaa"),
+      resolve: vi.fn(async () => null),
+      removeTask: vi.fn(async () => undefined),
+      pruneExpired: vi.fn(async () => 0),
+    };
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async () => {
+        throw new Error("runtime must not run while the connector is idle");
+      }),
+      new FakeTransport(),
+      {
+        cancel: async () => false,
+        resources: { registry },
+        resourceCleanupIntervalMs: 100,
+        now: () => currentTime,
+      },
+    );
+
+    await expect(worker.runOnce()).resolves.toBe("idle");
+    await expect(worker.runOnce()).resolves.toBe("idle");
+    expect(registry.pruneExpired).toHaveBeenCalledTimes(1);
+
+    currentTime = 1_100;
+    await expect(worker.runOnce()).resolves.toBe("idle");
+    expect(registry.pruneExpired).toHaveBeenCalledTimes(2);
+  });
+});
 
 /**
  * The ask half of the capability loop (build plan 8.2).

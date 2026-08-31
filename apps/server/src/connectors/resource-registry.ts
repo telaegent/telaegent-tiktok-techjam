@@ -14,6 +14,10 @@ const entrySchema = z.strictObject({
   resourceId: resourceIdSchema,
   canonicalPath: z.string().min(1),
   issuedAt: z.string().datetime(),
+  // Added after the first registry format shipped. Optional keeps existing
+  // local records readable; those records retire under the conservative
+  // legacy window below instead of living forever.
+  taskExpiresAt: z.string().datetime().optional(),
 });
 
 const fileSchema = z.strictObject({
@@ -21,6 +25,7 @@ const fileSchema = z.strictObject({
   entries: z.array(entrySchema).max(10_000),
 });
 const MAX_REGISTRY_ENTRIES = 10_000;
+const LEGACY_ENTRY_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
 export type ResourceRegistryEntry = z.infer<typeof entrySchema>;
 
@@ -42,11 +47,17 @@ export interface ResourceRegistry {
    * Idempotent per pair so re-approving the same file does not fragment a task
    * into several identifiers for one path.
    */
-  mint(taskId: string, canonicalPath: string): Promise<string>;
+  mint(
+    taskId: string,
+    canonicalPath: string,
+    taskExpiresAt?: string,
+  ): Promise<string>;
   /** Returns the local path for an identifier, or null if this task never held it. */
   resolve(taskId: string, resourceId: string): Promise<string | null>;
   /** Removes every local handle when its cloud task has durably ended. */
   removeTask(taskId: string): Promise<void>;
+  /** Removes records whose recorded task lifetime or compatibility ceiling elapsed. */
+  pruneExpired(now?: Date): Promise<number>;
 }
 
 /**
@@ -66,7 +77,11 @@ export class InMemoryResourceRegistry implements ResourceRegistry {
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
-  async mint(taskId: string, canonicalPath: string): Promise<string> {
+  async mint(
+    taskId: string,
+    canonicalPath: string,
+    taskExpiresAt?: string,
+  ): Promise<string> {
     const resolved = path.resolve(canonicalPath);
     const existing = this.entries.find(
       (entry) => entry.taskId === taskId && entry.canonicalPath === resolved,
@@ -78,6 +93,7 @@ export class InMemoryResourceRegistry implements ResourceRegistry {
       resourceId,
       canonicalPath: resolved,
       issuedAt: this.now().toISOString(),
+      ...(taskExpiresAt ? { taskExpiresAt: parseExpiry(taskExpiresAt) } : {}),
     });
     return resourceId;
   }
@@ -93,6 +109,14 @@ export class InMemoryResourceRegistry implements ResourceRegistry {
     for (let index = this.entries.length - 1; index >= 0; index -= 1) {
       if (this.entries[index]?.taskId === taskId) this.entries.splice(index, 1);
     }
+  }
+
+  async pruneExpired(now: Date = this.now()): Promise<number> {
+    const before = this.entries.length;
+    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
+      if (isExpired(this.entries[index]!, now)) this.entries.splice(index, 1);
+    }
+    return before - this.entries.length;
   }
 }
 
@@ -132,7 +156,11 @@ export class FileResourceRegistry implements ResourceRegistry {
     this.legacyImportMarker = path.join(this.entriesDirectory, ".legacy-imported");
   }
 
-  mint(taskId: string, canonicalPath: string): Promise<string> {
+  mint(
+    taskId: string,
+    canonicalPath: string,
+    taskExpiresAt?: string,
+  ): Promise<string> {
     // Serialized so two concurrent approvals for one path cannot each mint an
     // identifier and leave the loser's grant pointing at a forgotten entry.
     return this.enqueue(async () => {
@@ -151,6 +179,7 @@ export class FileResourceRegistry implements ResourceRegistry {
         resourceId: mintResourceId(),
         canonicalPath: resolved,
         issuedAt: this.now().toISOString(),
+        ...(taskExpiresAt ? { taskExpiresAt: parseExpiry(taskExpiresAt) } : {}),
       };
       const persisted = await this.install(proposed);
       return persisted.resourceId;
@@ -184,6 +213,24 @@ export class FileResourceRegistry implements ResourceRegistry {
         ).catch(ignoreMissing);
         await unlink(keyPath).catch(ignoreMissing);
       }
+    });
+  }
+
+  pruneExpired(now: Date = this.now()): Promise<number> {
+    return this.enqueue(async () => {
+      await this.ensureReady();
+      let removed = 0;
+      for (const filename of await this.entryFilenames()) {
+        const keyPath = path.join(this.byKeyDirectory, filename);
+        const entry = await this.readEntry(keyPath, false);
+        if (!entry || !isExpired(entry, now)) continue;
+        await unlink(
+          path.join(this.byResourceDirectory, `${entry.resourceId}.json`),
+        ).catch(ignoreMissing);
+        await unlink(keyPath).catch(ignoreMissing);
+        removed += 1;
+      }
+      return removed;
     });
   }
 
@@ -253,11 +300,18 @@ export class FileResourceRegistry implements ResourceRegistry {
       `.entry-${process.pid}-${randomBytes(12).toString("hex")}.tmp`,
     );
     const handle = await open(temporary, "wx", 0o600);
+    let writeFailure: unknown;
     try {
       await handle.writeFile(JSON.stringify(proposed), "utf8");
       await handle.sync();
+    } catch (error) {
+      writeFailure = error;
     } finally {
       await handle.close();
+    }
+    if (writeFailure !== undefined) {
+      await unlink(temporary).catch(ignoreMissing);
+      throw writeFailure;
     }
 
     try {
@@ -343,4 +397,15 @@ export class FileResourceRegistry implements ResourceRegistry {
 
 function ignoreMissing(error: unknown): void {
   if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+}
+
+function parseExpiry(value: string): string {
+  return z.string().datetime().parse(value);
+}
+
+function isExpired(entry: Readonly<ResourceRegistryEntry>, now: Date): boolean {
+  const expiry = entry.taskExpiresAt
+    ? Date.parse(entry.taskExpiresAt)
+    : Date.parse(entry.issuedAt) + LEGACY_ENTRY_RETENTION_MS;
+  return expiry <= now.getTime();
 }

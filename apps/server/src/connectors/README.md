@@ -162,6 +162,15 @@ read-only, an unexpired grant, and a canonical path inside the registered
 project. Anything else returns a scope-expansion prompt to the owning human.
 The follow-up loop is bounded by rounds, requests per round, and total bytes.
 
+The registry is safe even if two processes touch it: mappings are immutable
+per-entry records installed with an atomic no-overwrite link, so independent
+writers cannot lose one another's entries. The CLI additionally owns a
+binding-scoped process lock. A second live connector for the same binding exits
+with a clear error instead of competing for the long poll or provider session;
+different repository bindings may still run independently. A dead process's
+lock is reclaimed, and a random owner token prevents an older process from
+releasing its successor's lock.
+
 ### Task closure hand-off (Khoa / Phuong seam)
 
 `end_collaboration_task` is the durable authorization boundary. Its transaction
@@ -175,5 +184,13 @@ returned `ended` (and may call it again on a replay). It must also cancel any
 in-flight round for that task. Cleanup is deliberately idempotent. It must not
 run before the database closure, because deleting a local mapping is not a
 substitute for revoking cloud authority; and a failure to deliver cleanup must
-never make the cloud grant usable again. On reconnect, expired/closed tasks
-should be reconciled through the same method.
+never make the cloud grant usable again.
+
+Cleanup does not depend on that event arriving. The connector prunes its local
+registry at startup and at most once every five minutes while polling. The
+backward-compatible connector path uses a conservative 24-hour ceiling, safely
+beyond the database's one-hour task lifetime; the local record format can also
+preserve a precise expiry once a versioned wire contract supplies one. Thus an
+offline or crashed connector may delay deletion, but it cannot make registry
+growth permanent and causes no extra Supabase traffic. Explicit
+completion/cancellation still uses `removeTask` for immediate cleanup.

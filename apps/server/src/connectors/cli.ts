@@ -22,6 +22,7 @@ import { connectorPrincipalSchema } from "../repository-proof/contract.js";
 import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worker.js";
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
 import { createConnectorResourceRegistry } from "./connector-local-state.js";
+import { acquireConnectorProcessLock } from "./connector-process-lock.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -80,6 +81,8 @@ async function main(): Promise<void> {
   );
   const registered = bindingResponseSchema.parse(await response.json()).binding;
 
+  const processLock = await acquireConnectorProcessLock(registered.connectorBindingId);
+  try {
   const config = loadConfig({
     ...process.env,
     TELAEGENT_IDENTITY_PROVIDER: "disabled",
@@ -178,7 +181,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  for (;;) await worker.runOnce();
+    for (;;) await worker.runOnce();
+  } finally {
+    await processLock.release();
+  }
 }
 
 async function resolveRepositoryRoot(candidate: string): Promise<string> {
