@@ -57,6 +57,7 @@ function harness() {
     action: string;
   }> = [];
   let cancelled = false;
+  let starts = 0;
   const access: ConversationAccessAuthorizer = {
     async authorize(input) {
       authorizations.push({
@@ -68,9 +69,10 @@ function harness() {
     },
   };
   const runtime: PrivateDraftTurnRuntime = {
-    async start() {
+    async start(input) {
+      starts += 1;
       return {
-        turnId: "44444444-4444-4444-8444-444444444444",
+        turnId: input.turnId ?? "44444444-4444-4444-8444-444444444444",
         streamId: "55555555-5555-4555-8555-555555555555",
         initialState: "queued" as const,
         completion: (queued.shift() ?? completion).promise,
@@ -90,6 +92,7 @@ function harness() {
     {
       now: () => new Date("2026-08-30T12:00:00.000Z"),
       createId: () => `${String(++id).padStart(8, "0")}-0000-4000-8000-000000000000`,
+      createTurnId: () => "44444444-4444-4444-8444-444444444444",
     },
   );
   const authenticatedUserId = (request: FastifyRequest): string =>
@@ -104,6 +107,7 @@ function harness() {
     },
     authorizations,
     wasCancelled: () => cancelled,
+    starts: () => starts,
     authenticatedUserId,
   };
 }
@@ -125,6 +129,48 @@ async function createDraft(
 }
 
 describe("canonical conversation API", () => {
+  it("claims a draft before dispatch so concurrent run requests launch one provider turn", async () => {
+    const test = harness();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+    const created = await createDraft(app);
+    const draftId = created.json().draft.draftId as string;
+
+    const [left, right] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/api/drafts/${draftId}/run`,
+        headers: { "x-test-user": OWNER },
+        payload: {},
+      }),
+      app.inject({
+        method: "POST",
+        url: `/api/drafts/${draftId}/run`,
+        headers: { "x-test-user": OWNER },
+        payload: {},
+      }),
+    ]);
+
+    expect([left.statusCode, right.statusCode].sort()).toEqual([202, 409]);
+    expect(test.starts()).toBe(1);
+    test.completion.resolve({
+      provider: "codex",
+      final: {
+        state: "blocked",
+        assistantMessage: "Stopped after the concurrency proof.",
+        sendCandidate: null,
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 1,
+    });
+    await app.close();
+  });
+
   it("uses route-level user identity instead of the legacy shared demo token", async () => {
     const test = harness();
     const app = await createApp(
@@ -319,6 +365,7 @@ describe("canonical conversation API", () => {
         githubRepositoryId: REPOSITORY,
         provider: "codex",
         incomingMessageId,
+        idempotencyKey: "reply-self-1",
       },
     });
     expect(selfReply.statusCode).toBe(409);
@@ -333,6 +380,7 @@ describe("canonical conversation API", () => {
         provider: "codex",
         incomingMessageId,
         ownerGuidance: "keep it short",
+        idempotencyKey: "reply-other-1",
       },
     });
     expect(reply.statusCode).toBe(201);
@@ -342,9 +390,42 @@ describe("canonical conversation API", () => {
       incomingMessageId,
       // Steering on top of the message, not a rough ask of the owner's own.
       roughMessage: "keep it short",
+      privateTurns: [{ speaker: "owner", text: "keep it short" }],
       state: "created",
     });
     const replyDraftId = reply.json().draft.draftId as string;
+
+    const replayedReply = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${CONVERSATION}/replies`,
+      headers: { "x-test-user": OTHER },
+      payload: {
+        githubRepositoryId: REPOSITORY,
+        provider: "codex",
+        incomingMessageId,
+        ownerGuidance: "keep it short",
+        idempotencyKey: "reply-other-1",
+      },
+    });
+    expect(replayedReply.statusCode).toBe(200);
+    expect(replayedReply.json()).toMatchObject({
+      replayed: true,
+      draft: { draftId: replyDraftId },
+    });
+
+    const conflictingReplay = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${CONVERSATION}/replies`,
+      headers: { "x-test-user": OTHER },
+      payload: {
+        githubRepositoryId: REPOSITORY,
+        provider: "codex",
+        incomingMessageId,
+        ownerGuidance: "include every implementation detail",
+        idempotencyKey: "reply-other-1",
+      },
+    });
+    expect(conflictingReplay.statusCode).toBe(409);
 
     // The reply is a private draft like any other: invisible to the collaborator
     // who triggered it, and it still leaves only through Send.

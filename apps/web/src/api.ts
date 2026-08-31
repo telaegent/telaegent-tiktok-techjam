@@ -410,10 +410,11 @@ export const api = {
       githubRepositoryId: string;
       provider: AgentProvider;
       incomingMessageId: string;
+      idempotencyKey: string;
       ownerGuidance?: string;
     },
   ) =>
-    request<{ draft: PrivateDraftView }>(
+    request<{ draft: PrivateDraftView; replayed: boolean }>(
       `/api/conversations/${encodeURIComponent(conversationId)}/replies`,
       {
         method: "POST",

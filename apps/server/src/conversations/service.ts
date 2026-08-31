@@ -60,11 +60,13 @@ export class MessagePolicyError extends Error {
 export interface ConversationServiceOptions {
   now?: (() => Date) | undefined;
   createId?: (() => string) | undefined;
+  createTurnId?: (() => string) | undefined;
 }
 
 export class ConversationService {
   private readonly now: () => Date;
   private readonly createId: () => string;
+  private readonly createTurnId: () => string;
 
   constructor(
     private readonly repository: ConversationRepository,
@@ -74,6 +76,7 @@ export class ConversationService {
   ) {
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomUUID;
+    this.createTurnId = options.createTurnId ?? randomUUID;
   }
 
   async createDraft(input: Readonly<{
@@ -124,7 +127,8 @@ export class ConversationService {
     provider: AgentProvider;
     incomingMessageId: string;
     ownerGuidance?: string | undefined;
-  }>): Promise<PrivateDraftView> {
+    idempotencyKey: string;
+  }>): Promise<Readonly<{ draft: PrivateDraftView; replayed: boolean }>> {
     await this.authorize(input, "create_reply");
     const timestamp = this.now().toISOString();
     const draft: PrivateDraft = {
@@ -136,7 +140,9 @@ export class ConversationService {
       role: "recipient",
       roughMessage: input.ownerGuidance ?? null,
       incomingMessageId: input.incomingMessageId,
-      privateTurns: [],
+      privateTurns: input.ownerGuidance
+        ? [{ speaker: "owner", text: input.ownerGuidance }]
+        : [],
       state: "created",
       turnId: null,
       privateMessage: null,
@@ -148,9 +154,12 @@ export class ConversationService {
       updatedAt: timestamp,
       sentMessageId: null,
     };
-    const created = await this.repository.createRecipientDraft(draft);
+    const created = await this.repository.createRecipientDraft({
+      draft,
+      idempotencyKey: input.idempotencyKey,
+    });
     if (!created) throw new HttpError(409, "Message cannot be replied to");
-    return toPrivateDraftView(created);
+    return { draft: toPrivateDraftView(created.draft), replayed: created.replayed };
   }
 
   async getDraft(authenticatedUserId: string, draftId: string): Promise<PrivateDraftView> {
@@ -164,21 +173,44 @@ export class ConversationService {
     if (draft.state !== "created") throw new HttpError(409, "Private draft cannot be run");
     await this.authorizeDraft(draft, "run_draft");
 
-    const started = await this.runtime.start<ProtocolTurnOutput>({
-      authorization: this.authorizationInput(draft),
-      provider: draft.provider,
-      role: draft.role,
-      correlationId: draft.draftId,
-    });
+    const turnId = this.createTurnId();
     const running = await this.repository.markDraftRunning({
       draftId: draft.draftId,
       ownerUserId: authenticatedUserId,
-      turnId: started.turnId,
+      turnId,
       updatedAt: this.now().toISOString(),
     });
     if (!running) throw new HttpError(409, "Private draft cannot be run");
 
-    void this.settleTurn(draft.draftId, draft.role, started.turnId, started.completion);
+    let started: StartedPrivateRuntimeTurn<ProtocolTurnOutput>;
+    try {
+      started = await this.runtime.start<ProtocolTurnOutput>({
+        authorization: this.authorizationInput(draft),
+        provider: draft.provider,
+        role: draft.role,
+        correlationId: draft.draftId,
+        turnId,
+      });
+    } catch (error) {
+      await this.failTurn(draft.draftId, turnId, error);
+      throw error;
+    }
+    if (started.turnId !== turnId) {
+      await this.runtime.cancel({
+        turnId: started.turnId,
+        authenticatedUserId,
+        githubRepositoryId: draft.githubRepositoryId,
+        conversationId: draft.conversationId,
+      }).catch(() => false);
+      const error = new RuntimeProviderError(
+        "INVALID_AGENT_OUTPUT",
+        "Private runtime returned an unexpected turn identifier",
+      );
+      await this.failTurn(draft.draftId, turnId, error);
+      throw error;
+    }
+
+    void this.settleTurn(draft.draftId, draft.role, turnId, started.completion);
     return toPrivateDraftView(running);
   }
 

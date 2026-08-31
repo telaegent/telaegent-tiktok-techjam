@@ -19,6 +19,12 @@ const createReplyBody = z.strictObject({
   githubRepositoryId: repositoryId,
   provider: z.enum(["codex", "claude"]),
   incomingMessageId: uuid,
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9_.:-]+$/),
   // Optional steering the owner adds on top of the incoming message.
   ownerGuidance: z
     .string()
@@ -80,12 +86,12 @@ export function registerConversationRoutes(
     setPrivateNoStore(reply);
     const { conversationId } = conversationParams.parse(request.params);
     const body = createReplyBody.parse(request.body);
-    const draft = await dependencies.service.createRecipientDraft({
+    const result = await dependencies.service.createRecipientDraft({
       authenticatedUserId: await user(request),
       conversationId,
       ...body,
     });
-    return reply.code(201).send({ draft });
+    return reply.code(result.replayed ? 200 : 201).send(result);
   });
 
   app.get("/api/drafts/:draftId", async (request, reply) => {

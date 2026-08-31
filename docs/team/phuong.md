@@ -696,8 +696,10 @@ The loop must be bounded before it is useful: cap rounds per task, requests per
 round, and total bytes served. A run that hits a limit ends as a normal turn
 result with an honest reason, not a retry.
 
-Sequencing note: this is a design commitment with no code behind it. Do not
-build it before the connector transport, binding, and provider adapters work.
+Sequencing note: task/grant and cloud route-authorization contracts now exist,
+but the operational loop still has no local registry/file broker or resource
+delivery behind it. Do not build it before the connector transport, binding,
+and provider adapters work.
 Its natural seam is the connector job envelope - see
 [`apps/server/src/connectors/README.md`](../../apps/server/src/connectors/README.md).
 

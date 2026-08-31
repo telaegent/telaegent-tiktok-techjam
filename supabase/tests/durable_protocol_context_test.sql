@@ -102,20 +102,38 @@ begin
   -- An owner answers a collaborator, never themselves.
   if public.create_recipient_draft(
     v_reply, v_conversation, v_repo, v_peer, 'codex', v_message,
-    null, statement_timestamp(), statement_timestamp()
+    null, 'reply-self-1', statement_timestamp(), statement_timestamp()
   ) is not null then
     raise exception 'T5 FAILED: a user opened a reply to their own message';
   end if;
 
-  v_reply_row := public.create_recipient_draft(
+  v_reply_row := (public.create_recipient_draft(
     v_reply, v_conversation, v_repo, v_owner, 'codex', v_message,
-    'keep it short', statement_timestamp(), statement_timestamp()
-  );
+    'keep it short', 'reply-owner-1', statement_timestamp(), statement_timestamp()
+  ))->'draft';
   if v_reply_row is null or
      v_reply_row->>'role' <> 'recipient' or
      v_reply_row->>'incomingMessageId' <> v_message::text or
-     v_reply_row->>'roughMessage' <> 'keep it short' then
+     v_reply_row->>'roughMessage' <> 'keep it short' or
+     v_reply_row#>>'{privateTurns,0,speaker}' <> 'owner' or
+     v_reply_row#>>'{privateTurns,0,text}' <> 'keep it short' then
     raise exception 'T6 FAILED: recipient draft was not opened correctly %', v_reply_row;
+  end if;
+
+  if not (public.create_recipient_draft(
+    '44444444-4444-4444-8444-444444444444',
+    v_conversation, v_repo, v_owner, 'codex', v_message,
+    'keep it short', 'reply-owner-1', statement_timestamp(), statement_timestamp()
+  )->>'replayed')::boolean then
+    raise exception 'T6 FAILED: recipient creation retry was not replayed';
+  end if;
+
+  if public.create_recipient_draft(
+    '55555555-5555-4555-8555-555555555555',
+    v_conversation, v_repo, v_owner, 'codex', v_message,
+    'different guidance', 'reply-owner-1', statement_timestamp(), statement_timestamp()
+  ) is not null then
+    raise exception 'T6 FAILED: conflicting recipient creation replay was accepted';
   end if;
 
   v_context := public.load_recipient_protocol_context(
@@ -157,11 +175,11 @@ begin
     'authenticated', 'public.load_recipient_protocol_context(uuid,bigint,uuid,uuid,integer)', 'EXECUTE'
   ) or has_function_privilege(
     'anon',
-    'public.create_recipient_draft(uuid,uuid,bigint,uuid,text,uuid,text,timestamptz,timestamptz)',
+    'public.create_recipient_draft(uuid,uuid,bigint,uuid,text,uuid,text,text,timestamptz,timestamptz)',
     'EXECUTE'
   ) or has_function_privilege(
     'authenticated',
-    'public.create_recipient_draft(uuid,uuid,bigint,uuid,text,uuid,text,timestamptz,timestamptz)',
+    'public.create_recipient_draft(uuid,uuid,bigint,uuid,text,uuid,text,text,timestamptz,timestamptz)',
     'EXECUTE'
   ) then
     raise exception 'T11 FAILED: browser roles can reach the recipient half';

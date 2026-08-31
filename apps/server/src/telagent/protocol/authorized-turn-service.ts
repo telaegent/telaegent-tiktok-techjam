@@ -44,6 +44,8 @@ export interface StartAuthorizedProtocolTurnInput {
   provider: AgentProvider;
   role: ProtocolRole;
   correlationId: string;
+  /** Backend-owned identifier claimed in draft persistence before dispatch. */
+  turnId?: string;
   format?: ProtocolFormatId;
   sessionMode?: SessionMode;
 }
@@ -192,6 +194,7 @@ export class AuthorizedProtocolTurnService {
       authorization: input.authorization,
       provider: input.provider,
       turn,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
     };
     return this.starter.start<T>(starterInput);
   }

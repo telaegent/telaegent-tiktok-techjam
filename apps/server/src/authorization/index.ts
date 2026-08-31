@@ -69,6 +69,32 @@ export {
   SupabaseAuthorizationRepositoryError,
   SupabasePrivateRuntimeAuthorizationRepository,
 } from "./supabase-authorization-repository.js";
+export type {
+  AuthorizedCapabilityRoute,
+  AuthorizeCapabilityRouteInput,
+  CapabilityGrantId,
+  CapabilityGrantMode,
+  CapabilityGrantStatus,
+  CapabilityOperation,
+  CapabilityRouteAuthorizationSnapshot,
+  CollaborationTask,
+  CollaborationTaskId,
+  CollaborationTaskStatus,
+  ResourceCapabilityGrant,
+  ResourceId,
+} from "./capability-types.js";
+export type {
+  CapabilityRouteAuthorizationReadOptions,
+  CapabilityRouteAuthorizationRepository,
+} from "./capability-repository.js";
+export {
+  CapabilityRouteAuthorizationError,
+  CapabilityRouteAuthorizationService,
+} from "./capability-route-authorization.js";
+export type {
+  CapabilityRouteAuthorizationDenialReason,
+  CapabilityRouteAuthorizationPolicy,
+} from "./capability-route-authorization.js";
 export { SupabaseAuthorizationRpcClient } from "./supabase-authorization-client.js";
 export type {
   SupabaseAuthorizationRpcClientOptions,

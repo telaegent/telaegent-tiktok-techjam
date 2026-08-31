@@ -23,6 +23,9 @@ Current scope:
    for Thai's deployed RPC.
 10. `authorization-repository-factory.ts` explicitly selects fail-closed local
     memory or Supabase persistence without outage fallback.
+11. `capability-types.ts`, `capability-repository.ts`, and
+    `capability-route-authorization.ts` define task identity and exact-grant
+    routing authorization for the capability-scoped follow-up design.
 
 The implemented internal flow is:
 
@@ -157,3 +160,22 @@ IDs, or unrelated rows. Recommended indexes/constraints:
 
 RLS remains defense in depth. The browser must not query runtime bindings or
 connector metadata directly; this service runs in the trusted backend.
+
+## Capability-routing foundation
+
+The cloud now has contracts for one bounded two-peer task and one exact
+read-only resource grant. `CapabilityRouteAuthorizationService` checks the
+task, repository, conversation, both memberships, project connection, exact
+peer/resource/operation, expiry/revocation state, and the owner's ready opaque
+connector binding before producing a route envelope.
+
+That envelope always carries `requiresLocalAuthorization: true`. It is not file
+read permission. The owner's connector must still resolve the opaque resource,
+re-check its local grant and realpath boundary, apply hard secret denials and
+byte limits, and let its file broker perform the read. No local path or content
+can be represented by the cloud authorization types.
+
+The resource registry, local policy engine/file broker, scope-expansion API and
+UI, grant consumption transaction, bounded multi-round loop, and resource
+transfer are still unimplemented. Do not describe these contracts as a working
+autonomous capability loop.

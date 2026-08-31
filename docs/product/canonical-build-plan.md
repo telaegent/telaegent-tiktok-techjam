@@ -22,9 +22,11 @@ disagree about product behaviour, `high-level-plan.md` wins. Do not fork a
 fourth copy of the plan: `docs/TELAEGENT_HIGH_LEVEL_PRODUCT_PLAN.md` was
 already removed once for drifting into a superseded architecture.
 
-**Section 8 is newer than the rest of this repository.** It specifies
-capability-scoped autonomous collaboration. It is a design commitment, not
-implemented behaviour, and no code in `apps/` implements it yet.
+**Section 8 is newer than most of this repository.** It specifies
+capability-scoped autonomous collaboration. Task/grant domain contracts and a
+cloud routing-authorization seam now exist, but the connector-local registry,
+file broker, scope-expansion workflow and bounded autonomous rounds remain
+unimplemented. The contracts are not a claim that the behaviour works yet.
 
 ## 1. Product
 

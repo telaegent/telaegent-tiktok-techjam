@@ -136,15 +136,23 @@ describe("conversation RPC payload contract", () => {
   });
 
   it("accepts the row returned by create_recipient_draft", async () => {
-    const draft = await repositoryReturning(payloads.recipientCreated).getDraft(
-      recipientDraftId,
-    );
+    const result = await repositoryReturning(
+      payloads.recipientCreated,
+    ).createRecipientDraft({
+      draft: { draftId: recipientDraftId },
+      idempotencyKey: "reply-owner-1",
+    } as never);
+    const draft = result?.draft;
 
+    expect(result?.replayed).toBe(false);
     expect(draft?.role).toBe("recipient");
     expect(draft?.incomingMessageId).toBe(incomingMessageId);
     // Optional steering, not the owner's rough ask: a recipient draft answers
     // a message, so the column the sender flow requires is nullable here.
     expect(draft?.roughMessage).toBe("keep it short");
+    expect(draft?.privateTurns).toEqual([
+      { speaker: "owner", text: "keep it short" },
+    ]);
   });
 
   it("keeps a sender draft free of any incoming message", async () => {
@@ -157,7 +165,10 @@ describe("conversation RPC payload contract", () => {
   it("refuses a reply to a message the owner sent themselves", async () => {
     const draft = await repositoryReturning(
       payloads.recipientRejectedOwnMessage,
-    ).createRecipientDraft({ draftId: recipientDraftId } as never);
+    ).createRecipientDraft({
+      draft: { draftId: recipientDraftId },
+      idempotencyKey: "reply-rejected",
+    } as never);
 
     expect(draft).toBeNull();
   });

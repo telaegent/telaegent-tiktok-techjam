@@ -6,6 +6,7 @@ import type { GuardCode } from "../telagent/protocol/guards.js";
 import type {
   CompleteDraftInput,
   ConversationRepository,
+  CreateRecipientDraftResult,
   SendDraftInput,
 } from "./repository.js";
 import type {
@@ -197,6 +198,11 @@ const sendDraftResultSchema = z.strictObject({
   replayed: z.boolean(),
 });
 
+const createRecipientDraftResultSchema = z.strictObject({
+  draft: privateDraftSchema,
+  replayed: z.boolean(),
+});
+
 // One beyond the ceiling, so an overflowing transcript is detected rather than
 // rejected as a malformed payload.
 const sharedMessageListSchema = z
@@ -238,20 +244,31 @@ export class SupabaseConversationRepository implements ConversationRepository {
     return created;
   }
 
-  async createRecipientDraft(draft: PrivateDraft): Promise<PrivateDraft | null> {
-    return parseDraft(
-      await this.call("create_recipient_draft", {
-        p_draft_id: draft.draftId,
-        p_conversation_id: draft.conversationId,
-        p_github_repository_id: draft.githubRepositoryId,
-        p_owner_user_id: draft.ownerUserId,
-        p_provider: draft.provider,
-        p_incoming_message_id: draft.incomingMessageId,
-        p_owner_guidance: draft.roughMessage,
-        p_created_at: draft.createdAt,
-        p_updated_at: draft.updatedAt,
-      }),
-    );
+  async createRecipientDraft(input: Readonly<{
+    draft: PrivateDraft;
+    idempotencyKey: string;
+  }>): Promise<CreateRecipientDraftResult | null> {
+    const { draft } = input;
+    const value = await this.call("create_recipient_draft", {
+      p_draft_id: draft.draftId,
+      p_conversation_id: draft.conversationId,
+      p_github_repository_id: draft.githubRepositoryId,
+      p_owner_user_id: draft.ownerUserId,
+      p_provider: draft.provider,
+      p_incoming_message_id: draft.incomingMessageId,
+      p_owner_guidance: draft.roughMessage,
+      p_idempotency_key: input.idempotencyKey,
+      p_created_at: draft.createdAt,
+      p_updated_at: draft.updatedAt,
+    });
+    if (value === null) return null;
+    const parsed = createRecipientDraftResultSchema.safeParse(value);
+    if (!parsed.success) {
+      throw new SupabaseConversationRepositoryError(
+        "INVALID_SUPABASE_CONVERSATION_RECORD",
+      );
+    }
+    return parsed.data;
   }
 
   async getDraft(draftId: string): Promise<PrivateDraft | null> {

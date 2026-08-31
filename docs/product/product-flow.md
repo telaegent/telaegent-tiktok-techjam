@@ -66,7 +66,7 @@ The system must never show raw secret values merely to ask whether they may be s
 ## Capability-scoped follow-up
 
 Full specification in [canonical build plan section 8](canonical-build-plan.md).
-Designed, not built.
+Task/grant contracts exist; the resource broker and autonomous loop are not built.
 
 Agents may collaborate autonomously, but only inside authority a human already
 granted:

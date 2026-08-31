@@ -901,6 +901,9 @@ function ProjectChat({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const ownMessageIds = useRef(new Set<string>());
+  // A network retry or double click reuses the same backend creation key. A
+  // deliberate runtime retry clears it and opens a new private attempt.
+  const replyCreationKeys = useRef(new Map<string, string>());
   const configurationError = conversationConfigurationError(project.githubRepositoryId);
   const isBoundConversation = selected.id === configuredConversationPeer.id;
 
@@ -1039,7 +1042,7 @@ function ProjectChat({
    * leaves only through Send, so answering a collaborator faces the same gate
    * as starting a message.
    */
-  async function createAndRunReply(message: SharedMessage) {
+  async function createAndRunReply(message: SharedMessage, forceNew = false) {
     setBusy(true);
     setDraft(null);
     setActionError(null);
@@ -1049,10 +1052,17 @@ function ProjectChat({
     setApprovedContent("");
     setEditingCandidate(false);
     try {
+      if (forceNew) replyCreationKeys.current.delete(message.id);
+      let idempotencyKey = replyCreationKeys.current.get(message.id);
+      if (!idempotencyKey) {
+        idempotencyKey = `reply:${message.id}:${crypto.randomUUID()}`;
+        replyCreationKeys.current.set(message.id, idempotencyKey);
+      }
       const created = await api.createConversationReply(conversationConfig.conversationId, {
         githubRepositoryId: project.githubRepositoryId,
         provider,
         incomingMessageId: message.id,
+        idempotencyKey,
       });
       setDraft(created.draft);
       setPrivateRoomOpen(true);
@@ -1103,6 +1113,7 @@ function ProjectChat({
     setActionError(null);
     try {
       await api.cancelConversationDraft(draft.draftId);
+      if (answering) replyCreationKeys.current.delete(answering.id);
       setPrivateRoomOpen(false);
       setDraft(null);
       setAnswering(null);
@@ -1124,6 +1135,7 @@ function ProjectChat({
         idempotencyKey: `send:${draft.draftId}:${crypto.randomUUID()}`,
       });
       ownMessageIds.current.add(result.message.messageId);
+      if (answering) replyCreationKeys.current.delete(answering.id);
       setMessages((current) => [...current, mapConversationMessage(result.message, currentUserId, true)]);
       setMessageLoadState("ready");
       setPrivateRoomOpen(false);
@@ -1146,7 +1158,7 @@ function ProjectChat({
       return;
     }
     if (answering) {
-      await createAndRunReply(answering);
+      await createAndRunReply(answering, true);
       return;
     }
     if (roughMessage) await createAndRunDraft(roughMessage);

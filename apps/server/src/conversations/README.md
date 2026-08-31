@@ -25,6 +25,17 @@ message the owner started. `/replies` returns `409` when the named message is
 absent, outside this conversation or repository, or was sent by the owner
 themselves: an owner answers a collaborator, never their own message.
 
+Recipient creation requires an owner-scoped idempotency key. Replaying the same
+key with the same message, provider and guidance returns the original draft;
+reusing it with different fields is refused. Initial owner guidance is also
+seeded as the first owner-only private turn, so the runtime actually receives
+the steering the API accepted.
+
+`run` claims the draft and its backend-owned turn ID in persistence before the
+runtime is started. Only the request that wins that atomic state transition may
+dispatch provider work; concurrent retries receive `409` without launching a
+second local turn.
+
 Each role has its own durable loader, and each rejects the other role's rows in
 SQL. That check cannot be lifted into the adapter: `load_sender_protocol_context`
 hardcodes `'role', 'sender'` in its own result, so a recipient row loaded through
