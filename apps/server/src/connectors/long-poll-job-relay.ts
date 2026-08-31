@@ -7,10 +7,15 @@ import type {
   ConnectorJobRequest,
   ConnectorJobResult,
 } from "./connector-turn-executor.js";
+import type {
+  ResourceExchangeRequest,
+  ResourceExchangeResponse,
+} from "./resource-exchange.js";
 
 export type ConnectorDelivery =
   | { kind: "job"; job: Readonly<ConnectorJobRequest> }
-  | { kind: "cancel"; jobId: string };
+  | { kind: "cancel"; jobId: string }
+  | { kind: "resource_request"; request: Readonly<ResourceExchangeRequest> };
 
 interface RegisteredBinding {
   principal: ConnectorPrincipal;
@@ -34,6 +39,21 @@ interface PollWaiter {
   settle: (delivery: ConnectorDelivery | null) => void;
 }
 
+/**
+ * One batch of resource requests waiting for the owning connector to answer.
+ *
+ * Delivered content passes through this object in flight and is handed to the
+ * waiting caller unchanged. It is never logged, never written to a store, and
+ * never outlives the promise it settles.
+ */
+interface PendingResourceExchange {
+  request: ResourceExchangeRequest;
+  state: "queued" | "leased";
+  resolve: (response: ResourceExchangeResponse) => void;
+  reject: (error: unknown) => void;
+  timeout: NodeJS.Timeout;
+}
+
 interface PendingCancellation {
   principal: ConnectorPrincipal;
   jobId: string;
@@ -43,6 +63,12 @@ interface PendingCancellation {
 export interface LongPollConnectorJobRelayOptions {
   jobTimeoutMs?: number;
   presenceTimeoutMs?: number;
+  /**
+   * How long the owning connector has to answer a resource batch. This is not
+   * an approval deadline: the connector answers immediately, marking anything
+   * a human has not approved as pending rather than waiting for them.
+   */
+  resourceTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -61,19 +87,26 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
   private readonly jobIdByBinding = new Map<string, string>();
   private readonly waiters = new Map<string, PollWaiter>();
   private readonly cancellations = new Map<string, PendingCancellation>();
+  private readonly resourceExchanges = new Map<string, PendingResourceExchange>();
+  private readonly resourceQueueByBinding = new Map<string, string[]>();
   private readonly jobTimeoutMs: number;
   private readonly presenceTimeoutMs: number;
+  private readonly resourceTimeoutMs: number;
   private readonly now: () => number;
 
   constructor(options: LongPollConnectorJobRelayOptions = {}) {
     this.jobTimeoutMs = options.jobTimeoutMs ?? 300_000;
     this.presenceTimeoutMs = options.presenceTimeoutMs ?? 30_000;
+    this.resourceTimeoutMs = options.resourceTimeoutMs ?? 30_000;
     this.now = options.now ?? Date.now;
     if (!Number.isInteger(this.jobTimeoutMs) || this.jobTimeoutMs < 1_000) {
       throw new Error("Connector job timeout is invalid");
     }
     if (!Number.isInteger(this.presenceTimeoutMs) || this.presenceTimeoutMs < 1_000) {
       throw new Error("Connector presence timeout is invalid");
+    }
+    if (!Number.isInteger(this.resourceTimeoutMs) || this.resourceTimeoutMs < 1_000) {
+      throw new Error("Connector resource timeout is invalid");
     }
   }
 
@@ -107,6 +140,7 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
         continue;
       }
       await this.cancel(bindingId);
+      this.abandonResourceExchanges(bindingId);
       this.waiters.get(bindingId)?.settle(null);
       this.bindings.delete(bindingId);
       removed = true;
@@ -250,6 +284,85 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     });
   }
 
+  /**
+   * Asks the owning connector to serve one batch of resource requests.
+   *
+   * The cloud routes; it does not decide. Every grant here is an assertion the
+   * connector re-checks against its own registry, policy engine and workspace
+   * boundary before any byte is read, and the connector may still refuse.
+   */
+  async exchangeResources(
+    request: Readonly<ResourceExchangeRequest>,
+  ): Promise<ResourceExchangeResponse> {
+    const registration = this.bindings.get(request.connectorBindingId);
+    if (
+      !registration ||
+      this.now() - registration.lastSeenAt > this.presenceTimeoutMs
+    ) {
+      throw unavailable();
+    }
+    if (this.resourceExchanges.has(request.requestId)) {
+      throw new RuntimeProviderError(
+        "UNSUPPORTED_RUNTIME_POLICY",
+        "Resource request identifier is already in flight",
+      );
+    }
+
+    return await new Promise<ResourceExchangeResponse>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        const pending = this.resourceExchanges.get(request.requestId);
+        if (!pending) return;
+        this.removeResourceExchange(request.requestId, pending);
+        reject(
+          new RuntimeProviderError(
+            "RUNTIME_TIMEOUT",
+            "Local connector did not answer the resource request",
+          ),
+        );
+      }, this.resourceTimeoutMs);
+      timeout.unref?.();
+      this.resourceExchanges.set(request.requestId, {
+        request: structuredClone(request) as ResourceExchangeRequest,
+        state: "queued",
+        resolve,
+        reject,
+        timeout,
+      });
+      const queue = this.resourceQueueByBinding.get(request.connectorBindingId) ?? [];
+      queue.push(request.requestId);
+      this.resourceQueueByBinding.set(request.connectorBindingId, queue);
+      this.wake(request.connectorBindingId);
+    });
+  }
+
+  /**
+   * Accepts the owning connector's answer to a leased resource batch.
+   *
+   * Outcomes are positional: the caller matches answer n to request n, so a
+   * response of a different length is rejected rather than reinterpreted. A
+   * mismatched length could otherwise shift one file's bytes onto another
+   * file's request.
+   */
+  completeResourceExchange(
+    principal: Readonly<ConnectorPrincipal>,
+    requestId: string,
+    response: Readonly<ResourceExchangeResponse>,
+  ): boolean {
+    const pending = this.resourceExchanges.get(requestId);
+    if (!pending || pending.state !== "leased") return false;
+    const registration = this.bindings.get(pending.request.connectorBindingId);
+    if (!registration || !samePrincipal(registration.principal, principal)) return false;
+    if (
+      response.requestId !== requestId ||
+      response.outcomes.length !== pending.request.requests.length
+    ) {
+      return false;
+    }
+    this.removeResourceExchange(requestId, pending);
+    pending.resolve(structuredClone(response) as ResourceExchangeResponse);
+    return true;
+  }
+
   publishProgress(
     principal: Readonly<ConnectorPrincipal>,
     jobId: string,
@@ -295,6 +408,12 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
   ): ConnectorDelivery | null {
     const cancellation = this.takeCancellation(principal, connectorBindingId);
     if (cancellation) return cancellation;
+    // A resource batch is a bounded, provider-free reference-monitor operation
+    // that returns in milliseconds. Serving it ahead of a queued job stops a
+    // peer's follow-up from waiting behind a turn that may run for minutes; the
+    // job stays queued and loses nothing by being taken one poll later.
+    const exchange = this.takeResourceExchange(connectorBindingId);
+    if (exchange) return exchange;
     const jobId = this.jobIdByBinding.get(connectorBindingId);
     const pending = jobId ? this.jobs.get(jobId) : undefined;
     if (!pending) return null;
@@ -335,6 +454,42 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     return registration && samePrincipal(registration.principal, principal)
       ? pending
       : null;
+  }
+
+  private takeResourceExchange(connectorBindingId: string): ConnectorDelivery | null {
+    const queue = this.resourceQueueByBinding.get(connectorBindingId);
+    if (!queue) return null;
+    while (queue.length > 0) {
+      const requestId = queue.shift()!;
+      const pending = this.resourceExchanges.get(requestId);
+      if (!pending || pending.state !== "queued") continue;
+      pending.state = "leased";
+      if (queue.length === 0) this.resourceQueueByBinding.delete(connectorBindingId);
+      return {
+        kind: "resource_request",
+        request: structuredClone(pending.request) as ResourceExchangeRequest,
+      };
+    }
+    this.resourceQueueByBinding.delete(connectorBindingId);
+    return null;
+  }
+
+  private removeResourceExchange(
+    requestId: string,
+    pending: PendingResourceExchange,
+  ): void {
+    clearTimeout(pending.timeout);
+    this.resourceExchanges.delete(requestId);
+  }
+
+  /** A binding that is gone cannot answer, so its callers fail closed now. */
+  private abandonResourceExchanges(connectorBindingId: string): void {
+    for (const [requestId, pending] of [...this.resourceExchanges]) {
+      if (pending.request.connectorBindingId !== connectorBindingId) continue;
+      this.removeResourceExchange(requestId, pending);
+      pending.reject(unavailable());
+    }
+    this.resourceQueueByBinding.delete(connectorBindingId);
   }
 
   private removeJob(pending: PendingJob): void {

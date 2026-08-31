@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AuthorizePrivateRuntimeInput } from "../authorization/types.js";
+import type { PrivateDraftFollowUp } from "../capability/draft-follow-up.js";
 import { HttpError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import type { AgentProvider } from "../runtime-contract.js";
@@ -61,12 +62,27 @@ export interface ConversationServiceOptions {
   now?: (() => Date) | undefined;
   createId?: (() => string) | undefined;
   createTurnId?: (() => string) | undefined;
+  /**
+   * Carries a turn's questions to the other person's machine (build plan 8).
+   *
+   * Absent by default. Without it a turn that asked for files simply answers
+   * with what it already had, which is what every deployment did before the
+   * capability loop existed.
+   */
+  followUp?: PrivateDraftFollowUp | undefined;
 }
+
+/**
+ * Build plan 8.7. The database holds the same bound on the task itself; this is
+ * the in-process copy, so a runtime that never reached the database still stops.
+ */
+const MAX_FOLLOW_UP_ROUNDS = 5;
 
 export class ConversationService {
   private readonly now: () => Date;
   private readonly createId: () => string;
   private readonly createTurnId: () => string;
+  private readonly followUp: PrivateDraftFollowUp | undefined;
 
   constructor(
     private readonly repository: ConversationRepository,
@@ -77,6 +93,7 @@ export class ConversationService {
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomUUID;
     this.createTurnId = options.createTurnId ?? randomUUID;
+    this.followUp = options.followUp;
   }
 
   async createDraft(input: Readonly<{
@@ -210,7 +227,7 @@ export class ConversationService {
       throw error;
     }
 
-    void this.settleTurn(draft.draftId, draft.role, turnId, started.completion);
+    void this.settleTurn(draft, turnId, started.completion);
     return toPrivateDraftView(running);
   }
 
@@ -358,15 +375,63 @@ export class ConversationService {
     });
   }
 
+  /**
+   * Runs the follow-up rounds a turn asked for, then settles the draft.
+   *
+   * The loop lives inside one settling on purpose. Approved bytes travel in
+   * flight and are never stored, so the only place they can be used is the
+   * prompt of the round that asked for them; a round that spanned two requests
+   * would have to keep somebody else's file somewhere in between.
+   *
+   * A round that brings nothing back ends the loop rather than retrying. The
+   * questions are with a human at that point, and this turn answers with what
+   * it already had instead of waiting on a person.
+   */
+  private async runFollowUpRounds(
+    draft: PrivateDraft,
+    first: Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>,
+  ): Promise<Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>> {
+    if (!this.followUp) return first;
+    let result = first;
+    for (let round = 0; round < MAX_FOLLOW_UP_ROUNDS; round += 1) {
+      const requests = result.resourceRequests ?? [];
+      if (requests.length === 0) return result;
+
+      const delivered = await this.followUp.run(
+        {
+          incomingMessageId: draft.incomingMessageId,
+          conversationId: draft.conversationId,
+          githubRepositoryId: draft.githubRepositoryId,
+          ownerUserId: draft.ownerUserId,
+        },
+        requests,
+      );
+      if (delivered.length === 0) return result;
+
+      // A fresh runtime turn, carrying the approved files in its prompt. The
+      // draft keeps the turn identifier it claimed, so what the owner sees is
+      // still one turn and only the settled result can complete it.
+      const started = await this.runtime.start<ProtocolTurnOutput>({
+        authorization: this.authorizationInput(draft),
+        provider: draft.provider,
+        role: draft.role,
+        correlationId: draft.draftId,
+        deliveredResources: delivered,
+      });
+      result = await started.completion;
+    }
+    return result;
+  }
+
   private async settleTurn(
-    draftId: string,
-    role: ProtocolRole,
+    draft: PrivateDraft,
     turnId: string,
     completion: StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"],
   ): Promise<void> {
+    const draftId = draft.draftId;
     try {
-      const result = await completion;
-      await this.completeTurn(draftId, role, turnId, result.final);
+      const result = await this.runFollowUpRounds(draft, await completion);
+      await this.completeTurn(draftId, draft.role, turnId, result.final);
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe
       // owner-facing state. Raw provider/database errors never enter the draft.

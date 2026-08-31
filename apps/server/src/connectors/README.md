@@ -87,16 +87,58 @@ rotates the server-side hash and unregisters the old process-local principal,
 but the local replacement must remain a deliberate user action until a secure
 vault-backed installer owns it.
 
-## Resource requests (design commitment, not built)
+## Resource requests (loop closed end to end)
 
 [Canonical build plan section 8](../../../../docs/product/canonical-build-plan.md)
 extends the job envelope so a bounded follow-up loop can run: a job may carry
 resource references, and a result may carry a request for resources the agent
-does not yet hold. Nothing in this directory implements that yet;
-`ConnectorJobRequest` has no resource field and `ConnectorJobResult` has no
-request field.
+does not yet hold.
 
-When it is built, the same trust boundary applies. A resource crosses as an
+The owner's half of that exists here. `resource-registry.ts` mints and resolves
+opaque IDs on the local machine only, `resource-policy.ts` is the deterministic
+decision function, `file-broker.ts` performs the contained read, and
+`resource-exchange.ts` answers each request in a batch independently.
+`ConnectorWorker` serves a `resource_request` delivery without ever launching a
+provider: delivering a file is a reference-monitor operation, not an agent turn.
+A connector with no registry configured refuses everything.
+
+The asking half starts in the model's own answer. A recipient turn may emit
+`resourceRequests`, the same two forms defined here and reused by the protocol
+schema rather than restated, so the shape an agent is allowed to ask in is the
+shape the owner's machine enforces. `ConnectorWorker` lifts those onto the
+result envelope while still on the asking developer's own machine: each entry is
+re-validated, one that does not parse is dropped rather than failing the turn,
+and the answer itself is passed on exactly as written. Nothing there reaches a
+file - a request names an identifier that other machine already minted, or
+describes the file in words for its owner to read. The prompt also tells the
+answering agent to answer anyway, because a question may go unapproved and a
+turn that waited instead leaves its owner with nothing.
+
+The cloud half routes. A job result may carry `resourceRequests`,
+`LongPollConnectorJobRelay.exchangeResources` delivers a batch to the owning
+connector ahead of any queued job, and `POST /api/connectors/jobs/:jobId/resources`
+carries the answer back to the waiting caller. Approved bytes pass through the
+relay in flight and are never cached, logged or stored; a batch whose outcomes do
+not line up positionally with its requests is rejected rather than reinterpreted.
+
+The loop now closes inside one turn. `capability/follow-up-coordinator.ts` spends
+a round, asserts only the grants the record says a human already pressed, routes
+the batch, and queues anything new for the owning human;
+`capability/draft-follow-up.ts` anchors that round on the bounded task the
+crossing message opened; and `ConversationService` runs the asking turn again
+with the approved files in its prompt.
+
+It has to be one turn. Approved bytes travel in flight and are never stored, so
+the only place they can be used is the round that asked for them - a loop
+spanning two requests would have to keep somebody else's file somewhere in
+between. They ride in `runtimePrompt` and never in `persistedSummary`.
+
+A round that brings nothing back ends the loop rather than retrying: the
+questions are with a human at that point. Five rounds is the ceiling, held both
+on the task row and in the process, so a runtime that never reached the database
+still stops.
+
+The same trust boundary applies throughout. A resource crosses as an
 **opaque resource ID** issued by the owning connector, never as a path. The
 requesting side names an ID it was given; it cannot name a file. The owning
 connector resolves the ID against its own registry, and its local policy engine

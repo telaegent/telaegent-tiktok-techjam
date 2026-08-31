@@ -8,6 +8,10 @@ import { setPrivateNoStore } from "../http-cache.js";
 import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
+import {
+  connectorResourceRequestSchema,
+  resourceExchangeResponseSchema,
+} from "./resource-exchange.js";
 
 const bindingIdSchema = z.string().uuid();
 const jobIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/);
@@ -40,6 +44,11 @@ const resultSchema = z.strictObject({
   changedFiles: z.array(relativeChangedPath).max(100),
   exitCode: z.number().int().min(0).max(255),
   durationMs: z.number().int().min(0).max(3_600_000),
+  /**
+   * What this turn asked a peer for. Bounded here so one turn cannot enqueue an
+   * unbounded number of questions for another person's machine to answer.
+   */
+  resourceRequests: z.array(connectorResourceRequestSchema).max(16).optional(),
 });
 const failureSchema = z.strictObject({
   code: z.enum([
@@ -108,6 +117,7 @@ export const connectorTransportRoutes = new Set([
   "/api/connectors/jobs/:jobId/progress",
   "/api/connectors/jobs/:jobId/result",
   "/api/connectors/jobs/:jobId/failure",
+  "/api/connectors/jobs/:jobId/resources",
   "/api/connectors/credentials",
   "/api/connectors/credentials/:connectorInstanceId",
   "/api/connectors/installations/:connectorInstanceId/status",
@@ -272,6 +282,19 @@ export function registerConnectorTransportRoutes(
     return dependencies.relay.complete(principal, jobId, result)
       ? reply.code(204).send()
       : reply.code(409).send({ error: "Connector job is no longer active" });
+  });
+
+  // The owning connector's answer to a resource batch. This body can carry
+  // approved file content in flight, so it is never cached, never logged, and
+  // never stored: it is validated and handed to the waiting caller.
+  app.post("/api/connectors/jobs/:jobId/resources", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const principal = await dependencies.resolveConnectorPrincipal(request);
+    const { jobId: requestId } = jobParamsSchema.parse(request.params);
+    const response = resourceExchangeResponseSchema.parse(request.body);
+    return dependencies.relay.completeResourceExchange(principal, requestId, response)
+      ? reply.code(204).send()
+      : reply.code(409).send({ error: "Resource request is no longer active" });
   });
 
   app.post("/api/connectors/jobs/:jobId/failure", async (request, reply) => {

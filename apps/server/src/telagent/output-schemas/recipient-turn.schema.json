@@ -52,6 +52,63 @@
         "minLength": 1,
         "maxLength": 512
       }
+    },
+    "resourceRequests": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "resource"
+              },
+              "resourceId": {
+                "type": "string",
+                "pattern": "^resource_[A-Za-z0-9_-]{16,120}$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "kind",
+              "resourceId",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "hint"
+              },
+              "hint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "kind",
+              "hint",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
     }
   },
   "required": [

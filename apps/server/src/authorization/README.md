@@ -175,7 +175,23 @@ re-check its local grant and realpath boundary, apply hard secret denials and
 byte limits, and let its file broker perform the read. No local path or content
 can be represented by the cloud authorization types.
 
-The resource registry, local policy engine/file broker, scope-expansion API and
-UI, grant consumption transaction, bounded multi-round loop, and resource
-transfer are still unimplemented. Do not describe these contracts as a working
-autonomous capability loop.
+`SupabaseCapabilityRouteAuthorizationRepository` is what makes that service
+reachable: migration `20260831093000` adds
+`load_capability_route_authorization_snapshot`, and the repository validates its
+untrusted JSON before the service sees it. A snapshot carrying a canonical path,
+write authority, or a conversation wider than two peers is rejected as malformed
+rather than merely unauthorized.
+
+Two more functions in the same migration write and spend authority.
+`record_capability_grant` takes an identifier the owner's connector already
+minted - the cloud can route an identifier but must never invent one - clamps
+expiry to the task, and reuses an existing active grant instead of fragmenting
+one approved file into two rows. `consume_capability_grant` locks the row,
+takes the time from the database rather than the caller, and returns a single
+`unavailable` outcome for every failure so a peer cannot probe which grants
+exist. `supabase/tests/capability_route_functions_test.sql` proves this.
+
+The scope-expansion API and UI, the server path that calls
+`consume_capability_grant`, the bounded multi-round loop, and resource transfer
+are still unimplemented. Do not describe these contracts as a working autonomous
+capability loop.

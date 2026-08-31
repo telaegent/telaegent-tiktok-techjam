@@ -61,16 +61,55 @@ export interface ResourceCapabilityGrant {
   revokedAt: IsoTimestamp | null;
 }
 
-/** Trusted-server input for reusing an existing grant. */
-export interface AuthorizeCapabilityRouteInput {
+/**
+ * What the routing snapshot is looked up by.
+ *
+ * `grantId` is null for the first ask of a task, when no authority has yet been
+ * delegated and the only question is which connector the owner is running.
+ */
+export interface CapabilityRouteSnapshotQuery {
   authenticatedUserId: UserId;
   ownerUserId: UserId;
   githubRepositoryId: GitHubRepositoryId;
   conversationId: ConversationId;
   taskId: CollaborationTaskId;
+  grantId: CapabilityGrantId | null;
+}
+
+/** Trusted-server input for reusing an existing grant. */
+export interface AuthorizeCapabilityRouteInput extends CapabilityRouteSnapshotQuery {
   grantId: CapabilityGrantId;
   resourceId: ResourceId;
   operation: CapabilityOperation;
+}
+
+/** Trusted-server input for an ask that reuses no grant at all. */
+export interface ResolveCapabilityRouteInput {
+  authenticatedUserId: UserId;
+  ownerUserId: UserId;
+  githubRepositoryId: GitHubRepositoryId;
+  conversationId: ConversationId;
+  taskId: CollaborationTaskId;
+}
+
+/**
+ * Where a grant-less batch may be delivered.
+ *
+ * This authorizes no read whatsoever. It answers one question - which connector
+ * the owner of this repository is running for this task - so that an ask with
+ * nothing behind it can still reach a human. Every request carried under it
+ * arrives at the connector with no grant, and the only thing the connector may
+ * do with it is mint a candidate for a person to approve.
+ */
+export interface ResolvedCapabilityRoute {
+  taskId: CollaborationTaskId;
+  ownerUserId: UserId;
+  peerUserId: UserId;
+  githubRepositoryId: GitHubRepositoryId;
+  conversationId: ConversationId;
+  ownerRuntimeBindingId: RuntimeBindingId;
+  taskExpiresAt: IsoTimestamp;
+  requiresLocalAuthorization: true;
 }
 
 /**

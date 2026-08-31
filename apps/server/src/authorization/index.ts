@@ -77,9 +77,12 @@ export type {
   CapabilityGrantStatus,
   CapabilityOperation,
   CapabilityRouteAuthorizationSnapshot,
+  CapabilityRouteSnapshotQuery,
   CollaborationTask,
   CollaborationTaskId,
   CollaborationTaskStatus,
+  ResolveCapabilityRouteInput,
+  ResolvedCapabilityRoute,
   ResourceCapabilityGrant,
   ResourceId,
 } from "./capability-types.js";
@@ -109,3 +112,49 @@ export type {
   SupabasePrivateRuntimeAuthorizationRpcRequest,
   SupabasePrivateRuntimeAuthorizationSnapshotDto,
 } from "./supabase-authorization-repository.js";
+export {
+  mapSupabaseCapabilityRouteSnapshot,
+  SupabaseCapabilityRepositoryError,
+  SupabaseCapabilityRouteAuthorizationRepository,
+} from "./supabase-capability-repository.js";
+export type {
+  SupabaseCapabilityRepositoryErrorCode,
+  SupabaseCapabilityRouteRpcRequest,
+  SupabaseCapabilityRouteSnapshotDto,
+  SupabaseCapabilitySnapshotClient,
+} from "./supabase-capability-repository.js";
+export { SupabaseCapabilityScopeRequestRepository } from "./capability-scope-requests.js";
+export type {
+  BeginCapabilityFollowUpRoundInput,
+  CapabilityFollowUpRoundOutcome,
+  CapabilityScopeDecision,
+  CapabilityScopeDecisionOutcome,
+  CapabilityScopeRequestOptions,
+  CapabilityScopeRequestRepository,
+  DecideCapabilityScopeRequestInput,
+  ListPendingCapabilityScopeRequestsInput,
+  PendingCapabilityScopeRequest,
+  RecordCapabilityScopeRequestInput,
+  RecordCapabilityScopeRequestOutcome,
+  SupabaseCapabilityScopeRequestClient,
+} from "./capability-scope-requests.js";
+export { SupabaseCapabilityGrantRepository } from "./capability-grants.js";
+export type {
+  CapabilityGrantRepository,
+  ConsumeCapabilityGrantInput,
+  ConsumeCapabilityGrantOutcome,
+  ListTaskCapabilityGrantsInput,
+  ListTaskCapabilityGrantsOutcome,
+  SupabaseCapabilityGrantClient,
+} from "./capability-grants.js";
+export { SupabaseCollaborationTaskRepository } from "./collaboration-tasks.js";
+export type {
+  CollaborationTaskEndStatus,
+  CollaborationTaskOptions,
+  CollaborationTaskRepository,
+  EndCollaborationTaskInput,
+  EndCollaborationTaskOutcome,
+  OpenCollaborationTaskInput,
+  OpenCollaborationTaskOutcome,
+  SupabaseCollaborationTaskClient,
+} from "./collaboration-tasks.js";

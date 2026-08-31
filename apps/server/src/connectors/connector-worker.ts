@@ -12,6 +12,26 @@ import type {
   ConnectorJobResult,
 } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
+import { LocalFileBroker } from "./file-broker.js";
+import type { ResourcePolicyLimits } from "./resource-policy.js";
+import {
+  connectorResourceRequestSchema,
+  type ConnectorResourceRequest,
+} from "./resource-request.js";
+import type { ResourceRegistry } from "./resource-registry.js";
+import {
+  fulfilResourceRequests,
+  resourceExchangeRequestSchema,
+  type ResourceExchangeRequest,
+  type ResourceExchangeResponse,
+} from "./resource-exchange.js";
+
+/**
+ * The bound the connector result route enforces. Applied here too so an
+ * over-curious turn is trimmed on the machine that produced it rather than
+ * rejected in transport, which would lose the answer along with the questions.
+ */
+const MAX_LIFTED_RESOURCE_REQUESTS = 16;
 
 const idPart = z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/);
 const jobSchema = z.strictObject({
@@ -37,6 +57,10 @@ const deliverySchema = z.discriminatedUnion("kind", [
     kind: z.literal("cancel"),
     jobId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
   }),
+  z.strictObject({
+    kind: z.literal("resource_request"),
+    request: resourceExchangeRequestSchema,
+  }),
 ]);
 
 export interface LocalConnectorBinding {
@@ -52,11 +76,20 @@ export interface ConnectorWorkerTransport {
   progress(jobId: string, event: RuntimeProgressEvent): Promise<void>;
   result(jobId: string, result: ConnectorJobResult): Promise<void>;
   failure(jobId: string, code: string): Promise<void>;
+  resourceResponse(response: ResourceExchangeResponse): Promise<void>;
 }
 
 export interface ConnectorWorkerOptions {
   cancel: (connectorBindingId: string) => Promise<boolean>;
   pollRetryDelayMs?: number;
+  /**
+   * Capability serving. Absent means this connector cannot resolve any
+   * identifier, so it refuses every resource request rather than guessing.
+   */
+  resources?: {
+    registry: ResourceRegistry;
+    limits?: ResourcePolicyLimits;
+  };
 }
 
 export interface ConnectorTransportRetryOptions {
@@ -100,6 +133,10 @@ export class ConnectorWorker {
     if (untrustedDelivery === null) return "idle";
     const delivery = deliverySchema.parse(untrustedDelivery);
     if (delivery.kind === "cancel") return "idle";
+    if (delivery.kind === "resource_request") {
+      await this.serveResourceRequest(delivery.request);
+      return "completed";
+    }
     const job = delivery.job;
     this.assertOwnedJob(job);
 
@@ -143,7 +180,11 @@ export class ConnectorWorker {
     try {
       const result = await Promise.race([execution, cancellationFailure]);
       if (cancelled) return "cancelled";
-      await this.transport.result(job.jobId, result);
+      const asks = liftResourceRequests(result.final);
+      await this.transport.result(job.jobId, {
+        ...result,
+        ...(asks.length > 0 ? { resourceRequests: asks } : {}),
+      });
       return "completed";
     } catch (error) {
       if (credentialRejection) throw credentialRejection;
@@ -163,6 +204,35 @@ export class ConnectorWorker {
         await execution.catch(() => undefined);
       }
     }
+  }
+
+  /**
+   * Serves a peer resource request without launching a provider.
+   *
+   * Delivering a file is a reference-monitor operation, not an agent turn: no
+   * session is created or resumed, and no model sees the request. That keeps
+   * the authorization path free of anything a prompt could influence.
+   */
+  private async serveResourceRequest(request: ResourceExchangeRequest): Promise<void> {
+    if (request.connectorBindingId !== this.binding.connectorBindingId) {
+      throw new Error("Resource request does not match the local repository binding");
+    }
+    const registry = this.options.resources?.registry;
+    if (!registry) {
+      await this.transport.resourceResponse({
+        requestId: request.requestId,
+        outcomes: request.requests.map(() => ({ status: "refused" as const })),
+      });
+      return;
+    }
+    const limits = this.options.resources?.limits;
+    const response = await fulfilResourceRequests(request, {
+      registry,
+      broker: new LocalFileBroker(this.binding.workspacePath),
+      workspacePath: this.binding.workspacePath,
+      ...(limits ? { limits } : {}),
+    });
+    await this.transport.resourceResponse(response);
   }
 
   private async watchCancellation(
@@ -293,6 +363,10 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
     await this.send(jobId, "failure", { code });
   }
 
+  async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
+    await this.send(response.requestId, "resources", response);
+  }
+
   private async send(
     jobId: string,
     action: string,
@@ -408,6 +482,37 @@ async function waitForRetry(signal: AbortSignal, delayMs: number): Promise<void>
     const timer = setTimeout(finish, delayMs);
     signal.addEventListener("abort", finish, { once: true });
   });
+}
+
+/**
+ * Pulls a turn's questions out of the answer it wrote them in.
+ *
+ * A model has exactly one channel back: the JSON object it was told to
+ * produce. Its questions arrive inside that object and the cloud reads them
+ * from the result envelope, so somebody has to move them across - and this is
+ * the last place that is still on the asking developer's own machine.
+ *
+ * It is a copy, not a promotion. Nothing here is trusted: every entry is
+ * re-validated against the same schema the owner's connector will enforce, a
+ * shape that does not parse is dropped in silence rather than failing the
+ * turn, and a request that survives still names either an identifier that
+ * other machine minted or a sentence for its owner to read. Neither reaches a
+ * file.
+ *
+ * The answer itself is passed on exactly as the model wrote it. The cloud
+ * parses that against the protocol schema, and editing it here would be a
+ * claim about somebody's turn that this function is not entitled to make.
+ */
+function liftResourceRequests(final: unknown): ConnectorResourceRequest[] {
+  if (typeof final !== "object" || final === null) return [];
+  const asks = (final as { resourceRequests?: unknown }).resourceRequests;
+  if (!Array.isArray(asks)) return [];
+  const lifted: ConnectorResourceRequest[] = [];
+  for (const ask of asks.slice(0, MAX_LIFTED_RESOURCE_REQUESTS)) {
+    const parsed = connectorResourceRequestSchema.safeParse(ask);
+    if (parsed.success) lifted.push(parsed.data);
+  }
+  return lifted;
 }
 
 async function sleepForReconnect(

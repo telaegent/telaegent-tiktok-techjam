@@ -18,6 +18,7 @@ import {
   retryDelayMs,
   type ConnectorWorkerTransport,
 } from "./connector-worker.js";
+import type { ResourceExchangeResponse } from "./resource-exchange.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
 
@@ -49,6 +50,7 @@ class FakeTransport implements ConnectorWorkerTransport {
   readonly progressEvents: RuntimeProgressEvent[] = [];
   readonly results: ConnectorJobResult[] = [];
   readonly failures: string[] = [];
+  readonly resourceResponses: ResourceExchangeResponse[] = [];
   readonly pollTimes: number[] = [];
   private deliveries: Array<ConnectorDelivery | Error>;
 
@@ -79,6 +81,10 @@ class FakeTransport implements ConnectorWorkerTransport {
   async failure(_jobId: string, code: string): Promise<void> {
     this.failures.push(code);
   }
+
+  async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
+    this.resourceResponses.push(response);
+  }
 }
 
 function sessions(run: (request: MiddlewareRunRequest) => Promise<NormalizedRunResult>) {
@@ -88,6 +94,115 @@ function sessions(run: (request: MiddlewareRunRequest) => Promise<NormalizedRunR
     async (_scope, request) => request,
   );
 }
+
+/**
+ * The ask half of the capability loop (build plan 8.2).
+ *
+ * A model has one channel back - the JSON object it was told to produce - so
+ * its questions arrive inside the answer, while the cloud reads them from the
+ * result envelope. These cover the move between the two, on the last machine
+ * that is still the asking developer's own.
+ */
+describe("carrying a turn\u0027s questions off the machine that asked them", () => {
+  function answering(final: unknown) {
+    const transport = new FakeTransport({
+      kind: "job",
+      job: { ...job, purpose: "recipient_answer" as const },
+    });
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async () => ({
+        provider: "claude" as const,
+        final,
+        changedFiles: [],
+        exitCode: 0,
+        durationMs: 10,
+      })),
+      transport,
+      { cancel: async () => false },
+    );
+    return { transport, worker };
+  }
+
+  const answer = (resourceRequests: unknown) => ({
+    state: "ready",
+    privateSummary: "Answered from what I can see.",
+    sendCandidate: "Our rotation window is one hour.",
+    riskFlags: [],
+    sourcePaths: ["src/auth/session.ts"],
+    resourceRequests,
+  });
+
+  it("posts the questions beside the answer, and leaves the answer alone", async () => {
+    const final = answer([
+      { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+    ]);
+    const { transport, worker } = answering(final);
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]?.resourceRequests).toEqual([
+      { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+    ]);
+    // The answer is passed on exactly as written. The cloud parses it against
+    // the protocol schema, and editing it here would be a claim about
+    // somebody's turn that a transport step is not entitled to make.
+    expect(transport.results[0]?.final).toEqual(final);
+  });
+
+  it("says nothing about resources when a turn asked for none", async () => {
+    const { transport, worker } = answering(answer(undefined));
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]).not.toHaveProperty("resourceRequests");
+  });
+
+  it("drops a request it cannot recognise without losing the turn", async () => {
+    // A path is the shape a model reaches for and the one form that must never
+    // travel. Dropping it silently keeps the answer - which the owner is
+    // waiting on - rather than failing a turn over a malformed question.
+    const { transport, worker } = answering(
+      answer([
+        { kind: "path", path: "src/auth/session.ts", reason: "to read it" },
+        { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+      ]),
+    );
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]?.resourceRequests).toEqual([
+      { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+    ]);
+    expect(transport.failures).toEqual([]);
+  });
+
+  it("trims a turn that asks for more than transport will carry", async () => {
+    // The result route caps the batch. Trimming here means an over-curious
+    // turn loses its excess questions rather than its whole answer.
+    const { transport, worker } = answering(
+      answer(
+        Array.from({ length: 20 }, (_, index) => ({
+          kind: "hint",
+          hint: "file " + String(index),
+          reason: "why",
+        })),
+      ),
+    );
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]?.resourceRequests).toHaveLength(16);
+  });
+
+  it("ignores a non-object answer rather than trusting its shape", async () => {
+    const { transport, worker } = answering("not an object");
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]).not.toHaveProperty("resourceRequests");
+  });
+});
 
 describe("ConnectorWorker", () => {
   it("resolves the workspace only from its local binding", async () => {

@@ -28,6 +28,7 @@ import {
   buildPreparedPrivateTurn,
   createProtocolHydrator,
   loadValidatedDurableContext,
+  type DeliveredResourceBlock,
   type DurableContextLoader,
   type ProtocolContextRejectionReporter,
 } from "./runtime-adapter.js";
@@ -48,6 +49,15 @@ export interface StartAuthorizedProtocolTurnInput {
   turnId?: string;
   format?: ProtocolFormatId;
   sessionMode?: SessionMode;
+  /**
+   * Files a peer's human approved during an earlier round of this same turn
+   * (build plan 8.6).
+   *
+   * They ride in the prompt and are dropped when the turn ends. Durable
+   * context is never asked to hold them, so the cloud does not become a store
+   * of another person's source.
+   */
+  deliveredResources?: readonly DeliveredResourceBlock[] | undefined;
 }
 
 export interface AuthorizedProtocolTurnServiceOptions {
@@ -188,6 +198,9 @@ export class AuthorizedProtocolTurnService {
       correlationId: input.correlationId,
       ...(input.format ? { format: input.format } : {}),
       ...(input.sessionMode ? { sessionMode: input.sessionMode } : {}),
+      ...(input.deliveredResources?.length
+        ? { deliveredResources: input.deliveredResources }
+        : {}),
     });
 
     const starterInput: AuthorizedPrivateRuntimeTurnInput = {

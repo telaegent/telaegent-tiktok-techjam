@@ -1,3 +1,4 @@
+import type { ConnectorResourceRequest } from "./connectors/resource-exchange.js";
 import type { Agent } from "./types.js";
 
 export type AgentProvider = "codex" | "claude";
@@ -65,6 +66,15 @@ export interface NormalizedRunResult<T = unknown> {
   changedFiles: string[];
   exitCode: number;
   durationMs: number;
+  /**
+   * Files this turn asked a peer for (build plan 8.3).
+   *
+   * Absent on an ordinary turn, and never a claim to anything: a request names
+   * either an identifier the owner's machine already minted or a hint for the
+   * owning human to read. Both are answered on the other machine, by that
+   * person, and neither authorizes a read here.
+   */
+  resourceRequests?: readonly ConnectorResourceRequest[] | undefined;
 }
 
 /**
