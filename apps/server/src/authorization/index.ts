@@ -120,3 +120,18 @@ export type {
   SupabaseCapabilityRouteSnapshotDto,
   SupabaseCapabilitySnapshotClient,
 } from "./supabase-capability-repository.js";
+export { SupabaseCapabilityScopeRequestRepository } from "./capability-scope-requests.js";
+export type {
+  BeginCapabilityFollowUpRoundInput,
+  CapabilityFollowUpRoundOutcome,
+  CapabilityScopeDecision,
+  CapabilityScopeDecisionOutcome,
+  CapabilityScopeRequestOptions,
+  CapabilityScopeRequestRepository,
+  DecideCapabilityScopeRequestInput,
+  ListPendingCapabilityScopeRequestsInput,
+  PendingCapabilityScopeRequest,
+  RecordCapabilityScopeRequestInput,
+  RecordCapabilityScopeRequestOutcome,
+  SupabaseCapabilityScopeRequestClient,
+} from "./capability-scope-requests.js";
