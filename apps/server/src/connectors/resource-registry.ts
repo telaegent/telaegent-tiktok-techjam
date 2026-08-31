@@ -20,6 +20,7 @@ const fileSchema = z.strictObject({
   version: z.literal(1),
   entries: z.array(entrySchema).max(10_000),
 });
+const MAX_REGISTRY_ENTRIES = 10_000;
 
 export type ResourceRegistryEntry = z.infer<typeof entrySchema>;
 
@@ -115,6 +116,12 @@ export class FileResourceRegistry implements ResourceRegistry {
         (entry) => entry.taskId === taskId && entry.canonicalPath === resolved,
       );
       if (existing) return existing.resourceId;
+      // Refuse the new mapping before writing. Persisting 10,001 entries would
+      // create a file our own read schema rejects and turn one capacity event
+      // into permanent registry corruption.
+      if (entries.length >= MAX_REGISTRY_ENTRIES) {
+        throw new Error("Resource registry capacity exceeded");
+      }
       const resourceId = mintResourceId();
       entries.push({
         taskId,
@@ -156,7 +163,10 @@ export class FileResourceRegistry implements ResourceRegistry {
   }
 
   private async write(entries: readonly ResourceRegistryEntry[]): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true });
+    // POSIX honours 0700/0600. On Windows the per-user application-data ACL is
+    // the boundary and Node ignores these mode bits, but retaining them here
+    // keeps the same code fail-safe on macOS and Linux.
+    await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
     const temporary = `${this.filePath}.${randomBytes(6).toString("hex")}.tmp`;
     await writeFile(temporary, JSON.stringify({ version: 1, entries }), {
       encoding: "utf8",

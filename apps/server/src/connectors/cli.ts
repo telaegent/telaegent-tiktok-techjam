@@ -21,6 +21,7 @@ import { repositoryProofResultSchema } from "../repository-proof/contract.js";
 import { connectorPrincipalSchema } from "../repository-proof/contract.js";
 import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worker.js";
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
+import { createConnectorResourceRegistry } from "./connector-local-state.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -121,7 +122,12 @@ async function main(): Promise<void> {
     },
     sessions,
     transport,
-    { cancel: (bindingId) => providers.cancel(bindingId) },
+    {
+      cancel: (bindingId) => providers.cancel(bindingId),
+      resources: {
+        registry: createConnectorResourceRegistry(registered.connectorBindingId),
+      },
+    },
   );
 
   const capabilities = await providers.capabilities();

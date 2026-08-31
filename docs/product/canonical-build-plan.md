@@ -23,10 +23,11 @@ fourth copy of the plan: `docs/TELAEGENT_HIGH_LEVEL_PRODUCT_PLAN.md` was
 already removed once for drifting into a superseded architecture.
 
 **Section 8 is newer than most of this repository.** It specifies
-capability-scoped autonomous collaboration. Task/grant domain contracts and a
-cloud routing-authorization seam now exist, but the connector-local registry,
-file broker, scope-expansion workflow and bounded autonomous rounds remain
-unimplemented. The contracts are not a claim that the behaviour works yet.
+capability-scoped autonomous collaboration. The task/grant contracts, cloud
+routing authorization, binding-scoped connector-local registry, file broker,
+scope-expansion API, and bounded autonomous rounds are implemented. The
+owner-facing approval screen and a two-machine live-provider proof remain open,
+so the contracts are not yet a claim that the full product works end to end.
 
 ## 1. Product
 

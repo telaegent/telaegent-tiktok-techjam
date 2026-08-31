@@ -35,9 +35,11 @@ The agent may recommend a safe alternative such as environment-variable names or
 ## Capability-scoped autonomous collaboration
 
 Specified in [canonical build plan section 8](docs/product/canonical-build-plan.md).
-**Not operationally implemented.** Task/grant records and a fail-closed cloud
-routing contract exist, but no connector-local registry/file broker, resource
-delivery, scope-expansion flow or autonomous follow-up rounds exist yet.
+The task/grant records, fail-closed cloud routing contract, binding-scoped
+connector-local registry, file broker, resource delivery, scope-expansion API,
+and bounded follow-up rounds are implemented. The owner-facing approval screen
+and two-machine live-provider validation are still open, so this is not yet an
+end-to-end product claim.
 
 The governing rule:
 
@@ -166,17 +168,18 @@ Do not claim:
 - perfect local sandboxing across every supported provider/tool
 - that a fresh shell creates a fresh identity/session
 - that provider terms permit every connector-driven automation pattern
-- that capability-scoped collaboration is operationally implemented or
-  end-to-end enforced; only its task/grant and cloud-routing foundation exists
+- that capability-scoped collaboration is end-to-end proven; its approval UI
+  and two-machine live-provider validation remain open
 
 Use controlled demo accounts and repositories until connector authentication,
 local isolation, retention, revocation, and provider-policy questions are
 resolved.
 
-The current long-poll queue and binding-presence map are process-local. A cloud
-restart requires the connector to replay a fresh repository proof, and there is
-not yet durable redelivery across that restart. Connector packaging, signed
-updates, reconnect backoff, and production operational review remain open.
+The current long-poll queue and binding-presence map are process-local. An
+authenticated connector can restore its durable ready binding after a cloud
+restart, but queued jobs are not durably redelivered across that restart.
+Connector packaging, signed updates, and production operational review remain
+open.
 
 ## Legacy scaffold
 

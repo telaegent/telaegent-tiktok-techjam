@@ -303,6 +303,9 @@ describe("connector worker serving resource requests", () => {
     // no model ever sees the authorization decision.
     expect(run).not.toHaveBeenCalled();
     expect(transport.responses[0]?.outcomes[0]).toMatchObject({ status: "delivered" });
+    // The content is intentionally relayed in flight; the canonical owner path
+    // behind its opaque ID must never join that cloud payload.
+    expect(JSON.stringify(transport.responses[0])).not.toContain(workspace);
   });
 
   it("refuses everything when no registry is configured", async () => {
