@@ -84,9 +84,16 @@ decision function, `file-broker.ts` performs the contained read, and
 provider: delivering a file is a reference-monitor operation, not an agent turn.
 A connector with no registry configured refuses everything.
 
-The loop is not closed. The cloud does not yet route a result's resource
-requests to the owning connector, there is no scope-expansion approval surface,
-and approved bytes do not yet ride back into a following round.
+The cloud half routes. A job result may carry `resourceRequests`,
+`LongPollConnectorJobRelay.exchangeResources` delivers a batch to the owning
+connector ahead of any queued job, and `POST /api/connectors/jobs/:jobId/resources`
+carries the answer back to the waiting caller. Approved bytes pass through the
+relay in flight and are never cached, logged or stored; a batch whose outcomes do
+not line up positionally with its requests is rejected rather than reinterpreted.
+
+The loop is still not closed. Nothing yet turns a result's requests into an
+exchange, there is no scope-expansion approval surface, and approved bytes do not
+yet ride back into a following round.
 
 The same trust boundary applies throughout. A resource crosses as an
 **opaque resource ID** issued by the owning connector, never as a path. The

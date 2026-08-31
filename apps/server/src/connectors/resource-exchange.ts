@@ -78,6 +78,52 @@ export interface ResourceExchangeResponse {
   outcomes: ResourceOutcome[];
 }
 
+/**
+ * Wire shape of a connector's answer.
+ *
+ * The cloud validates this on arrival and hands it straight to the waiting
+ * caller. `content` is bounded by the same per-resource limit the owner's
+ * broker enforces, so a connector cannot return more than its own policy
+ * allowed it to read.
+ */
+export const resourceExchangeResponseSchema = z.strictObject({
+  requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
+  outcomes: z
+    .array(
+      z.discriminatedUnion("status", [
+        z.strictObject({
+          status: z.literal("delivered"),
+          resourceId: resourceIdSchema,
+          content: z.string().max(DEFAULT_RESOURCE_POLICY_LIMITS.maxBytesPerResource),
+          truncated: z.boolean(),
+          audit: z.strictObject({
+            resourceId: resourceIdSchema,
+            taskId: z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/),
+            recipientUserId: z.string().uuid(),
+            byteLength: z
+              .number()
+              .int()
+              .min(0)
+              .max(DEFAULT_RESOURCE_POLICY_LIMITS.maxBytesPerResource),
+            contentSha256: z.string().regex(/^[0-9a-f]{64}$/),
+            authorizationMode: z.enum(["once", "task"]),
+            truncated: z.boolean(),
+            deliveredAt: z.string().datetime(),
+          }),
+        }),
+        z.strictObject({
+          status: z.literal("pending_approval"),
+          request: connectorResourceRequestSchema,
+        }),
+        // A refusal carries no reason on the wire, and none is accepted here
+        // either: a connector must not be able to leak one by adding a field.
+        z.strictObject({ status: z.literal("refused") }),
+      ]),
+    )
+    .min(1)
+    .max(16),
+});
+
 export interface ResourceExchangeDeps {
   registry: ResourceRegistry;
   broker: LocalFileBroker;

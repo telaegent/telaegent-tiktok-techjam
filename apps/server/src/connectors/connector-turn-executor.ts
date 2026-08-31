@@ -51,7 +51,7 @@ export interface ConnectorJobResult<T = unknown> {
    * Absent on an ordinary turn. Present entries are routed by the cloud to the
    * owning connector; they never authorize anything by themselves.
    */
-  resourceRequests?: ConnectorResourceRequest[];
+  resourceRequests?: ConnectorResourceRequest[] | undefined;
 }
 
 export interface ConnectorJobRelay {
