@@ -34,7 +34,9 @@ To perform the same setup and immediately start the local browser and API:
 npm run up
 ```
 
-Open `http://localhost:5173`. Stop both processes with Ctrl+C. Subsequent
+Open `http://localhost:5173`. Stop both processes with Ctrl+C. The development
+runner terminates both complete process trees, including npm children on
+Windows, so the API and browser ports are not left occupied. Subsequent
 development runs can use `npm run dev`; production-style local runs use
 `npm run build` followed by `npm start` and open `http://localhost:3000`.
 

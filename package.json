@@ -16,7 +16,7 @@
     "doctor": "node scripts/setup.mjs --check --strict-e2e",
     "doctor:live": "npm run connector:connect -- connect --probe-only",
     "up": "node scripts/setup.mjs --start",
-    "dev": "node --env-file-if-exists=.env node_modules/concurrently/dist/bin/concurrently.js -n server,web -c cyan,magenta \"npm run dev -w @launchpad/server\" \"npm run dev -w @launchpad/web\"",
+    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
     "demo:relay": "npm run demo:relay -w @launchpad/server",
     "demo:connections": "npm run demo:connections -w @launchpad/server",
     "demo:session-recovery": "npm run demo:session-recovery -w @launchpad/server",
@@ -24,7 +24,7 @@
     "connector:connect": "npm run build -w @launchpad/server && node --env-file-if-exists=.env --env-file-if-exists=connector.env apps/server/dist/connectors/cli.js",
     "build": "npm run build -w @launchpad/web && npm run build -w @launchpad/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test:setup": "node --test scripts/setup-core.test.mjs",
+    "test:setup": "node --test scripts/setup-core.test.mjs scripts/process-tree.test.mjs scripts/local-development-security.test.mjs",
     "test": "npm run test:setup && npm run test --workspaces --if-present",
     "check": "npm run typecheck && npm run test && npm run build",
     "poc": "npm run up",
@@ -37,7 +37,6 @@
     "eval:deepseek": "npm run eval:deepseek -w @launchpad/server --"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
     "typescript": "^5.9.3"
   }
 }
