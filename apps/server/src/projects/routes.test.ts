@@ -16,6 +16,7 @@ function stubRepository(overrides: Partial<ProjectRepository> = {}): ProjectRepo
     requestConnection: refuse,
     respondToConnection: refuse,
     revokeConnection: refuse,
+    disconnectRepository: refuse,
     createConversation: refuse,
     ...overrides,
   };

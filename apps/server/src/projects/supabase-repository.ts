@@ -6,10 +6,12 @@ import {
   projectCollaboratorRowsSchema,
   projectConnectionSchema,
   projectConversationSchema,
+  projectDisconnectSchema,
   projectSummaryRowsSchema,
   type ProjectCollaborator,
   type ProjectConnection,
   type ProjectConversation,
+  type ProjectDisconnect,
   type ProjectSummary,
 } from "./types.js";
 
@@ -101,6 +103,16 @@ export class SupabaseProjectRepository implements ProjectRepository {
       p_user_id: input.authenticatedUserId,
       p_at: input.revokedAt,
     }, projectConnectionSchema);
+  }
+
+  async disconnectRepository(input: Readonly<{
+    authenticatedUserId: string;
+    projectId: string;
+  }>): Promise<ProjectDisconnect | null> {
+    return this.call("disconnect_user_repository", {
+      p_user_id: input.authenticatedUserId,
+      p_project_id: input.projectId,
+    }, projectDisconnectSchema);
   }
 
   async createConversation(input: Readonly<{

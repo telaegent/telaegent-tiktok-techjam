@@ -348,6 +348,22 @@ export const api = {
       `/api/projects/${encodeURIComponent(projectId)}/connections/${encodeURIComponent(connectionId)}/revoke`,
       { method: "POST", body: JSON.stringify({}) },
     ),
+  /** Stops this user's local binding for one project; local GitHub stays signed in. */
+  disconnectProject: (projectId: string) =>
+    request<{
+      disconnect: {
+        projectId: string;
+        githubRepositoryId: string;
+        repositoryAccessStatus: "revalidation_required";
+        membershipStatus: "suspended";
+        bindingStatus: "stopped";
+        disconnectedAt: string;
+        changed: boolean;
+      };
+    }>(`/api/projects/${encodeURIComponent(projectId)}/disconnect`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   /**
    * Opens, or returns, the shared conversation for a connected pair.
    *

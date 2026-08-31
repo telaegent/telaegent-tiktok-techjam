@@ -118,6 +118,26 @@ describe("resource registry", () => {
     await expect(new FileResourceRegistry(file).resolve(taskId, "x")).rejects.toThrow();
     await rm(file, { force: true });
   });
+
+  it("fails before a capacity limit can make durable state unreadable", async () => {
+    const file = path.join(workspace, "full-registry.json");
+    const entries = Array.from({ length: 10_000 }, (_, index) => ({
+      taskId,
+      resourceId: `resource_${index.toString(36).padStart(24, "a")}`,
+      canonicalPath: path.join(workspace, "src", `file-${index}.ts`),
+      issuedAt: now.toISOString(),
+    }));
+    await writeFile(file, JSON.stringify({ version: 1, entries }));
+    const registry = new FileResourceRegistry(file, () => now);
+
+    await expect(
+      registry.mint(taskId, path.join(workspace, "src", "overflow.ts")),
+    ).rejects.toThrow("Resource registry capacity exceeded");
+    await expect(registry.resolve(taskId, entries[0]!.resourceId)).resolves.toBe(
+      entries[0]!.canonicalPath,
+    );
+    await rm(file, { force: true });
+  });
 });
 
 describe("resource policy", () => {

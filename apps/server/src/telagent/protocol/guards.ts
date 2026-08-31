@@ -273,7 +273,10 @@ export function inspectCandidate(candidate: string | null): GuardVerdict {
 
   const redaction = redactText(candidate);
 
-  if (candidate.length > PROTOCOL_LIMITS.maxSendCandidateChars) {
+  if (
+    candidate.length > PROTOCOL_LIMITS.maxSendCandidateChars ||
+    Buffer.byteLength(candidate, "utf8") > PROTOCOL_LIMITS.maxSendCandidateBytes
+  ) {
     findings.push({
       code: "GUARD_CANDIDATE_TOO_LARGE",
       safeReason:

@@ -113,3 +113,22 @@ export const projectConversationSchema = z.strictObject({
 });
 
 export type ProjectConversation = z.infer<typeof projectConversationSchema>;
+
+/**
+ * Result of a deliberate browser-side repository disconnect.
+ *
+ * `stopped` is intentionally reconnectable: a fresh local connector proof may
+ * establish the binding again, while the old connector instance and every
+ * active task/grant lose authority immediately.
+ */
+export const projectDisconnectSchema = z.strictObject({
+  projectId: z.string().uuid(),
+  githubRepositoryId,
+  repositoryAccessStatus: z.literal("revalidation_required"),
+  membershipStatus: z.literal("suspended"),
+  bindingStatus: z.literal("stopped"),
+  disconnectedAt: timestamp,
+  changed: z.boolean(),
+});
+
+export type ProjectDisconnect = z.infer<typeof projectDisconnectSchema>;

@@ -28,8 +28,14 @@ import {
   coverageShortfall,
   findCase,
 } from "./corpus/index.js";
-import { runCase, type HarnessConfig } from "./eval/harness.js";
-import { FakeProtocolRunner, createRunner, liveEvalEnabled } from "./eval/runner.js";
+import { buildTurnInput, runCase, type HarnessConfig } from "./eval/harness.js";
+import {
+  FakeProtocolRunner,
+  codexCompatibleSchema,
+  codexStructuredArgs,
+  createRunner,
+  liveEvalEnabled,
+} from "./eval/runner.js";
 import { allFormats, getFormat } from "./formats.js";
 import { allMemoryStrategies, rehydrationContext } from "./memory.js";
 import {
@@ -586,6 +592,46 @@ describe("harness", () => {
  * ========================================================================== */
 
 describe("live evaluation is not reachable from CI", () => {
+  it("applies metadata ablation only inside the evaluation harness", () => {
+    const testCase = findCase("r.coord.branch_context");
+    expect(testCase).toBeDefined();
+    if (testCase === undefined) return;
+
+    const full = buildTurnInput(testCase, harnessConfig("P5"));
+    const ablated = buildTurnInput(testCase, {
+      ...harnessConfig("P5"),
+      metadataProfile: "repository-only",
+    });
+
+    expect(full.facts).toMatchObject({
+      branch: "main",
+      ownerName: "Justin",
+    });
+    expect(ablated.facts).toMatchObject({
+      branch: "not provided",
+      commit: "not-provided",
+      ownerName: "project owner",
+      collaboratorName: "project collaborator",
+    });
+  });
+
+  it("constrains Codex output with the generated schema", () => {
+    const args = codexStructuredArgs("schema.json", "answer.json", "PROMPT");
+    expect(args).toContain("--output-schema");
+    expect(args[args.indexOf("--output-schema") + 1]).toBe("schema.json");
+    expect(args).toContain("--output-last-message");
+    expect(args[args.indexOf("--output-last-message") + 1]).toBe("answer.json");
+    expect(args.at(-1)).toBe("PROMPT");
+  });
+
+  it("translates Zod oneOf unions for Codex Structured Outputs", () => {
+    const schema = codexCompatibleSchema(recipientJsonSchema());
+    const encoded = JSON.stringify(schema);
+    expect(encoded).not.toContain('"oneOf"');
+    expect(encoded).toContain('"anyOf"');
+    expect(schema.required).toEqual(Object.keys(schema.properties as object));
+  });
+
   it("live eval is disabled in this process", () => {
     // If this ever fails in CI, the suite is about to make paid provider calls.
     expect(liveEvalEnabled({})).toBe(false);

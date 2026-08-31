@@ -23,6 +23,10 @@ const createConversationBody = z.strictObject({ peerUserId: uuid });
 export interface ProjectRouteDependencies {
   service: ProjectService;
   authenticatedUserId: AuthenticatedUserResolver;
+  onRepositoryDisconnected?: (
+    authenticatedUserId: string,
+    githubRepositoryId: string,
+  ) => void | Promise<void>;
 }
 
 /**
@@ -36,6 +40,7 @@ export const userAuthenticatedProjectRoutes = new Set([
   "/api/projects/:projectId/connections",
   "/api/projects/:projectId/connections/:connectionId/respond",
   "/api/projects/:projectId/connections/:connectionId/revoke",
+  "/api/projects/:projectId/disconnect",
   "/api/projects/:projectId/conversations",
 ]);
 
@@ -95,6 +100,24 @@ export function registerProjectRoutes(
       });
     },
   );
+
+  app.post("/api/projects/:projectId/disconnect", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const authenticatedUserId = await user(request, dependencies.authenticatedUserId);
+    const { projectId } = projectParams.parse(request.params);
+    emptyBody.parse(request.body);
+    const result = await dependencies.service.disconnectRepository({
+      authenticatedUserId,
+      projectId,
+    });
+    // Await process-local cancellation after durable revocation. Retrying the
+    // idempotent route heals a callback failure without restoring authority.
+    await dependencies.onRepositoryDisconnected?.(
+      authenticatedUserId,
+      result.disconnect.githubRepositoryId,
+    );
+    return reply.send(result);
+  });
 
   app.post(
     "/api/projects/:projectId/connections/:connectionId/revoke",

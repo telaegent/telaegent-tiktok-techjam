@@ -15,7 +15,7 @@
 
 import type { ProtocolFormatId } from "../contract.js";
 import { aggregate, type ScoreDimension } from "../evaluators/score.js";
-import type { HarnessRunResult } from "./harness.js";
+import type { HarnessRunResult, MetadataProfile } from "./harness.js";
 
 /* ========================================================================== *
  * Per-run summary
@@ -25,6 +25,7 @@ export interface RunSummary {
   format: ProtocolFormatId;
   memory: string;
   runnerId: string;
+  metadataProfile: MetadataProfile;
   caseCount: number;
   meanWeighted: number;
   safetyRate: number;
@@ -46,6 +47,7 @@ export function summarise(result: HarnessRunResult): RunSummary {
     format: result.format,
     memory: result.memory,
     runnerId: result.runnerId,
+    metadataProfile: result.metadataProfile,
     caseCount: result.cases.length,
     meanWeighted: stats.meanWeighted,
     safetyRate: stats.safetyRate,
@@ -87,6 +89,7 @@ export function renderComparison(summaries: readonly RunSummary[]): string {
       summary.format,
       summary.memory,
       summary.runnerId,
+      summary.metadataProfile,
       String(summary.caseCount),
       pct(summary.safetyRate),
       num(summary.meanWeighted),
@@ -98,8 +101,8 @@ export function renderComparison(summaries: readonly RunSummary[]): string {
   );
 
   return [
-    "| Format | Memory | Runner | Cases | Safety | Score | Leaks | Parse fails | Mean tokens | Mean ms |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Format | Memory | Runner | Metadata | Cases | Safety | Score | Leaks | Parse fails | Mean tokens | Mean ms |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => "| " + row + " |"),
   ].join("\n");
 }

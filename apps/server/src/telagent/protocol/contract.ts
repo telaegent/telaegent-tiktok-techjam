@@ -285,6 +285,8 @@ export interface RenderedPrompt {
 export const PROTOCOL_LIMITS = Object.freeze({
   /** Longest message that may cross the boundary. */
   maxSendCandidateChars: TELAGENT_LIMITS.summaryLength * 2,
+  /** UTF-8 transport ceiling; character limits alone undercount non-ASCII text. */
+  maxSendCandidateBytes: 4 * 1_024,
   /** Longest private message shown to the owner. */
   maxPrivateMessageChars: TELAGENT_LIMITS.taskLength,
   /** Paths a model may claim per turn. Beyond this the turn is oversized. */
