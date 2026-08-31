@@ -148,6 +148,32 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     return removed;
   }
 
+  /**
+   * Browser-side disconnect has a verified user identity but intentionally no
+   * connector credential. Remove every process-local installation binding for
+   * only that user × repository after the durable store has stopped it.
+   */
+  async unregisterUserRepositoryBindings(
+    authenticatedUserId: string,
+    githubRepositoryId: string,
+  ): Promise<boolean> {
+    let removed = false;
+    for (const [bindingId, registration] of [...this.bindings]) {
+      if (
+        registration.principal.authenticatedUserId !== authenticatedUserId ||
+        registration.githubRepositoryId !== githubRepositoryId
+      ) {
+        continue;
+      }
+      await this.cancel(bindingId);
+      this.abandonResourceExchanges(bindingId);
+      this.waiters.get(bindingId)?.settle(null);
+      this.bindings.delete(bindingId);
+      removed = true;
+    }
+    return removed;
+  }
+
   registerBinding(
     principal: Readonly<ConnectorPrincipal>,
     connectorBindingId: string,

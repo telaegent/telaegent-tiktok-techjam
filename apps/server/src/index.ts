@@ -174,6 +174,9 @@ if (config.telaegentIdentityProvider === "github") {
       ),
     ),
     authenticatedUserId,
+    onRepositoryDisconnected: async (userId, githubRepositoryId) => {
+      await relay.unregisterUserRepositoryBindings(userId, githubRepositoryId);
+    },
   };
 
   if (

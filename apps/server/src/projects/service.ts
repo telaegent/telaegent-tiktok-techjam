@@ -7,6 +7,7 @@ import type {
   ProjectCollaborator,
   ProjectConnection,
   ProjectConversation,
+  ProjectDisconnect,
   ProjectListPage,
 } from "./types.js";
 
@@ -141,6 +142,26 @@ export class ProjectService {
     });
     if (connection === null) throw notAvailable();
     return { connection };
+  }
+
+  /**
+   * Disconnects this user's local repository runtime from one project.
+   *
+   * This is deliberately narrower than revoking the user's Telaegent or GitHub
+   * identity. The durable operation suspends only this membership and binding,
+   * cancels its active tasks/grants, and requires a fresh local proof before it
+   * can become ready again.
+   */
+  async disconnectRepository(input: Readonly<{
+    authenticatedUserId: string;
+    projectId: string;
+  }>): Promise<{ disconnect: ProjectDisconnect }> {
+    const disconnect = await this.repository.disconnectRepository({
+      authenticatedUserId: uuid.parse(input.authenticatedUserId),
+      projectId: uuid.parse(input.projectId),
+    });
+    if (disconnect === null) throw notAvailable();
+    return { disconnect };
   }
 
   /**
