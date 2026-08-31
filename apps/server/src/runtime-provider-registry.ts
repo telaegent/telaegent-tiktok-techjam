@@ -17,6 +17,7 @@ import type {
   RuntimeProviderProbeResult,
   RuntimeProgressSink,
 } from "./runtime-contract.js";
+import { throwIfRuntimeCancelled } from "./runtime-cancellation.js";
 
 const schemaNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*\.schema\.json$/;
 const maximumSchemaBytes = 512 * 1024;
@@ -94,6 +95,7 @@ export class RuntimeProviderRegistry {
   async run(
     request: MiddlewareRunRequest,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<NormalizedRunResult> {
     const runner = this.runners.get(request.provider);
     if (!runner) {
@@ -105,6 +107,7 @@ export class RuntimeProviderRegistry {
       );
     }
     try {
+      throwIfRuntimeCancelled(signal);
       if (!request.workspacePath) {
         throw new RuntimeProviderError(
           "UNSUPPORTED_RUNTIME_POLICY",
@@ -112,10 +115,12 @@ export class RuntimeProviderRegistry {
         );
       }
       const schema = await this.schemas.resolve(request.outputSchemaName);
+      throwIfRuntimeCancelled(signal);
       return await runner.runStructured(
         { ...request, workspacePath: request.workspacePath },
         schema,
         onProgress,
+        signal,
       );
     } catch (error) {
       throw safeRuntimeError(error);

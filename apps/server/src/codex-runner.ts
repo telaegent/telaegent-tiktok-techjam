@@ -20,6 +20,10 @@ import {
   classifyProviderFailure,
 } from "./runtime-errors.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
+import {
+  onRuntimeCancellation,
+  throwIfRuntimeCancelled,
+} from "./runtime-cancellation.js";
 import type {
   AgentRunner,
   RunUsage,
@@ -82,6 +86,20 @@ interface CodexProcessResult extends RunnerResult {
   exitCode: number;
   durationMs: number;
 }
+
+export interface CodexRunnerDependencies {
+  mkdtemp: typeof mkdtemp;
+  writeFile: typeof writeFile;
+  rm: typeof rm;
+  spawn: typeof spawn;
+}
+
+const defaultDependencies: CodexRunnerDependencies = {
+  mkdtemp,
+  writeFile,
+  rm,
+  spawn,
+};
 
 export function buildCodexArgs(
   request: RunnerRequest,
@@ -232,7 +250,14 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
   readonly provider = "codex" as const;
   private readonly active = new Map<string, ActiveCodexProcess>();
 
-  constructor(private readonly config: AppConfig) {}
+  private readonly dependencies: CodexRunnerDependencies;
+
+  constructor(
+    private readonly config: AppConfig,
+    dependencies: Partial<CodexRunnerDependencies> = {},
+  ) {
+    this.dependencies = { ...defaultDependencies, ...dependencies };
+  }
 
   async isAvailable(): Promise<boolean> {
     try {
@@ -292,14 +317,20 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<NormalizedRunResult> {
-    const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
+    throwIfRuntimeCancelled(signal);
+    const schemaDirectory = await this.dependencies.mkdtemp(
+      path.join(tmpdir(), "telagent-schema-"),
+    );
     const schemaPath = path.join(schemaDirectory, "output.schema.json");
     try {
-      await writeFile(schemaPath, JSON.stringify(outputSchema), {
+      throwIfRuntimeCancelled(signal);
+      await this.dependencies.writeFile(schemaPath, JSON.stringify(outputSchema), {
         encoding: "utf8",
         mode: 0o600,
       });
+      throwIfRuntimeCancelled(signal);
       const result = await this.runProcess(
         {
           agentId: request.agentId,
@@ -310,6 +341,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         },
         request.runtimePrompt,
         onProgress,
+        signal,
       );
       let final: unknown;
       try {
@@ -331,7 +363,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         durationMs: result.durationMs,
       };
     } finally {
-      await rm(schemaDirectory, { recursive: true, force: true });
+      await this.dependencies.rm(schemaDirectory, { recursive: true, force: true });
     }
   }
 
@@ -339,12 +371,14 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     request: CodexProcessRequest,
     stdinPayload?: string,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<CodexProcessResult> {
+    throwIfRuntimeCancelled(signal);
     if (this.active.has(request.agentId)) {
       throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
     }
     const startedAt = Date.now();
-    const child = spawn(this.config.codexBin, request.args, {
+    const child = this.dependencies.spawn(this.config.codexBin, request.args, {
       cwd: request.workspacePath,
       env: this.childEnvironment(),
       stdio: [stdinPayload === undefined ? "ignore" : "pipe", "pipe", "pipe"],
@@ -367,6 +401,10 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       forceKillTimer: null,
     };
     this.active.set(request.agentId, active);
+    const removeCancellationListener = onRuntimeCancellation(signal, () => {
+      active.cancelled = true;
+      this.terminate(active);
+    });
     const parsed: ParsedEvents = {
       messages: [],
       threadId: request.threadId,
@@ -462,6 +500,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         durationMs: Date.now() - startedAt,
       };
     } finally {
+      removeCancellationListener();
       watchdog.stop();
       if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
       this.active.delete(request.agentId);

@@ -4,6 +4,7 @@ import type {
   NormalizedRunResult,
 } from "./runtime-contract.js";
 import { RuntimeProviderError } from "./runtime-errors.js";
+import { RunCancelledError } from "./errors.js";
 import {
   InMemoryProviderSessionStore,
   ProviderSessionManager,
@@ -242,5 +243,41 @@ describe("ProviderSessionManager", () => {
       sessionMode: "continue",
       sessionId: "shared-session",
     });
+  });
+
+  it("does not start a queued provider turn after its cancellation signal fires", async () => {
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    const provider = runtime(async () => {
+      calls += 1;
+      if (calls === 1) await firstBlocked;
+      return result("shared-session");
+    });
+    const manager = new ProviderSessionManager(
+      provider,
+      new InMemoryProviderSessionStore(),
+      async (_scope, request) => request,
+    );
+    const controller = new AbortController();
+
+    const first = manager.run(scope, turn);
+    const second = manager.run(
+      scope,
+      turn,
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(provider.run).toHaveBeenCalledTimes(1));
+    controller.abort();
+    releaseFirst();
+
+    await expect(first).resolves.toBeDefined();
+    await expect(second).rejects.toBeInstanceOf(RunCancelledError);
+    expect(provider.run).toHaveBeenCalledTimes(1);
   });
 });

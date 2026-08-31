@@ -202,6 +202,47 @@ describe("ConnectorWorker", () => {
     },
   );
 
+  it("aborts pre-launch execution even when no provider process is active yet", async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const run = vi.fn(
+      async (
+        _request: MiddlewareRunRequest,
+        _onProgress: unknown,
+        signal?: AbortSignal,
+      ): Promise<NormalizedRunResult> => {
+        receivedSignal = signal;
+        return await new Promise<NormalizedRunResult>((_resolve, reject) => {
+          if (signal?.aborted) return reject(new RunCancelledError());
+          signal?.addEventListener(
+            "abort",
+            () => reject(new RunCancelledError()),
+            { once: true },
+          );
+        });
+      },
+    );
+    const transport = new FakeTransport(
+      { kind: "job", job: { ...job, provider: "codex" } },
+      new ConnectorCredentialRejectedError(),
+    );
+    const worker = new ConnectorWorker(
+      binding,
+      new ProviderSessionManager(
+        { run },
+        new InMemoryProviderSessionStore(),
+        async (_scope, request) => request,
+      ),
+      transport,
+      { cancel: async () => false },
+    );
+
+    await expect(worker.runOnce()).rejects.toBeInstanceOf(
+      ConnectorCredentialRejectedError,
+    );
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("backs off transient cancellation-poll failures", async () => {
     vi.useFakeTimers();
     try {

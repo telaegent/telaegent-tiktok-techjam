@@ -16,6 +16,10 @@ import {
   classifyProviderFailure,
 } from "./runtime-errors.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
+import {
+  onRuntimeCancellation,
+  throwIfRuntimeCancelled,
+} from "./runtime-cancellation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -238,7 +242,9 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
     request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<NormalizedRunResult> {
+    throwIfRuntimeCancelled(signal);
     if (this.active.has(request.agentId)) {
       throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
     }
@@ -264,6 +270,10 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
       forceKillTimer: null,
     };
     this.active.set(request.agentId, active);
+    const removeCancellationListener = onRuntimeCancellation(signal, () => {
+      active.cancelled = true;
+      this.terminate(active);
+    });
 
     const parsed: ParsedClaudeEvents = {
       sessionId: request.sessionMode === "continue" ? request.sessionId ?? null : null,
@@ -354,6 +364,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
         durationMs: Date.now() - startedAt,
       };
     } finally {
+      removeCancellationListener();
       watchdog.stop();
       if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
       this.active.delete(request.agentId);
