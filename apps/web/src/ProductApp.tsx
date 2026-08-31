@@ -609,7 +609,7 @@ function LiveConnectionsScreen() {
       </header>
       <section className="settings-section api-state">
         <strong>Connection management is not available yet</strong>
-        <p>The backend still needs owner-approved request, accept, decline, list, and revoke routes before this screen can safely change project trust.</p>
+        <p>The backend routes now exist: <code>api.projectCollaborators</code>, <code>api.requestProjectConnection</code>, <code>api.respondToProjectConnection</code>, and <code>api.revokeProjectConnection</code>. This screen has yet to be built on them.</p>
       </section>
     </div>
   );

@@ -62,6 +62,7 @@ const messageBody = z.object({
 });
 const userAuthenticatedConversationRoutes = new Set([
   "/api/conversations/:conversationId/drafts",
+  "/api/conversations/:conversationId/replies",
   "/api/conversations/:conversationId/messages",
   "/api/drafts/:draftId",
   "/api/drafts/:draftId/run",
