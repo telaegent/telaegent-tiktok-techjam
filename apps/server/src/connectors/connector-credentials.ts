@@ -138,6 +138,39 @@ export class ConnectorCredentialService {
     if (!status) throw unavailable();
     return connectorSetupStatusSchema.parse(status);
   }
+
+  /**
+   * Rebuild one process-local relay registration from durable state after a
+   * backend restart. Authentication has already bound both principal fields;
+   * only a fully active, verified, ready binding may be restored.
+   */
+  async restoreReadyBinding(
+    principal: Readonly<ConnectorPrincipal>,
+    rawConnectorBindingId: unknown,
+  ): Promise<{ connectorBindingId: string; githubRepositoryId: string } | null> {
+    const connectorBindingId = z.string().uuid().parse(rawConnectorBindingId);
+    const status = await this.repository.loadSetupStatus({
+      authenticatedUserId: z.string().uuid().parse(principal.authenticatedUserId),
+      connectorInstanceId: connectorInstanceIdSchema.parse(principal.connectorInstanceId),
+    });
+    if (!status) return null;
+    const parsed = connectorSetupStatusSchema.parse(status);
+    const binding = parsed.bindings.find(
+      (candidate) => candidate.connectorBindingId === connectorBindingId,
+    );
+    if (
+      !binding ||
+      binding.bindingStatus !== "ready" ||
+      binding.repositoryAccessStatus !== "verified" ||
+      binding.membershipStatus !== "active"
+    ) {
+      return null;
+    }
+    return {
+      connectorBindingId: binding.connectorBindingId,
+      githubRepositoryId: binding.githubRepositoryId,
+    };
+  }
 }
 
 export function createConnectorPrincipalResolver(

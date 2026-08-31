@@ -48,6 +48,11 @@ legacy shared API token is not connector authentication.
    root in PowerShell. The script builds the connector before starting it, so
    it does not depend on the development-time TypeScript loader.
 
+Use `--provider codex` or `--provider claude` to allow only one locally chosen
+provider for this connector process. The default, `--provider auto`, allows all
+locally authenticated providers; a cloud job still names its provider
+explicitly and the connector never silently substitutes another one.
+
 The connector canonicalizes the Git root, collects an allowlisted `gh`/`git`
 repository proof, receives an opaque binding, detects locally authenticated
 Claude Code and Codex CLIs, and runs one fixed read-only relay probe for each
@@ -65,9 +70,22 @@ credential, or provider session. The response is non-cacheable. A `ready`
 binding proves durable repository registration; `lastSeenAt` is telemetry, not
 a promise that the process will remain online.
 
-This is a source-tree proof command, not finished `npx telaegent` packaging.
-Reconnect/backoff, durable presence telemetry, installer/update signing, and
-recipient-side conversation orchestration remain follow-up work.
+Transient network errors and HTTP 408/425/429/5xx responses reconnect with
+jittered exponential backoff capped at 30 seconds. Authentication rejection is
+terminal, so a revoked or rotated bearer cannot create an infinite retry loop.
+The connector forwards structural progress only; raw provider text remains
+local and only the bounded normalized result crosses the connector boundary.
+After a backend restart, the first authenticated connector request restores a
+ready binding from durable authorization state. Revoked, suspended, stale, and
+unavailable bindings fail closed. This costs one bounded status lookup per
+binding recovery, not one database call per poll.
+
+This is still a source-tree proof command, not finished `npx telaegent`
+packaging. OS credential-vault integration, installer/update signing, and
+durable presence telemetry remain follow-up work. Credential issuance already
+rotates the server-side hash and unregisters the old process-local principal,
+but the local replacement must remain a deliberate user action until a secure
+vault-backed installer owns it.
 
 ## Resource requests (design commitment, not built)
 

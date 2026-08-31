@@ -7,6 +7,7 @@ import type { AuthenticatedUserResolver } from "../conversations/routes.js";
 import { setPrivateNoStore } from "../http-cache.js";
 import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
+import type { ConnectorPrincipal } from "../repository-proof/contract.js";
 
 const bindingIdSchema = z.string().uuid();
 const jobIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/);
@@ -72,11 +73,6 @@ const failureDetailSchema = z.strictObject({
 const progressSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("session_started"), provider: providerSchema }),
   z.strictObject({ type: z.literal("turn_started"), provider: providerSchema }),
-  z.strictObject({
-    type: z.literal("text_delta"),
-    provider: providerSchema,
-    text: z.string().max(16_384),
-  }),
   z.strictObject({
     type: z.enum(["activity_started", "activity_completed"]),
     provider: providerSchema,
@@ -187,7 +183,8 @@ export function registerConnectorTransportRoutes(
       const principal = await dependencies.resolveConnectorPrincipal(request);
       const { connectorBindingId } = bindingParamsSchema.parse(request.params);
       const { provider } = probeBodySchema.parse(request.body);
-      const githubRepositoryId = dependencies.relay.registeredRepository(
+      const githubRepositoryId = await ensureRegisteredRepository(
+        dependencies,
         principal,
         connectorBindingId,
       );
@@ -233,6 +230,11 @@ export function registerConnectorTransportRoutes(
     setPrivateNoStore(reply);
     const principal = await dependencies.resolveConnectorPrincipal(request);
     const query = pollQuerySchema.parse(request.query);
+    await ensureRegisteredRepository(
+      dependencies,
+      principal,
+      query.connectorBindingId,
+    );
     // A connector abandons this poll whenever it stops waiting - it finished a
     // job, restarted, or crashed. The relay must release the binding's single
     // waiter slot then, not when the abandoned wait finally elapses.
@@ -280,4 +282,27 @@ export function registerConnectorTransportRoutes(
       ? reply.code(204).send()
       : reply.code(409).send({ error: "Connector job is no longer active" });
   });
+}
+
+async function ensureRegisteredRepository(
+  dependencies: ConnectorTransportRouteDependencies,
+  principal: Readonly<ConnectorPrincipal>,
+  connectorBindingId: string,
+): Promise<string> {
+  try {
+    return dependencies.relay.registeredRepository(principal, connectorBindingId);
+  } catch (originalError) {
+    if (!dependencies.credentials) throw originalError;
+    const restored = await dependencies.credentials.restoreReadyBinding(
+      principal,
+      connectorBindingId,
+    );
+    if (!restored) throw originalError;
+    dependencies.relay.registerBinding(
+      principal,
+      restored.connectorBindingId,
+      restored.githubRepositoryId,
+    );
+    return restored.githubRepositoryId;
+  }
 }
