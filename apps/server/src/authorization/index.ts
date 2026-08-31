@@ -143,6 +143,8 @@ export type {
   CapabilityGrantRepository,
   ConsumeCapabilityGrantInput,
   ConsumeCapabilityGrantOutcome,
+  ListTaskCapabilityGrantsInput,
+  ListTaskCapabilityGrantsOutcome,
   SupabaseCapabilityGrantClient,
 } from "./capability-grants.js";
 export { SupabaseCollaborationTaskRepository } from "./collaboration-tasks.js";

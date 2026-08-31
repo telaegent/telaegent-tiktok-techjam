@@ -36,7 +36,6 @@ const context: CapabilityFollowUpContext = {
   githubRepositoryId: "1345851084",
   ownerUserId: ownerId,
   peerUserId: peerId,
-  heldGrants: [{ grantId, resourceId }],
 };
 
 const askForHeld: ConnectorResourceRequest = {
@@ -115,6 +114,7 @@ function build(parts: {
   resolveRoute?: CapabilityRouteAuthorizer["resolveRoute"];
   exchangeResources?: CapabilityResourceRelay["exchangeResources"];
   consumeGrant?: CapabilityGrantRepository["consumeGrant"];
+  listTaskGrants?: CapabilityGrantRepository["listTaskGrants"];
 } = {}) {
   const authorizeRoute = vi.fn<CapabilityRouteAuthorizer["authorizeRoute"]>(
     parts.authorizeRoute ?? (async () => route),
@@ -128,6 +128,12 @@ function build(parts: {
   const consumeGrant = vi.fn<CapabilityGrantRepository["consumeGrant"]>(
     parts.consumeGrant ?? (async () => ({ outcome: "consumed", mode: "once" })),
   );
+  // The ledger is read, not asserted: by default this peer already holds the
+  // one grant a human approved earlier in this same task.
+  const listTaskGrants = vi.fn<CapabilityGrantRepository["listTaskGrants"]>(
+    parts.listTaskGrants ??
+      (async () => ({ outcome: "listed", grants: [{ grantId, resourceId }] })),
+  );
   const coordinator = new CapabilityFollowUpCoordinator({
     scope: new CapabilityScopeExpansionService({
       repository: scopeRepository(parts.scope),
@@ -135,10 +141,17 @@ function build(parts: {
     }),
     authorization: { authorizeRoute, resolveRoute },
     relay: { exchangeResources },
-    grants: { consumeGrant },
+    grants: { consumeGrant, listTaskGrants },
     newRequestId: () => requestId,
   });
-  return { coordinator, authorizeRoute, resolveRoute, exchangeResources, consumeGrant };
+  return {
+    coordinator,
+    authorizeRoute,
+    resolveRoute,
+    exchangeResources,
+    consumeGrant,
+    listTaskGrants,
+  };
 }
 
 describe("capability follow-up coordinator", () => {
@@ -400,6 +413,39 @@ describe("capability follow-up coordinator", () => {
       CapabilityRouteAuthorizationError,
     );
     expect(exchangeResources).not.toHaveBeenCalled();
+  });
+
+  it("asks the record which grants exist rather than being told", async () => {
+    const { coordinator, listTaskGrants, authorizeRoute } = build();
+
+    await coordinator.runRound(context, [askForHeld]);
+
+    // Nothing in the context carries authority. A caller that could hand over a
+    // ledger could hand over a grant nobody ever pressed.
+    expect(listTaskGrants).toHaveBeenCalledWith({
+      taskId,
+      ownerUserId: ownerId,
+      peerUserId: peerId,
+    });
+    expect(authorizeRoute).toHaveBeenCalledWith(
+      expect.objectContaining({ grantId, resourceId }),
+    );
+  });
+
+  it("asserts nothing when the ledger cannot be read", async () => {
+    const { coordinator, authorizeRoute, exchangeResources } = build({
+      listTaskGrants: async () => ({ outcome: "unavailable" }),
+    });
+
+    await coordinator.runRound(context, [askForHeld]);
+
+    // Failing towards a human is the safe direction: the round is spent, the
+    // batch travels bare, and the question goes back to the person who owns
+    // the files instead of being answered on a guess.
+    expect(authorizeRoute).not.toHaveBeenCalled();
+    expect(exchangeResources).toHaveBeenCalledWith(
+      expect.objectContaining({ grants: [] }),
+    );
   });
 
   it("takes the connector it delivers to from the task, never from the caller", async () => {

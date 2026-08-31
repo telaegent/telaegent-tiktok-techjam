@@ -14,6 +14,7 @@ import type {
   SupabaseCollaborationTaskClient,
 } from "./collaboration-tasks.js";
 import type {
+  ListTaskCapabilityGrantsInput,
   ConsumeCapabilityGrantInput,
   SupabaseCapabilityGrantClient,
 } from "./capability-grants.js";
@@ -253,6 +254,36 @@ export class SupabaseAuthorizationRpcClient
         p_owner_user_id: request.ownerUserId,
         p_peer_user_id: request.peerUserId,
         p_resource_id: request.resourceId,
+      },
+      options,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  /**
+   * Lists the grants a peer is already holding inside one task.
+   *
+   * Read-only and identifier-only. It exists so a following round can assert
+   * authority a human already pressed rather than re-asking for it.
+   */
+  async listTaskCapabilityGrants(
+    request: Readonly<ListTaskCapabilityGrantsInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.taskId) ||
+      !uuidPattern.test(request.ownerUserId) ||
+      !uuidPattern.test(request.peerUserId) ||
+      request.ownerUserId === request.peerUserId
+    ) {
+      throw new Error("Supabase capability grant listing is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("list_task_capability_grants"),
+      {
+        p_task_id: request.taskId,
+        p_owner_user_id: request.ownerUserId,
+        p_peer_user_id: request.peerUserId,
       },
       options,
       maximumScopeResponseBytes,

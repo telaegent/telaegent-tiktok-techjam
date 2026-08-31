@@ -49,9 +49,10 @@ export interface CapabilityResourceRelay {
 /**
  * A grant the peer is already holding for this task.
  *
- * The caller carries this ledger because authority belongs to the task, not to
- * a round: a grant approved for this task survives between turns, and nothing
- * may reconstruct it from the request itself.
+ * Authority belongs to the task, not to a round: what a human approved during
+ * one turn is still approved during the next. The ledger is read from the
+ * record of what people pressed, never accepted from a caller, so no code path
+ * can assert an authority by describing one.
  */
 export interface HeldCapabilityGrant {
   grantId: string;
@@ -66,7 +67,6 @@ export interface CapabilityFollowUpContext {
   ownerUserId: string;
   /** Whose agent is asking. */
   peerUserId: string;
-  heldGrants?: readonly HeldCapabilityGrant[] | undefined;
 }
 
 export interface DeliveredResource {
@@ -206,9 +206,7 @@ export class CapabilityFollowUpCoordinator {
       throw error;
     }
 
-    const held = new Map(
-      (context.heldGrants ?? []).map((grant) => [grant.resourceId, grant]),
-    );
+    const held = await this.#loadHeldGrants(context);
     const grants = await this.#assertGrants(context, requests, held, route);
 
     const response = await this.#relay.exchangeResources({
@@ -221,6 +219,26 @@ export class CapabilityFollowUpCoordinator {
     });
 
     return await this.#collect(context, requests, held, response, round.round);
+  }
+
+  /**
+   * Reads back what a human already allowed inside this task.
+   *
+   * A ledger that cannot be read is treated as an empty one. That costs a round
+   * and sends the questions back to a person, which is the safe direction to
+   * fail in: the alternative would be asserting authority the cloud is no
+   * longer sure of.
+   */
+  async #loadHeldGrants(
+    context: Readonly<CapabilityFollowUpContext>,
+  ): Promise<Map<string, HeldCapabilityGrant>> {
+    const listed = await this.#grants.listTaskGrants({
+      taskId: context.taskId,
+      ownerUserId: context.ownerUserId,
+      peerUserId: context.peerUserId,
+    });
+    if (listed.outcome !== "listed") return new Map();
+    return new Map(listed.grants.map((grant) => [grant.resourceId, grant]));
   }
 
   /**

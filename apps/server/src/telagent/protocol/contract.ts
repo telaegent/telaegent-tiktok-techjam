@@ -286,6 +286,11 @@ export const PROTOCOL_LIMITS = Object.freeze({
   maxClarificationTurns: 3,
   /** Above this a single draft is flagged `oversized_disclosure`. */
   oversizedDisclosureChars: 4_000,
+  /**
+   * Approved file characters one turn may carry in its prompt (build plan
+   * 8.6). A second clamp: the owner's connector already bounded the read.
+   */
+  maxDeliveredResourceChars: 200_000,
 });
 
 /* ========================================================================== *
