@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  CodexRunner,
   buildCodexArgs,
   buildCodexMiddlewareArgs,
   parseCodexEventLine,
+  type CodexRunnerDependencies,
 } from "./codex-runner.js";
+import { loadConfig } from "./config.js";
+import { RunCancelledError } from "./errors.js";
+import type { RuntimeProgressEvent } from "./runtime-contract.js";
 
 describe("Codex runner protocol", () => {
   it("builds a new-session invocation", () => {
@@ -75,6 +80,49 @@ describe("Codex runner protocol", () => {
     expect(parsed.usage).toEqual({ inputTokens: 10, outputTokens: 4 });
   });
 
+  it("normalizes live Codex session, activity, text, and completion events", () => {
+    const parsed = {
+      messages: [] as string[],
+      threadId: null as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    const progress: RuntimeProgressEvent[] = [];
+    const emit = (event: RuntimeProgressEvent) => progress.push(event);
+
+    for (const event of [
+      { type: "thread.started", thread_id: "thread-123" },
+      { type: "turn.started" },
+      { type: "item.started", item: { type: "command_execution" } },
+      { type: "item.completed", item: { type: "command_execution" } },
+      { type: "item.completed", item: { type: "agent_message", text: "Done." } },
+      { type: "turn.completed", usage: { input_tokens: 10, output_tokens: 4 } },
+    ]) {
+      parseCodexEventLine(JSON.stringify(event), parsed, emit);
+    }
+
+    expect(progress).toEqual([
+      { type: "session_started", provider: "codex" },
+      { type: "turn_started", provider: "codex" },
+      { type: "activity_started", provider: "codex", activity: "command" },
+      { type: "activity_completed", provider: "codex", activity: "command" },
+      { type: "text_delta", provider: "codex", text: "Done." },
+      { type: "turn_completed", provider: "codex" },
+    ]);
+  });
+
+  it("rejects non-JSON stdout in JSONL mode", () => {
+    const parsed = {
+      messages: [] as string[],
+      threadId: null as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    expect(() => parseCodexEventLine("not-json", parsed)).toThrow(
+      "invalid event stream",
+    );
+  });
+
   it("builds a structured read-only middleware invocation", () => {
     const args = buildCodexMiddlewareArgs(
       {
@@ -100,5 +148,58 @@ describe("Codex runner protocol", () => {
     expect(args.slice(-3)).toEqual(["resume", "thread-123", "-"]);
     expect(args).not.toContain("Return status");
     expect(args).not.toContain("danger-full-access");
+  });
+
+  it("does not spawn Codex when cancellation arrives during schema preflight", async () => {
+    let releaseWrite!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const blockedWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const spawn = vi.fn();
+    const remove = vi.fn(async () => undefined);
+    const runner = new CodexRunner(
+      loadConfig({ NODE_ENV: "test" }),
+      {
+        mkdtemp: (async () => "D:\\temporary\\telaegent-schema") as CodexRunnerDependencies["mkdtemp"],
+        writeFile: (async () => {
+          markWriteStarted();
+          await blockedWrite;
+        }) as CodexRunnerDependencies["writeFile"],
+        rm: remove as CodexRunnerDependencies["rm"],
+        spawn: spawn as unknown as CodexRunnerDependencies["spawn"],
+      },
+    );
+    const controller = new AbortController();
+    const running = runner.runStructured(
+      {
+        agentId: "binding-a",
+        provider: "codex",
+        purpose: "sender_draft",
+        workspacePath: "D:\\workspace\\repo",
+        runtimePrompt: "Prepare a private draft",
+        persistedSummary: "Approved context",
+        sessionMode: "ephemeral",
+        sandboxMode: "read-only",
+        networkMode: "none",
+        outputSchemaName: "sender-turn.schema.json",
+        correlationId: "draft-1",
+        maxTurns: 1,
+      },
+      { type: "object" },
+      undefined,
+      controller.signal,
+    );
+
+    await writeStarted;
+    controller.abort();
+    releaseWrite();
+
+    await expect(running).rejects.toBeInstanceOf(RunCancelledError);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledOnce();
   });
 });

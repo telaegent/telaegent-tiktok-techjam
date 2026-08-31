@@ -67,6 +67,33 @@ const DENIED_SEGMENTS = new Set([
   ".telagent-context",
 ]);
 
+/**
+ * Environment files that exist to be shared.
+ *
+ * Found by live evaluation, not by review: the corpus case asserting that
+ * `.env.example` is shareable came back `blocked`, because `.startsWith(".env.")`
+ * catches the documentation variants along with the real ones.
+ *
+ * That is over-blocking with a real cost. These files contain variable NAMES
+ * and no values — they are the canonical safe answer to "what configuration
+ * does this need?", which is the exact question the product demo turns on. A
+ * policy that refuses them teaches users the product is broken, and pushes them
+ * toward asking for the real file instead.
+ *
+ * Deliberately an exact-match set rather than a pattern. `.env.example.local`
+ * is a real environment file that happens to start with a safe prefix, and a
+ * `startsWith` allowlist would hand it over. Content inspection still runs on
+ * anything drafted from these, so a project that puts real secrets in its
+ * example file is still caught one layer down.
+ */
+const ENV_DOCUMENTATION = new Set([
+  ".env.example",
+  ".env.template",
+  ".env.sample",
+  ".env.defaults",
+  ".env.dist",
+]);
+
 /** Substrings that make any segment a secret by convention. */
 const SECRET_SUBSTRINGS = [
   "credential",
@@ -192,7 +219,7 @@ export function checkAlwaysDenied(normalized: string): PolicyDenial | null {
   for (const segment of segments) {
     const lower = segment.toLowerCase();
 
-    if (lower === ".env" || lower.startsWith(".env.")) {
+    if (lower === ".env" || (lower.startsWith(".env.") && !ENV_DOCUMENTATION.has(lower))) {
       return deny("FORBID_ENV_FILES", "Environment files are never shareable.", normalized);
     }
     if (DENIED_SEGMENTS.has(lower)) {
@@ -379,15 +406,49 @@ export interface ResolvedSourceFile {
  * refused outright: an escaping link is FORBID_SYMLINK_ESCAPE, a link that
  * stays inside is still not a regular file and is not copied.
  */
+/**
+ * Resolves a workspace root to its real path.
+ *
+ * The containment checks below compare a realpath()-ed child against the root,
+ * so the root has to be real too or the comparison is between two different
+ * namings of the same directory. The parameter has always been *called*
+ * `canonicalRoot`, but nothing made it one - callers passed whatever they had.
+ *
+ * On Linux a temp path is usually already canonical, so this was invisible. On
+ * Windows it is not: 8.3 short names mean the workspace arrives as
+ * C:\\Users\\HIENPH~1\\... while realpath returns C:\\Users\\hienpham\\..., and
+ * every single file was rejected as FORBID_SYMLINK_ESCAPE. macOS has the same
+ * shape via /var -> /private/var.
+ *
+ * Falls back to the input when the root cannot be resolved: a non-existent root
+ * fails at the first lstat anyway, with a more accurate code than this could
+ * produce.
+ *
+ * This is strictly safer, not laxer. Comparing real against non-real can deny
+ * legitimate files (what happened) and, if the root itself were a symlink,
+ * could accept a child that resolves outside it.
+ */
+async function canonicalise(root: string, fs: FileSystemPort): Promise<string> {
+  try {
+    return await fs.realpath(root);
+  } catch {
+    return root;
+  }
+}
+
 export async function resolveInsideWorkspace(
   relativePath: string,
   canonicalRoot: string,
   fs: FileSystemPort,
 ): Promise<PolicyResult<ResolvedSourceFile>> {
-  const absolutePath = path.resolve(canonicalRoot, relativePath);
+  // Defensive even though enumerateApprovedSources already canonicalises: this
+  // is the security boundary, and a direct caller must not be able to weaken it
+  // by passing a root that is not real.
+  const realRoot = await canonicalise(canonicalRoot, fs);
+  const absolutePath = path.resolve(realRoot, relativePath);
 
   // Belt and braces: even after step 6, prove the join stayed inside.
-  if (!isInside(canonicalRoot, absolutePath)) {
+  if (!isInside(realRoot, absolutePath)) {
     return deny("FORBID_OUTSIDE_WORKSPACE", "The path leaves the workspace.", relativePath);
   }
 
@@ -405,7 +466,7 @@ export async function resolveInsideWorkspace(
     } catch {
       return deny("FORBID_SYMLINK_ESCAPE", "The link target cannot be resolved.", relativePath);
     }
-    if (!isInside(canonicalRoot, target)) {
+    if (!isInside(realRoot, target)) {
       return deny(
         "FORBID_SYMLINK_ESCAPE",
         "The link resolves outside the workspace.",
@@ -430,7 +491,7 @@ export async function resolveInsideWorkspace(
   } catch {
     return deny("FORBID_OUTSIDE_WORKSPACE", "The parent cannot be resolved.", relativePath);
   }
-  if (!isInside(canonicalRoot, realParent) && realParent !== canonicalRoot) {
+  if (!isInside(realRoot, realParent) && realParent !== realRoot) {
     return deny(
       "FORBID_SYMLINK_ESCAPE",
       "A directory on the path resolves outside the workspace.",
@@ -479,6 +540,10 @@ export async function enumerateApprovedSources(
   canonicalRoot: string,
   fs: FileSystemPort,
 ): Promise<PolicyResult<EnumeratedSources>> {
+  // Once, at the top: every containment comparison below is against a
+  // realpath()-ed child, so the root must be real too. See canonicalise().
+  const root = await canonicalise(canonicalRoot, fs);
+
   const files: ResolvedSourceFile[] = [];
   const skipped: EnumeratedSources["skipped"] = [];
   const seen = new Set<string>();
@@ -493,7 +558,7 @@ export async function enumerateApprovedSources(
       skipped.push({ path: relativePath, code: authorized.code });
       return null;
     }
-    const resolved = await resolveInsideWorkspace(authorized.value, canonicalRoot, fs);
+    const resolved = await resolveInsideWorkspace(authorized.value, root, fs);
     if (!resolved.ok) {
       if (
         resolved.code === "FORBID_SYMLINK_ESCAPE" ||
@@ -527,7 +592,7 @@ export async function enumerateApprovedSources(
 
   const walk = async (relativeDir: string, depth: number): Promise<PolicyDenial | null> => {
     if (depth > 12) return null;
-    const absoluteDir = path.resolve(canonicalRoot, relativeDir);
+    const absoluteDir = path.resolve(root, relativeDir);
     let entries: string[];
     try {
       entries = await fs.readDir(absoluteDir);
@@ -539,7 +604,7 @@ export async function enumerateApprovedSources(
       // Step 8 runs on the name before we ever stat it.
       if (checkAlwaysDenied(childRelative)) continue;
 
-      const absoluteChild = path.resolve(canonicalRoot, childRelative);
+      const absoluteChild = path.resolve(root, childRelative);
       let stats;
       try {
         stats = await fs.lstat(absoluteChild);

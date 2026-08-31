@@ -1,21 +1,21 @@
-# Thai — Cloud Deployment, Runtime Isolation, Supabase, Cost, Latency, and Infrastructure
+# Thai — Cloud Deployment, Connector Networking, Supabase, Cost, Latency, and Infrastructure
 
 **Status:** architecture/research before full implementation  
 **Product:** Telaegent
 
 ## 1. Architecture decision
 
-Your local-connector proposal is technically attractive but is **not the canonical judged architecture** because the product direction remains browser-first/cloud-only.
-
-Keep connector architecture as a fallback if cloud runtime isolation/authentication becomes infeasible.
+The local connector is the **canonical judged architecture**. Browser-first
+describes the product UI and coordination plane; it does not move repositories
+or provider CLIs into the cloud.
 
 Accepted infrastructure hypothesis:
 
 ```text
 Vercel frontend
-Azure backend/control plane
-Supabase Postgres/Auth/Realtime in Singapore
-Cloud isolated agent runtimes
+AWS EC2 backend/control plane
+Supabase Postgres/session persistence/Realtime in Singapore
+Outbound local connectors
 ```
 
 ## 2. Provisional deployment stack
@@ -23,63 +23,33 @@ Cloud isolated agent runtimes
 | Layer | Technology | Location |
 | --- | --- | --- |
 | Frontend | React 19 + Vite | Vercel |
-| Backend/control plane | Node 22 + Fastify 5 + Zod | Azure behind Caddy/HTTPS |
+| Backend/control plane | Node 22 + Fastify 5 + Zod | AWS EC2 behind Caddy/HTTPS |
 | Database | Supabase Postgres | Southeast Asia/Singapore |
-| Telaegent auth | Supabase Auth | Supabase |
+| Telaegent identity persistence | GitHub OAuth account + hashed Telaegent sessions | Supabase Postgres |
 | Realtime | Supabase Realtime or simpler SSE/polling | cloud |
-| Agent runtime | isolated cloud container/sandbox per user × repo | Azure |
-| GitHub | `gh` inside owning runtime | cloud runtime |
-| Claude/Codex | real CLI inside owning runtime | cloud runtime |
+| Connector relay/presence | bounded jobs over WebSocket/long-poll | AWS EC2 |
+| Agent execution | connector binding per user × repo | local developer machine |
+| GitHub | developer's existing `gh` | local developer machine |
+| Claude/Codex | developer's authenticated real CLI | local developer machine |
 
 ## 3. Architecture
 
 ```text
 Browser
 → Vercel SPA
-→ Azure Caddy/Fastify
+→ AWS EC2 Caddy/Fastify
    ├→ Supabase
-   └→ Runtime Manager
-       ├→ User A × Repo X runtime
-       └→ User B × Repo X runtime
+   └→ Connector presence/job relay
+       ├↔ User A × Repo X local connector
+       └↔ User B × Repo X local connector
 ```
 
-## 4. Azure sizing warning
+## 4. Sizing warning
 
-Do not freeze a tiny burstable VM without benchmarks.
-
-Fastify/Caddy is light. Agent execution may run:
-
-- Claude/Codex
-- Git
-- package install
-- builds/tests
-- multiple containers
-
-Evaluate:
-
-### A. One demo VM
-
-Fastest P0:
-
-```text
-Azure VM
-├─ Fastify/Caddy
-├─ Docker
-├─ User A runtime
-└─ User B runtime
-```
-
-Good for controlled hackathon; do not call it production-grade isolation.
-
-### B. Control-plane VM + Azure Container Apps/Jobs
-
-Cleaner separation. Azure Container Apps supports pay-per-use/scale-to-zero. Validate persistent auth/session/workspace requirements.
-
-### C. Control-plane VM + dedicated runtime VM
-
-Simple and predictable if Container Apps persistence is awkward.
-
-Benchmark before choosing.
+The EC2 control plane runs the API, connector presence/job relay, approvals, and
+product data integration—not Git, provider CLIs, builds, tests, or repository containers.
+Benchmark concurrent long-lived outbound connections, job envelopes, realtime
+fan-out, API traffic, and database latency before choosing an instance size.
 
 ## 5. Isolation unit
 
@@ -89,20 +59,21 @@ Conceptual trust unit:
 USER × REPOSITORY
 ```
 
-Require:
+Require across the cloud/local seam:
 
-- separate workspace
-- separate container/process boundary
-- no cross-user mounts
-- no sibling-repo visibility
-- remote messages cannot choose host paths
-- user credentials injected only to owning runtime
+- one opaque cloud binding per user × repository
+- local binding-to-workspace mapping never uploaded
+- no sibling-repo resolution
+- remote/cloud messages cannot choose local paths, executables, or commands
+- GitHub/provider credentials remain local and are never injected by cloud
 - bounded CPU/RAM/time/output
 - no Docker socket
 - log redaction
 - cleanup/revocation
 
-User-level GitHub/Claude/Codex credentials may be stored separately from repo-specific workspace/session state and injected only into that user's runtimes.
+The connector may reuse a developer's local provider authentication while
+keeping provider sessions and workspace scope project-specific. The cloud sees
+only safe provider availability.
 
 ## 6. Supabase responsibilities
 
@@ -117,7 +88,7 @@ conversations
 shared messages
 private-draft metadata/status
 provider status
-runtime bindings/status
+connector bindings/presence/status
 approvals
 audit events
 conversation memory summaries
@@ -127,35 +98,20 @@ Supabase currently supports Southeast Asia/Singapore.
 
 ## 7. Secret/credential storage
 
-Need stronger treatment than ordinary Postgres rows for:
-
-- GitHub CLI token/auth state
-- Claude auth
-- Codex auth
-- service secrets
-
-Compare:
-
-- Azure Key Vault
-- encrypted volume
-- protected per-user secret files
-- Supabase Vault where appropriate
-
-Do not store a shared plaintext `~/.config/gh/hosts.yml`.
+GitHub CLI, Claude, and Codex credentials remain local and must never appear in
+Postgres, a managed secret store, connector job payloads, frontend storage, or
+logs. AWS Secrets Manager (or SSM Parameter Store) remains appropriate for
+Telaegent service secrets and connector signing/verification keys only.
 
 ## 8. Runtime persistence
 
 Classify:
 
-### persistent or recreatable cache
-- repo checkout
-- package cache
+### local persistent or recreatable state
+- repo checkout/worktree and package cache
+- GitHub/provider auth
 - provider session state
-
-### sensitive persistent
-- GitHub auth
-- Claude auth
-- Codex auth
+- binding-to-workspace/provider mapping
 
 ### ephemeral
 - raw CLI streams
@@ -166,55 +122,51 @@ Classify:
 
 Telaegent durable memory must not depend on provider session survival.
 
-## 9. GitHub runtime requirements
+## 9. Local GitHub connector requirements
 
-Khoa's hypothesis:
+Khoa's local checks:
 
 ```bash
-gh auth login --web --git-protocol https
 gh auth status
-gh auth setup-git
+git remote get-url origin
+git rev-parse HEAD
 ```
 
 Infrastructure must answer:
 
-- TTY/PTY?
-- browser/device flow relay?
-- credential location?
-- behavior without keychain?
-- persistence across restart?
-- revocation/deletion?
-- per-user mount?
-- no secret logging?
+- how the connector authenticates to cloud and rotates its credential;
+- how presence/reconnect and job redelivery work;
+- how local proof expires and is revalidated;
+- how revocation reaches an offline connector;
+- how no credential, local path, or secret reaches logs/payloads.
 
 ## 10. Claude/Codex runtime requirements
 
 Coordinate with Phuong:
 
-- auth files/state
-- session state
-- Linux/container support
+- local auth files/state (never uploaded)
+- local session state
+- Windows/macOS/Linux support
 - network requirements
 - filesystem requirements
 - startup latency
 - timeout/cancel
 - auth expiry
 - session resume
-- credential vs repo-session separation
+- local credential vs repo-session separation
 
 ## 11. Latency
 
 Measure:
 
 ### onboarding
-- runtime provisioning
-- GitHub auth
-- provider auth
-- initial clone
+- connector install/start
+- connector authentication and repository registration
+- local GitHub/provider probes
 
 ### warm turn
 - API
-- runtime acquisition
+- connector delivery/acknowledgement
 - process startup
 - inference
 - repo inspection
@@ -229,7 +181,7 @@ Produce actual current estimates after benchmark for:
 
 ### Hackathon
 - Vercel
-- Azure control/runtime compute
+- AWS EC2 control-plane/relay compute
 - Supabase
 - storage/bandwidth
 
@@ -237,13 +189,13 @@ Produce actual current estimates after benchmark for:
 Major cost scales with:
 
 ```text
-runtime minutes
+connected connector/job relay traffic
 concurrency
-persistent disk
-repo cache
+realtime/database usage
 ```
 
-The connector fallback would reduce this substantially, which is why it remains worth documenting.
+Local execution keeps provider compute, repository storage, and build/test cost
+off Telaegent cloud; include connector bandwidth and support cost.
 
 ## 13. Realtime
 
@@ -258,31 +210,32 @@ Simplest reliable option wins.
 
 ## 14. Local development
 
-Local dev may simulate cloud:
+Local development uses the same split:
 
 ```text
 localhost Vite
 localhost Fastify
 local/test Supabase/Postgres
-Docker runtime A
-Docker runtime B
+local connector A
+local connector B
 ```
 
-No LAN/peer-to-peer requirement.
+Connectors talk outbound to localhost just as they talk outbound to production.
+No LAN/peer-to-peer or inbound-port requirement.
 
 ## 15. Failure/recovery
 
 Define:
 
 - backend restart
-- runtime crash
+- connector/local provider crash
 - VM reboot
 - GitHub revoked
 - provider auth expired
-- repo corrupt
+- local repo unavailable
 - provider session lost
 - Supabase unavailable
-- runtime queue congestion
+- connector offline or job queue congestion
 - repo disconnect
 - account deletion
 
@@ -290,22 +243,18 @@ Failed private runtime must never create a shared message.
 
 ## 16. Security claims
 
-Do not claim:
-
-- repo contents never reach Telaegent cloud
-- provider credentials never reach Telaegent cloud
-- zero knowledge
-- E2E encryption
-- production multi-tenancy
-
-Those belonged to the connector alternative, not cloud-only architecture.
+Do not claim zero knowledge, E2E encryption, perfect local sandboxing, or
+execution while the connector is offline. Do state the enforced architecture:
+repository checkouts and GitHub/provider credentials are local-only and must
+not be uploaded to Telaegent cloud.
 
 ## 17. Deliverables
 
 - architecture diagram
-- exact Azure P0 recommendation
-- VM/runtime benchmark
-- isolation design
+- exact EC2 control-plane/relay P0 recommendation
+- connector transport and concurrency benchmark
+- connector authentication, presence, reconnect, and job delivery design
+- local binding/isolation requirements
 - Supabase responsibility matrix
 - secret-storage recommendation
 - latency numbers
@@ -313,15 +262,14 @@ Those belonged to the connector alternative, not cloud-only architecture.
 - small-beta cost
 - deployment checklist
 - recovery design
-- fallback connector architecture in separate notes
+- connector install/update/revocation checklist
 
 ## 18. Do not do
 
-- no canonical local connector
-- no shared unrestricted `$HOME`
-- no ordinary DB storage for provider/GitHub secrets
+- no cloud-hosted provider/GitHub CLI or repository clone
+- no cloud database/storage for provider/GitHub secrets or local paths
+- no arbitrary command/path in connector jobs
 - no unbenchmarked tiny VM freeze
 - no Kubernetes unless absolutely necessary
-- no fake "repos stay local" claim
+- no claim that the connector works while the developer machine is offline
 - no overbuilt realtime stack
-

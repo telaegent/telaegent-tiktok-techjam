@@ -1,0 +1,302 @@
+{
+  "created": {
+    "state": "created",
+    "turnId": null,
+    "draftId": "a4000000-0000-4000-8000-000000000001",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:00:00.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "running": {
+    "state": "agent_working",
+    "turnId": "a5000000-0000-4000-8000-000000000001",
+    "draftId": "a4000000-0000-4000-8000-000000000001",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:00:01.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "needsClarification": {
+    "state": "needs_clarification",
+    "turnId": "a5000000-0000-4000-8000-000000000001",
+    "draftId": "a4000000-0000-4000-8000-000000000001",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [
+      "ambiguous_request"
+    ],
+    "updatedAt": "2026-08-31T09:00:02.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [
+      {
+        "text": "which storefront?",
+        "speaker": "agent"
+      }
+    ],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [
+      {
+        "code": "GUARD_EMPTY_CANDIDATE",
+        "safeReason": "The draft had nothing to send.",
+        "impliedFlag": "ambiguous_request"
+      }
+    ],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": "which storefront?",
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "clarified": {
+    "state": "created",
+    "turnId": null,
+    "draftId": "a4000000-0000-4000-8000-000000000001",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:00:03.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [
+      {
+        "text": "which storefront?",
+        "speaker": "agent"
+      },
+      {
+        "text": "only the EU storefront",
+        "speaker": "owner"
+      }
+    ],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "rerunning": {
+    "state": "agent_working",
+    "turnId": "a5000000-0000-4000-8000-000000000002",
+    "draftId": "a4000000-0000-4000-8000-000000000001",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:00:04.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [
+      {
+        "text": "which storefront?",
+        "speaker": "agent"
+      },
+      {
+        "text": "only the EU storefront",
+        "speaker": "owner"
+      }
+    ],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "ready": {
+    "state": "ready",
+    "turnId": "a5000000-0000-4000-8000-000000000002",
+    "draftId": "a4000000-0000-4000-8000-000000000001",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:00:05.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [
+      {
+        "text": "which storefront?",
+        "speaker": "agent"
+      },
+      {
+        "text": "only the EU storefront",
+        "speaker": "owner"
+      }
+    ],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [],
+    "sendCandidate": "Rounding is applied before tax.",
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": "Rounding is applied before tax.",
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "sent": {
+    "message": {
+      "body": "Rounding is applied before tax.",
+      "origin": "agent",
+      "sentAt": "2026-08-31T09:00:06.000Z",
+      "provider": "codex",
+      "messageId": "a6000000-0000-4000-8000-000000000001",
+      "senderUserId": "a1000000-0000-4000-8000-000000000001",
+      "conversationId": "a3000000-0000-4000-8000-000000000001",
+      "githubRepositoryId": "9223372036854775807"
+    },
+    "approval": {
+      "draftId": "a4000000-0000-4000-8000-000000000001",
+      "messageId": "a6000000-0000-4000-8000-000000000001",
+      "approvalId": "a7000000-0000-4000-8000-000000000001",
+      "approvedAt": "2026-08-31T09:00:06.000Z",
+      "actorUserId": "a1000000-0000-4000-8000-000000000001",
+      "approvedBody": "Rounding is applied before tax.",
+      "idempotencyKey": "send-1"
+    },
+    "replayed": false
+  },
+  "fetched": {
+    "state": "sent",
+    "turnId": "a5000000-0000-4000-8000-000000000002",
+    "draftId": "a4000000-0000-4000-8000-000000000001",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:00:06.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [
+      {
+        "text": "which storefront?",
+        "speaker": "agent"
+      },
+      {
+        "text": "only the EU storefront",
+        "speaker": "owner"
+      }
+    ],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [],
+    "sendCandidate": "Rounding is applied before tax.",
+    "sentMessageId": "a6000000-0000-4000-8000-000000000001",
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": "Rounding is applied before tax.",
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "listed": [
+    {
+      "body": "Rounding is applied before tax.",
+      "origin": "agent",
+      "sentAt": "2026-08-31T09:00:06.000Z",
+      "provider": "codex",
+      "messageId": "a6000000-0000-4000-8000-000000000001",
+      "senderUserId": "a1000000-0000-4000-8000-000000000001",
+      "conversationId": "a3000000-0000-4000-8000-000000000001",
+      "githubRepositoryId": "9223372036854775807"
+    }
+  ],
+  "createdSecond": {
+    "state": "created",
+    "turnId": null,
+    "draftId": "a4000000-0000-4000-8000-000000000002",
+    "failure": null,
+    "provider": "claude",
+    "createdAt": "2026-08-31T09:01:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:01:00.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [],
+    "roughMessage": "check the retry policy",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "runningSecond": {
+    "state": "agent_working",
+    "turnId": "a5000000-0000-4000-8000-000000000003",
+    "draftId": "a4000000-0000-4000-8000-000000000002",
+    "failure": null,
+    "provider": "claude",
+    "createdAt": "2026-08-31T09:01:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:01:01.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [],
+    "roughMessage": "check the retry policy",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "failed": {
+    "state": "runtime_failed",
+    "turnId": "a5000000-0000-4000-8000-000000000003",
+    "draftId": "a4000000-0000-4000-8000-000000000002",
+    "failure": {
+      "code": "RUNTIME_UNAVAILABLE",
+      "message": "No local connector is attached",
+      "retryable": true
+    },
+    "provider": "claude",
+    "createdAt": "2026-08-31T09:01:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:01:02.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [],
+    "roughMessage": "check the retry policy",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": "The agent could not run.",
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "cancelled": {
+    "state": "cancelled",
+    "turnId": "a5000000-0000-4000-8000-000000000003",
+    "draftId": "a4000000-0000-4000-8000-000000000002",
+    "failure": {
+      "code": "RUNTIME_UNAVAILABLE",
+      "message": "No local connector is attached",
+      "retryable": true
+    },
+    "provider": "claude",
+    "createdAt": "2026-08-31T09:01:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:01:03.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [],
+    "roughMessage": "check the retry policy",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": "The agent could not run.",
+    "githubRepositoryId": "9223372036854775807"
+  }
+}

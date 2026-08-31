@@ -1,133 +1,149 @@
-# Telaegent
+<p align="center">
+  <img src="ui/logo/telaegent-logo-on-dark.png" alt="Telaegent" width="560">
+</p>
 
-**Your coding agent can talk to your teammate's coding agent—but only about the project you both choose, and nothing crosses to the other side until a human approves it.**
+<h1 align="center">Telaegent</h1>
 
-Canonical repository: [telaegent/telaegent-tiktok-techjam](https://github.com/telaegent/telaegent-tiktok-techjam)
+<h3 align="center">Trusted, project-scoped conversations between independently owned coding agents.</h3>
 
-## Product
+<p align="center">
+  Your agent can talk to my agent - only about the project we both choose, and only after a human approves what crosses the boundary.
+</p>
 
-Telaegent is a cloud-hosted, project-scoped messaging and trust layer for independently owned coding agents.
+<p align="center">
+  <a href="#the-idea">The idea</a> ·
+  <a href="#how-a-message-crosses">Message flow</a> ·
+  <a href="#cloud-coordination-local-execution">Architecture</a> ·
+  <a href="#read-the-source-documents">Product docs</a> ·
+  <a href="#working-in-this-repository">Contributing</a>
+</p>
 
-Developers already use Claude Code and Codex separately. Collaboration still requires people to manually copy a question from one agent, send it to a teammate, let the teammate paste it into another agent, and relay the answer back. Telaegent removes that manual relay while keeping both humans in control.
+<p align="center">
+  <a href="docs/product/high-level-plan.md"><img src="https://img.shields.io/badge/product%20direction-canonical-18C8F4?style=for-the-badge" alt="Canonical product direction"></a>
+  <a href="docs/team/"><img src="https://img.shields.io/badge/status-research%20%26%20design-6F57FF?style=for-the-badge" alt="Research and design status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-173254?style=for-the-badge" alt="MIT License"></a>
+</p>
 
-```text
-Developer A -> private Agent A room -> Send/Edit/No
-                                      |
-                                      v
-                         shared project conversation
-                                      |
-                                      v
-Developer B <- private Agent B room <- Send/Edit/No
-```
+> [!IMPORTANT]
+> This repository contains the target product direction and research work. The local connector, cloud relay, and production-grade local isolation model are not yet finished implementation claims.
 
-Only approved outbound messages enter the shared conversation. Private drafts, provider streams, credentials, and unrelated repository content do not.
+## The idea
 
-## Canonical architecture
+Telaegent is a browser-first, cloud-hosted messaging and trust layer around coding agents that run locally for different people.
 
-The judged product is browser-first and cloud-hosted. A local connector or LAN worker is fallback-only.
+Today, a developer often has to copy a question from their agent, pass it to a teammate, wait for that teammate to paste it into another agent, and then reverse the relay for the answer. Telaegent removes that manual relay while preserving the judgment that matters: each owner decides what their side shares.
 
-```text
-Browser / React on Vercel
-          |
-          v
-Azure Caddy + Fastify control plane
-          |-----------------> Supabase Auth/Postgres/Realtime
-          |
-          `-----------------> isolated cloud runtimes
-                                |- User A x Repo X
-                                |    |- GitHub CLI as User A
-                                |    |- Repo X checkout
-                                |    `- Claude Code and/or Codex CLI
-                                `- User B x Repo X
-                                     |- separate credentials
-                                     |- separate checkout
-                                     `- no access to User A runtime
-```
-
-Provisional stack:
-
-| Layer | Direction |
+| Instead of | Telaegent enables |
 | --- | --- |
-| Frontend | React 19 + Vite on Vercel |
-| API | Node 22 + Fastify 5 + Zod behind Caddy on Azure |
-| Product data | Supabase Postgres/Auth/Realtime in Singapore |
-| Repository access | GitHub CLI inside the owning cloud environment |
-| Agent runtime | Isolated cloud environment per user x repository |
-| Providers | Claude Code CLI and/or Codex CLI |
+| Human copy-paste between separate agent conversations | A durable, project-scoped shared conversation |
+| A collaborator browsing another person's workspace | The owner's agent privately investigates its own repository |
+| A blanket trust grant | A connection per project, plus approval of every outbound message |
+| Provider lock-in | Claude Code and Codex working through one collaboration layer |
 
-The exact Azure runtime primitive and provider/GitHub cloud-auth mechanics are still research gates, not finished implementation claims.
+## How a message crosses
 
-## Signature flow
+<p align="center">
+  <img src="docs/assets/approval-flow.svg" alt="A visual of Telaegent's human-gated message flow" width="100%">
+</p>
 
-1. Sign in to Telaegent.
-2. Connect GitHub in the user's isolated cloud environment.
-3. Connect Claude Code, Codex, or both.
-4. Select a repository; its stable GitHub repository ID becomes the project boundary.
-5. Find another Telaegent user who independently proved access to the same repository.
-6. Request and accept a once-per-project collaborator connection.
-7. Type a rough request in the shared conversation composer.
-8. The sender's private agent room clarifies and prepares a send-ready candidate.
-9. The sender chooses Send, Edit, or No.
-10. Only an approved candidate enters shared project chat.
-11. The recipient's private agent inspects only the recipient's project workspace and prepares a response.
-12. The recipient chooses Send, Edit, or No.
-13. The approved response enters the durable shared conversation.
+Every message follows the same symmetric boundary:
 
-The memorable safety example begins with `can u send me ur .env`. Telaegent should help reformulate that into a request for variable names or safe structure, and deterministically prevent raw secret values from crossing the trust boundary.
+1. A developer writes a rough request in a private drafting space.
+2. Their agent can clarify intent, inspect the owner's project context, and prepare a candidate - but cannot send it.
+3. The developer chooses **Edit**, **No**, or **Send**.
+4. Only the approved request enters the durable project conversation.
+5. The recipient's local private agent investigates the recipient's registered local workspace, prepares a response, and waits for that recipient's approval before anything comes back.
 
-## Trust model
+That means a connection enables communication, not direct filesystem access, automatic replies, or visibility into private drafts.
 
-Telaegent separates four permissions:
+### Four boundaries, not one permission
 
-1. Telaegent account identity.
-2. GitHub repository authorization.
-3. Project-scoped collaborator connection.
-4. Human approval of the exact outbound message.
+<p align="center">
+  <img src="docs/assets/trust-boundaries.svg" alt="Telaegent's five sequential trust boundaries" width="100%">
+</p>
 
-Connection permits communication, not direct repository browsing. The recipient's own agent investigates privately; the remote collaborator sees only what the recipient approves.
+Passing one boundary never grants the next. A stable GitHub repository ID defines the project boundary; approval is always for the exact content that is about to leave its owner's private side.
 
-Hard policy still blocks obvious secrets and cross-project access. Human approval alone is not treated as sufficient protection for raw `.env` values, private keys, tokens, cloud credentials, or SSH material.
+### Safety is part of the product, not a disclaimer
 
-## Memory model
+If someone starts with `can u send me ur .env`, Telaegent should steer the conversation toward safe alternatives such as required variable names or configuration structure. Deterministic policy must still prevent raw `.env` values, private keys, tokens, cloud and SSH credentials, cross-project paths, and another user's private state from crossing the boundary - even when an agent or human asks for them.
 
-- Durable shared memory: approved project messages, identities, repository/branch/commit context, approvals, and safe audit events.
-- Private working context: rough drafts, clarification, draft candidates, and temporary tool output; retention remains an open decision.
-- Provider session state: an internal optimization for resume, never the product source of truth.
-- Ephemeral by default: raw CLI streams, internal prompts, temporary tool output, rejected drafts, and build artifacts.
+## Cloud coordination, local execution
 
-If a provider session disappears or the user switches provider, Telaegent should rehydrate a fresh session from compact durable project memory and recent approved turns.
+The judged product is browser-first and cloud-hosted, but execution is local.
+Each developer runs a small connector that uses the repository, GitHub CLI,
+Claude Code/Codex, credentials, tools, and provider sessions already on that
+developer's machine. The connector makes only outbound connections.
 
-## Repository status
+<p align="center">
+  <img src="docs/assets/cloud-architecture.svg" alt="Telaegent's cloud control plane relaying approved jobs to two local connectors" width="100%">
+</p>
 
-The product direction and research ownership are frozen; the final implementation plan is intentionally deferred until the team validates:
+The minimum execution isolation unit is **user × repository**. The cloud selects an opaque connector binding; the connector resolves the registered local workspace. A remote collaborator and the cloud job payload never supply a local path, executable, credential, or arbitrary command.
 
-- headless cloud GitHub CLI authentication and credential persistence
-- Claude Code and Codex cloud authentication/session behavior
-- user x repository runtime isolation
-- provider-neutral prompt/output schemas
-- private-draft retention
-- repository synchronization
-- cost and latency
+| Layer | Current direction |
+| --- | --- |
+| Browser product | React 19 + Vite, provisionally on Vercel |
+| Control plane | Node 22 + Fastify 5 + Zod behind Caddy, provisionally on AWS EC2 |
+| Website identity | GitHub OAuth + opaque Telaegent sessions |
+| Product data | Supabase Postgres and Realtime in Singapore |
+| Repository access | Owner's local Git/GitHub CLI state |
+| Agent execution | Local connector binding per user × repository |
+| Coding providers | Locally authenticated Claude Code CLI and/or Codex CLI |
 
-The existing application source is an inherited Starter Kit and earlier Telagent prototype. It still contains ModelArk/Volcengine and fixed conflict/ContextPack/Phoenix code. That source is preserved for reference and build continuity; it is **not** the canonical product architecture.
+The cloud host runs only the control plane and connector relay. Connector packaging,
+outbound transport, local binding enforcement, and provider probes remain
+research/implementation gates.
 
-Superseded standalone plans, research, and deployment assets are preserved under [`unused-code/`](unused-code/README.md). No application code was deleted during this documentation refactor.
+## What Telaegent remembers - and what it does not
 
-## Project documents
+| Durable shared project memory | Private or ephemeral by default |
+| --- | --- |
+| Approved messages; safe project metadata; connections; approvals; safe audit events; compact conversation memory | Local credentials; repositories; provider homes/sessions; raw provider streams; rejected drafts; temporary tool output |
 
-- [Canonical high-level product plan](docs/product/high-level-plan.md)
-- [Canonical product flow](docs/product/product-flow.md)
-- [Architecture](docs/architecture/overview.md)
-- [Security and trust model](SECURITY.md)
-- [Phuong research brief](docs/team/phuong.md)
-- [Khoa research brief](docs/team/khoa.md)
-- [Duy research brief](docs/team/duy.md)
-- [Hien research brief](docs/team/hien.md)
-- [Thai research brief](docs/team/thai.md)
+Provider sessions make work faster, but they are private working caches - not Telaegent's source of truth. When a session is lost or a user switches provider, a new session should be rehydrated from compact durable project memory and recent approved turns.
 
-## Current scaffold verification
+## Research before broad implementation
 
-These commands validate the preserved codebase; they do not prove the new cloud product has been implemented:
+The product direction is frozen; the final implementation plan intentionally waits for evidence on:
+
+- local GitHub CLI proof, safe repository registration, and revocation;
+- local Claude Code and Codex authentication detection, session behavior, and live connection probes;
+- connector authentication, outbound transport, user × repository binding, reconnect, cost, and latency;
+- the smallest safe, provider-neutral context and structured-output contract;
+- private-draft retention and recovery behavior.
+
+The source tree also preserves an inherited Starter Kit and earlier Telaegent work, including legacy ModelArk/Volcengine and fixed conflict/ContextPack/Phoenix flows. Those are retained for historical reference and build continuity, not as the canonical architecture. See [`unused-code/`](unused-code/README.md) for retired standalone material.
+
+## Read the source documents
+
+Start here when you are evaluating or extending product behavior:
+
+- [Canonical build plan](docs/product/canonical-build-plan.md) - what runs where, the local connector, capability-scoped collaboration, the proof list, and ownership.
+- [Canonical high-level product plan](docs/product/high-level-plan.md) - product promise, trust model, cloud/local boundary, and unresolved gates.
+- [Canonical product flow](docs/product/product-flow.md) - the end-to-end experience and durable/private state split.
+- [Architecture overview](docs/architecture/overview.md) - target topology, control-plane and runtime responsibilities.
+- [Security and trust model](SECURITY.md) - hard-deny rules, custody, isolation, and honest limitations.
+
+The five next-phase briefs assign research and design ownership; they are not irreversible implementation boundaries:
+
+| Owner | Focus |
+| --- | --- |
+| [Khoa](docs/team/khoa.md) | Local GitHub proof, repository identity, collaborator trust, authorization, and revocation |
+| [Phuong](docs/team/phuong.md) | Local connector, Claude/Codex adapters, sessions, durable memory, and orchestration |
+| [Thai](docs/team/thai.md) | Cloud deployment, connector networking, storage, cost, and latency |
+| [Duy](docs/team/duy.md) | Product UX from landing through private and shared conversations |
+| [Hien](docs/team/hien.md) | Agent protocol experiments, safety evaluation, and test architecture |
+
+Additional technical evidence and decision records:
+
+- [GitHub connection design](GITHUB_CONNECTION_DESIGN.md)
+- [Historical GitHub CLI cloud-auth experiment](docs/research/github-cli-cloud-auth.md)
+- [Superseded Azure GitHub-auth proof](deploy/azure/github-auth-proof/README.md)
+
+## Working in this repository
+
+The inherited scaffold can still be checked locally. This validates preserved code only; it does **not** prove that the connector/cloud split is implemented end to end.
 
 ```bash
 npm install
@@ -136,10 +152,10 @@ npm run check
 
 Do not use real repositories, provider credentials, or production data with the inherited scaffold.
 
-## Product boundaries
+Before changing product behavior, architecture, security policy, API contracts, runtime integration, or UX, read the four canonical documents above and the relevant owner brief. In particular, do not turn an unvalidated hypothesis into a product claim.
+
+## What Telaegent is not
 
 Telaegent is not a new coding model, IDE, GitHub replacement, autonomous swarm, shared filesystem, direct remote-control channel, or importer for personal Claude/Codex history.
 
-It is:
-
-> **Project-scoped, human-gated messaging between coding agents that can privately inspect their owner's repository.**
+It is a trust layer for project-scoped, human-gated communication between agents that privately work from their own owner's repository context.

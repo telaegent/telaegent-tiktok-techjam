@@ -1,0 +1,81 @@
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { z } from "zod";
+import { isGitHubRepositoryId } from "../authorization/github-repository-id.js";
+import { setPrivateNoStore } from "../http-cache.js";
+import type { ConnectorPrincipal } from "./contract.js";
+import type { RepositoryProofService } from "./service.js";
+
+const repositoryParamsSchema = z.strictObject({
+  githubRepositoryId: z
+    .string()
+    .refine((value) => isGitHubRepositoryId(value)),
+});
+
+/**
+ * Implemented by Phuong's connector transport/authentication boundary.
+ * It must authenticate the connector credential and return the account and
+ * installation identity bound to that credential. Body fields are never used
+ * to establish either identity.
+ */
+export type ConnectorPrincipalResolver = (
+  request: FastifyRequest,
+) => Promise<ConnectorPrincipal>;
+
+export interface RepositoryProofRouteDependencies {
+  service: RepositoryProofService;
+  resolveConnectorPrincipal: ConnectorPrincipalResolver;
+  onBindingRegistered?: (
+    principal: Readonly<ConnectorPrincipal>,
+    connectorBindingId: string,
+    githubRepositoryId: string,
+  ) => void | Promise<void>;
+  onBindingUnavailable?: (
+    principal: Readonly<ConnectorPrincipal>,
+    githubRepositoryId: string,
+  ) => void | Promise<void>;
+}
+
+export const connectorAuthenticatedRepositoryProofRoutes = new Set([
+  "/api/connectors/repository-proofs",
+  "/api/connectors/repositories/:githubRepositoryId/unavailable",
+]);
+
+export function registerRepositoryProofRoutes(
+  app: FastifyInstance,
+  dependencies: RepositoryProofRouteDependencies,
+): void {
+  app.post("/api/connectors/repository-proofs", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const principal = await dependencies.resolveConnectorPrincipal(request);
+    const result = await dependencies.service.register(principal, request.body);
+    await dependencies.onBindingRegistered?.(
+      principal,
+      result.connectorBindingId,
+      result.githubRepositoryId,
+    );
+    return reply.code(result.replayed ? 200 : 201).send({ binding: result });
+  });
+
+  app.post(
+    "/api/connectors/repositories/:githubRepositoryId/unavailable",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const principal = await dependencies.resolveConnectorPrincipal(request);
+      const params = repositoryParamsSchema.parse(request.params);
+      const binding = await dependencies.service.markUnavailable(
+        principal,
+        params.githubRepositoryId,
+        request.body,
+      );
+      // Await the relay boundary so a successful response means both durable
+      // authorization and transient execution have been revoked. The callback
+      // is also invoked for idempotent replays, allowing a retry to heal an
+      // earlier process-local callback failure.
+      await dependencies.onBindingUnavailable?.(
+        principal,
+        binding.githubRepositoryId,
+      );
+      return reply.send({ binding });
+    },
+  );
+}

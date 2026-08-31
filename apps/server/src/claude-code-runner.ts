@@ -5,14 +5,21 @@ import { RunCancelledError } from "./errors.js";
 import type {
   JsonSchemaDocument,
   MiddlewareProviderRunner,
-  MiddlewareRunRequest,
+  LocalMiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeProviderCapability,
+  RuntimeProgressEvent,
+  RuntimeProgressSink,
 } from "./runtime-contract.js";
 import {
   RuntimeProviderError,
   classifyProviderFailure,
 } from "./runtime-errors.js";
+import { RuntimeWatchdog } from "./runtime-watchdog.js";
+import {
+  onRuntimeCancellation,
+  throwIfRuntimeCancelled,
+} from "./runtime-cancellation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,7 +31,7 @@ export interface ParsedClaudeEvents {
 }
 
 export function buildClaudeArgs(
-  request: MiddlewareRunRequest,
+  request: LocalMiddlewareRunRequest,
   outputSchema: JsonSchemaDocument,
 ): string[] {
   if (request.networkMode === "none" && request.sandboxMode === "workspace-write") {
@@ -45,6 +52,8 @@ export function buildClaudeArgs(
     "-p",
     "--output-format",
     "stream-json",
+    "--verbose",
+    "--include-partial-messages",
     "--json-schema",
     JSON.stringify(outputSchema),
     "--max-turns",
@@ -67,15 +76,27 @@ export function buildClaudeArgs(
   if (request.sessionMode === "continue" && request.sessionId) {
     args.push("--resume", request.sessionId);
   }
-  if (request.sessionMode !== "continue") {
+  if (request.sessionMode === "ephemeral") {
     args.push("--no-session-persistence");
   }
   return args;
 }
 
+function emitProgress(
+  onProgress: RuntimeProgressSink | undefined,
+  event: RuntimeProgressEvent,
+): void {
+  try {
+    onProgress?.(event);
+  } catch {
+    // UI progress is best-effort and must never fail the provider run.
+  }
+}
+
 export function parseClaudeStreamLine(
   line: string,
   parsed: ParsedClaudeEvents,
+  onProgress?: RuntimeProgressSink,
 ): void {
   if (!line.trim()) return;
   let event: Record<string, unknown>;
@@ -88,8 +109,48 @@ export function parseClaudeStreamLine(
     );
   }
 
-  if (typeof event.session_id === "string") {
+  if (
+    typeof event.session_id === "string" &&
+    event.session_id !== parsed.sessionId
+  ) {
     parsed.sessionId = event.session_id;
+    emitProgress(onProgress, {
+      type: "session_started",
+      provider: "claude",
+    });
+  }
+
+  if (event.type === "system" && event.subtype === "api_retry") {
+    emitProgress(onProgress, {
+      type: "retrying",
+      provider: "claude",
+      attempt: typeof event.attempt === "number" ? event.attempt : 1,
+      maxRetries:
+        typeof event.max_retries === "number" ? event.max_retries : 1,
+      retryDelayMs:
+        typeof event.retry_delay_ms === "number" ? event.retry_delay_ms : 0,
+    });
+  }
+
+  if (event.type === "stream_event" && event.event && typeof event.event === "object") {
+    const streamEvent = event.event as Record<string, unknown>;
+    if (streamEvent.type === "message_start") {
+      emitProgress(onProgress, { type: "turn_started", provider: "claude" });
+    }
+    if (
+      streamEvent.type === "content_block_delta" &&
+      streamEvent.delta &&
+      typeof streamEvent.delta === "object"
+    ) {
+      const delta = streamEvent.delta as Record<string, unknown>;
+      if (delta.type === "text_delta" && typeof delta.text === "string") {
+        emitProgress(onProgress, {
+          type: "text_delta",
+          provider: "claude",
+          text: delta.text,
+        });
+      }
+    }
   }
   if (event.type !== "result") return;
 
@@ -104,6 +165,7 @@ export function parseClaudeStreamLine(
       typeof event.result === "string" ? event.result : "Claude Code reported an error",
     );
   }
+  emitProgress(onProgress, { type: "turn_completed", provider: "claude" });
 }
 
 export function extractClaudeFinalResult(parsed: ParsedClaudeEvents): unknown {
@@ -177,9 +239,12 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
   }
 
   async runStructured(
-    request: MiddlewareRunRequest,
+    request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
+    onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<NormalizedRunResult> {
+    throwIfRuntimeCancelled(signal);
     if (this.active.has(request.agentId)) {
       throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
     }
@@ -205,6 +270,10 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
       forceKillTimer: null,
     };
     this.active.set(request.agentId, active);
+    const removeCancellationListener = onRuntimeCancellation(signal, () => {
+      active.cancelled = true;
+      this.terminate(active);
+    });
 
     const parsed: ParsedClaudeEvents = {
       sessionId: request.sessionMode === "continue" ? request.sessionId ?? null : null,
@@ -217,7 +286,17 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
     let totalBytes = 0;
     let parseFailure: RuntimeProviderError | null = null;
 
+    const watchdog = new RuntimeWatchdog(
+      this.config.runtimeIdleTimeoutMs,
+      this.config.claudeTimeoutMs,
+      () => {
+        active.timedOut = true;
+        this.terminate(active);
+      },
+    );
+
     const consume = (chunk: Buffer, target: "stdout" | "stderr") => {
+      watchdog.activity();
       totalBytes += chunk.byteLength;
       if (totalBytes > this.config.claudeMaxOutputBytes) {
         active.outputExceeded = true;
@@ -234,7 +313,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
       stdout = lines.pop() ?? "";
       for (const line of lines) {
         try {
-          parseClaudeStreamLine(line, parsed);
+          parseClaudeStreamLine(line, parsed, onProgress);
         } catch (error) {
           parseFailure = error as RuntimeProviderError;
           this.terminate(active);
@@ -245,11 +324,6 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
 
     child.stdout?.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
     child.stderr?.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
-    const timeout = setTimeout(() => {
-      active.timedOut = true;
-      this.terminate(active);
-    }, this.config.claudeTimeoutMs);
-    timeout.unref();
 
     try {
       let exitCode: number;
@@ -262,7 +336,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
         throw classifyClaudeFailure(error);
       }
       if (stdout.trim() && !parseFailure) {
-        parseClaudeStreamLine(stdout.trim(), parsed);
+        parseClaudeStreamLine(stdout.trim(), parsed, onProgress);
       }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {
@@ -281,7 +355,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
       const final = extractClaudeFinalResult(parsed);
       return {
         provider: "claude",
-        ...(request.sessionMode === "continue" && parsed.sessionId
+        ...(request.sessionMode !== "ephemeral" && parsed.sessionId
           ? { sessionId: parsed.sessionId }
           : {}),
         final,
@@ -290,7 +364,8 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
         durationMs: Date.now() - startedAt,
       };
     } finally {
-      clearTimeout(timeout);
+      removeCancellationListener();
+      watchdog.stop();
       if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
       this.active.delete(request.agentId);
     }

@@ -8,9 +8,13 @@
 
 # 1. Product you are designing
 
-### Architecture note: cloud-only
+### Architecture note: cloud product, local execution
 
-The judged product has **no required local connector**. GitHub CLI, repository checkout, Claude Code/Codex CLI, and Telaegent-created provider sessions run in isolated cloud environments.
+The judged product requires a small local connector. GitHub CLI, the selected
+repository/worktree, Claude Code/Codex, credentials, tools, and provider
+sessions stay on the developer's machine. The browser and cloud control plane
+show connector status and route bounded jobs; they never choose a local path or
+run a provider CLI.
 
 
 Telaegent lets:
@@ -29,7 +33,9 @@ Landing
 Sign in
   ↓
 Connect GitHub
-  ↓
+        ↓
+Run/connect local Telaegent connector
+        ↓
 Connect Claude Code / Codex
   ↓
 Choose repository
@@ -136,41 +142,45 @@ Design the exact first-run experience.
 
 ## Step 1 — Telaegent identity
 
-Telaegent identity is handled through the cloud product, provisionally Supabase Auth.
+Telaegent identity is established through GitHub OAuth and resumed through an
+opaque, HttpOnly Telaegent browser session. Supabase persists hashed session
+records but does not authenticate the browser through Supabase Auth.
 
-Signing into Telaegent is conceptually separate from authorizing the cloud GitHub CLI to access private repositories.
+Signing into Telaegent is conceptually separate from the developer's local GitHub CLI identity and repository proof.
 
-## Step 2 — GitHub cloud connection
+## Step 2 — Local connector and GitHub proof
 
-Current P0 direction is GitHub CLI auth inside the user's cloud environment.
-
-The frontend should support the real observed headless flow, for example:
+Current P0 direction is `telaegent connect .` (or equivalent) in the selected
+local repository. The frontend should support a handoff/status flow such as:
 
 ```text
-Connect GitHub
+Connect this repository
 
-Open GitHub:
-github.com/login/device
+Run locally:
+telaegent connect .
 
-Code:
-ABCD-EFGH
-
-[ Open GitHub ]
-
-Waiting for authorization…
+Waiting for connector…
 ```
 
-Do not hard-code this exact URL/code UX until Khoa has tested the actual CLI behavior.
+If local `gh auth status` fails, tell the user to authenticate GitHub CLI
+locally and retry. Never imply Telaegent cloud stores that GitHub login.
 
 After success:
 
 ```text
+Local connector
+✓ Online
+
 GitHub
-✓ Connected as @phuong
-[ Choose repositories ]
+✓ Verified locally as @phuong
+
+Repository
+✓ telaegent/backend · feat/auth · 81ad2e
 ```
 
-The repo picker must include repos accessible through ownership, collaboration, or organization membership.
+P0 may register one deliberately selected local repository at a time. A future
+local picker may include repos accessible through ownership, collaboration, or
+organization membership without uploading the whole list by default.
 
 ## Step 3 — Coding agent
 
@@ -190,6 +200,7 @@ Possible states:
 Not connected
 Connecting…
 Connected
+Connector offline
 Reconnect required
 Unavailable
 ```
@@ -547,6 +558,68 @@ What this does not allow
 
 That card itself explains the product.
 
+## 12.1 Scope-expansion approval
+
+The connection card is the once-per-project decision. This is the smaller,
+in-task one, and it is a screen only you can make safe.
+
+[Canonical build plan section 8](../product/canonical-build-plan.md): when a
+collaborator's agent needs a file the owner has not granted for this task, the
+owner is asked. When the owner has already granted it, nothing is shown - the
+request is served silently, which is the point.
+
+```text
+B's agent needs:
+src/settings.ts
+
+Reason:
+"LandingPage.tsx imports configuration from this file."
+
+Permission:
+READ ONLY
+
+[Deny] [Allow once] [Allow for this task]
+```
+
+Requirements:
+
+- Name the exact file. Never a directory, a glob, or "some related files".
+- Show the access level literally. P0 is read-only; there is no write option.
+- The reason line comes from the requesting agent. Present it as a **claim**,
+  not as a finding. Do not style it like a Telaegent statement of fact.
+- **Allow once** serves this request only. **Allow for this task** adds that one
+  file to the task's read-only scope, so later requests for it resolve without
+  asking again. Say which one is which in the UI, not only in a tooltip.
+- Say plainly that "for this task" covers later versions of that file until the
+  task ends or the owner revokes.
+- `Deny` must be a real answer, not a dead end. Show what the agent does next.
+
+The three failure modes to design against:
+
+1. **Approval fatigue.** If a task shows six of these, the owner stops reading.
+   Batch related requests in one round rather than one prompt per file.
+2. **Persuasion.** The reason text is agent-authored. A well-written reason must
+   not make a broad grant feel routine.
+3. **Invisible accumulation.** The owner needs a place to see what this task has
+   been served and to revoke mid-task - see 12.2.
+
+## 12.2 Granted-scope panel
+
+Somewhere in the task or conversation view, the owner must be able to answer
+"what has my side handed over for this?" without reading the transcript.
+
+```text
+Shared for this task
+
+src/LandingPage.tsx   read-only   granted 2m ago     [Revoke]
+src/settings.ts       read-only   granted just now   [Revoke]
+
+Ends when this task ends.
+```
+
+Revoking must visibly stop future automatic service, and the copy should be
+honest that it does not un-send what was already served.
+
 ---
 
 # 13. Connected tools/settings
@@ -562,9 +635,10 @@ telaegent/backend    Connected
 DueLook              Connected
 secret               Disconnect
 
+Local connector      Online
 Coding agents
-Claude Code          Connected
-Codex                Connected
+Claude Code          Connected locally
+Codex                Connected locally
 
 Default
 Claude Code
@@ -664,18 +738,19 @@ The user should always know:
 Design explicit UI for:
 
 - GitHub not connected
+- local connector not installed/offline
 - repository permission revoked
 - collaborator not connected
 - connection pending
 - collaborator revoked access
 - Claude/Codex reconnect required
-- runtime unavailable
+- connector/provider unavailable
 - agent timed out
 - private draft failed
 - send blocked by policy
 - backend disconnected
 - repo unavailable
-- stale repository checkout
+- stale local repository metadata
 - provider switched
 - no eligible collaborators
 
@@ -763,6 +838,9 @@ Create at least:
 15. provider reconnect error
 16. project settings / revoke collaborator
 17. mobile chat + bottom-sheet private room
+18. scope-expansion approval prompt (`Deny` / `Allow once` / `Allow for this task`)
+19. granted-scope panel with per-resource revoke
+20. bounded-loop limit reached, and what the owner is offered next
 
 ---
 
@@ -784,6 +862,8 @@ conversations
 shared messages
 private draft/session state
 pending human action
+pending scope-expansion request
+granted task scope, per resource, with revoke
 runtime status
 audit/security events
 ```
@@ -827,6 +907,10 @@ Press Send.
 ### 1:40–2:15
 
 Justin's Claude inspects repo privately and prepares safe answer.
+
+It asks for one file it does not own. Phuong chooses **Allow for this task**.
+A second request for the same file resolves with no prompt - say out loud that
+the absence of a second prompt is the feature.
 
 Justin presses Send.
 
@@ -892,6 +976,10 @@ You are done when a person who has never heard of Telaegent can look at the prod
 
 without someone explaining the backend.
 
+And, on the scope prompt specifically: an owner who has never read the trust
+model can tell the difference between **Allow once** and **Allow for this task**
+without being told, and can find what they have already granted.
+
 ---
 
 # 26. Do not do yet
@@ -901,9 +989,13 @@ without someone explaining the backend.
 - Do not show raw agent chain-of-thought.
 - Do not send rough composer text directly to collaborator.
 - Do not ask connection permission on every message.
+- Do not let an agent name a file path in an approval prompt that the owner
+  never granted a resource ID for; the owner approves a resource, not a string.
+- Do not offer a directory, glob, or "and related files" grant.
+- Do not offer a write grant in P0.
+- Do not present an agent-written justification as a Telaegent finding.
 - Do not hide which repository the conversation belongs to.
 - Do not make "connected" look like direct filesystem access.
 - Do not copy x.ai/bot branding.
 - Do not add dozens of settings.
 - Do not implement backend policy in React.
-

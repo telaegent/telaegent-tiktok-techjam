@@ -1,4 +1,4 @@
-# Phuong — Backend Co-Owner, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, and Integration Architecture
+# Phuong — Backend Co-Owner, Local Connector, Claude Code/Codex Runtime, Provider Sessions, Telaegent Memory, and Integration Architecture
 
 **Status:** Architecture/research brief before implementation  
 **Product:** Telaegent  
@@ -11,16 +11,19 @@
 
 ## 1.1 Architecture reconciliation
 
-Khoa's cloud GitHub CLI model is adopted. Thai's local connector is fallback only.
+The local connector model is canonical. Khoa's GitHub proof and Phuong's
+provider execution both happen on the developer machine; the cloud authorizes
+and routes only opaque connector-bound jobs.
 
 ```text
 Telaegent backend
-→ cloud runtime manager
-→ User × Repo isolated environment
-   ├─ gh authenticated as owner
-   ├─ repo checkout
-   ├─ Claude/Codex auth
-   └─ provider sessions
+→ connector presence/job relay
+→ User × Repo opaque connector binding
+→ outbound local connector
+   ├─ local gh authenticated as owner
+   ├─ local repo/worktree
+   ├─ local Claude/Codex auth
+   └─ local provider sessions
 ```
 
 
@@ -41,8 +44,8 @@ You currently own the broadest integration seam:
 - Claude Code CLI integration
 - Codex CLI integration
 - provider connection/auth lifecycle
-- cloud runtime request contract
-- process launching
+- connector/cloud job contract
+- local process launching
 - structured output parsing
 - session creation/resume
 - provider switching
@@ -52,6 +55,7 @@ You currently own the broadest integration seam:
 - shared-message orchestration
 - recovery when provider session disappears
 - overall integration architecture
+- bounded agentic-loop integration, local policy engine, and file broker
 
 You are not expected to personally implement every component immediately. First freeze the correct seams with Khoa/Thai/Hien/Duy.
 
@@ -68,7 +72,7 @@ Claude Code CLI
 Codex CLI
 ```
 
-inside cloud-hosted isolated user/repository environments.
+through the connector inside the owning developer's registered local repository environment.
 
 The user's personal app conversations are not imported.
 
@@ -81,11 +85,11 @@ Telaegent-created provider sessions belong only to Telaegent work.
 The product concept is simple:
 
 ```text
-User clicks Connect Claude Code
+User starts/connects the local Telaegent connector
         ↓
-Telaegent user's cloud runtime has Claude CLI
+Connector detects local Claude CLI
         ↓
-Authenticate if needed
+Use existing local authentication; user signs in locally if needed
         ↓
 Run live probe
         ↓
@@ -148,9 +152,9 @@ A new shell sharing the same `$HOME` may reuse:
 Desired model:
 
 ```text
-persistent isolated user×repo environment
+persistent local user×repo connector binding
         ↓
-spawn fresh CLI process per agent turn
+spawn a fresh local CLI process per agent turn
         ↓
 optionally resume Telaegent-created provider session
 ```
@@ -167,16 +171,18 @@ Prove:
 
 ```text
 GitHub auth connects
-→ credential persists safely
-→ new process runs gh auth status
-→ gh auth setup-git works
-→ clone/fetch works
-→ credential only reaches owning user
+→ local credential remains available to the user
+→ connector runs `gh auth status`
+→ selected local remote/repository ID is verified
+→ connector registers only safe metadata
+→ credential never reaches Telaegent cloud
 ```
 
 Do not use `gh repo list` as the universal picker source. Khoa supplies repository membership from authenticated-user API discovery.
 
-The workspace passed to Claude/Codex must come from backend runtime binding, never collaborator-controlled text.
+The connector resolves the workspace from its private local mapping for the
+cloud-issued opaque binding. Neither backend nor collaborator text may contain
+or choose the path.
 
 ---
 
@@ -186,7 +192,7 @@ Document/test:
 
 - installation
 - authentication mechanism
-- headless/cloud login options
+- local login and non-interactive invocation options
 - auth persistence location/semantics
 - `claude -p`
 - output formats
@@ -203,7 +209,7 @@ Document/test:
 - login expiry/reconnect behavior
 - config/home dependencies
 - whether session files can be isolated per Telaegent runtime
-- any usage/policy constraints relevant to hosted execution
+- any usage/policy constraints relevant to connector automation
 
 Build a minimal adapter design, not a giant framework.
 
@@ -372,7 +378,7 @@ Why:
 - auth can expire
 - provider can change
 - provider can compact
-- cloud runtime can be recreated
+- local connector/provider session can be restarted or lost
 - user may switch Claude ↔ Codex
 - product history must remain visible/auditable
 
@@ -610,18 +616,18 @@ Key invariants:
 
 ---
 
-# 16. Runtime isolation contract with Thai
+# 16. Connector isolation contract with Thai
 
 Give Thai exact requirements.
 
 At minimum:
 
 ```text
-user × repo filesystem isolation
-separate provider/Git credentials
-separate CLI home/session state
-no cross-user mounts
-no arbitrary remote path
+opaque cloud binding per user × repo
+local binding-to-workspace mapping
+provider/Git credentials remain local
+separate project session state where required
+no arbitrary cloud/collaborator path, executable, or command
 bounded process lifetime
 bounded output
 kill/cancel support
@@ -630,9 +636,11 @@ persistent auth only where required
 ephemeral temp data
 ```
 
-Decide whether a provider home can be shared across multiple repos for the same user.
+Decide whether a local provider home can be shared across multiple repos for the same user.
 
-Security says per-user×repo is cleaner; usability/cost may favor per-user auth volume + per-repo workspace. Research.
+Security says project-specific sessions/workspace bindings are cleaner;
+usability may favor one local user auth home plus per-repo sessions. Research
+without uploading either.
 
 ---
 
@@ -654,6 +662,52 @@ Runtime prompts should tell the agent to provide safe alternatives.
 
 Never persist blocked secret-bearing output if avoidable.
 
+## 17.1 Local policy engine and file broker
+
+[Canonical build plan section 8](../product/canonical-build-plan.md) adds a
+bounded follow-up loop: a private turn may finish by asking for resources it
+does not hold, and the loop runs again once those are resolved. You own the
+integration; Khoa owns the policy content.
+
+Two components, both connector-side, both outside the model:
+
+**Resource registry.** Maps an opaque resource ID to a canonical local path,
+plus the task, peer, mode, and expiry it was issued under. The cloud stores the
+ID and safe metadata; it never stores the path. This is the same shape as the
+`connectorBindingId` mapping you already own - one more opaque handle resolved
+only on the machine that owns it.
+
+**File broker.** The only thing that reads a file on behalf of a remote request.
+It takes a resource ID, asks the policy engine, and either returns bounded
+content or returns a scope-expansion request. It never takes a path, and no
+runner or adapter gets to bypass it.
+
+```text
+recipient turn result
+→ requested resource IDs
+→ policy engine (deterministic)
+   ├─ inside existing grant → file broker serves it
+   └─ outside              → scope-expansion request to the owner
+→ owner answers, or the grant already covered it
+→ next loop round with the resolved resources
+```
+
+The loop must be bounded before it is useful: cap rounds per task, requests per
+round, and total bytes served. A run that hits a limit ends as a normal turn
+result with an honest reason, not a retry.
+
+Sequencing note: this is a design commitment with no code behind it. Do not
+build it before the connector transport, binding, and provider adapters work.
+Its natural seam is the connector job envelope - see
+[`apps/server/src/connectors/README.md`](../../apps/server/src/connectors/README.md).
+
+Three things that must stay true no matter how the loop is implemented:
+
+1. The model asks; the policy engine decides.
+2. A resource crosses as an ID, never as a path.
+3. An automatic round consumes existing authority. Obtaining new authority is a
+   human decision, and the final cross-user message still needs `Send`.
+
 ---
 
 # 18. Audit / observability
@@ -670,6 +724,11 @@ agent run started
 agent run completed
 human sent candidate
 policy blocked candidate
+resource request received
+resource served from an existing grant
+scope expansion requested / granted / denied
+capability grant expired or revoked
+bounded loop limit reached
 shared message delivered
 provider reconnect required
 ```
@@ -682,8 +741,11 @@ Do not log:
 - hidden reasoning
 - giant CLI streams
 - another user's private draft
+- resolved local paths behind a resource ID
+- served file contents
 
-Include correlation IDs for debugging.
+Include correlation IDs for debugging. Audit a resource by its opaque ID; the
+path it resolved to stays on the machine that owns it.
 
 ---
 
@@ -806,22 +868,31 @@ You then implement the runtime adapter around evidence.
 - Repo A connection cannot message Repo B
 - blocked candidate never becomes shared message
 
+## Capability loop
+
+- an in-scope resource request is served with no human prompt
+- an out-of-scope request produces a scope-expansion request, not a read
+- a denied request ends the turn honestly instead of retrying
+- round, per-round, and byte limits each stop the loop
+- a resource ID never appears in a cloud payload alongside its path
+- revoking mid-task stops the next automatic service
+
 ---
 
 # 23. Concrete research you should do immediately
 
 Before coding full architecture:
 
-1. Get `claude -p "Print exactly: TELAEGENT IS CONNECTED"` working in a clean Linux/cloud-like environment.
+1. Get `claude -p "Print exactly: TELAEGENT IS CONNECTED"` working through the local connector on supported developer operating systems.
 2. Get equivalent Codex noninteractive probe working.
-3. Determine exactly what files/environment each CLI needs to remain authenticated.
+3. Determine exactly what local files/environment each CLI needs; never include them in cloud payloads.
 4. Start a new process and prove auth survives.
 5. Create a provider session, exit, resume it from a new process.
 6. Move/lose session state and verify failure behavior.
 7. Test structured output.
 8. Test cancellation.
 9. Measure startup + simple inference latency.
-10. Give Thai concrete persistent-state requirements.
+10. Give Thai concrete connector transport/presence requirements and document local-only state.
 11. Give Hien a callable harness for repeated evaluations.
 
 These experiments answer more than architecture speculation.
@@ -850,7 +921,7 @@ What is durable, private, ephemeral, compacted, and rehydrated.
 
 With Khoa.
 
-### F. Runtime isolation requirements
+### F. Connector/local isolation requirements
 
 For Thai.
 
@@ -860,7 +931,7 @@ For Duy/backend.
 
 ### H. Live proof
 
-At least one real cloud-like Claude turn and one Codex turn if both are available.
+At least one real connector-mediated local Claude turn and one local Codex turn if both are available.
 
 ---
 
@@ -874,14 +945,19 @@ You are done with the architecture phase when we can answer:
 
 # 26. Do not do yet
 
-- Do not build local LAN workers.
+- Do not build LAN discovery, peer-to-peer links, inbound local servers, or cloud provider runtimes.
 - Do not integrate the Claude consumer app or Codex app conversation UI.
 - Do not depend exclusively on provider session memory.
 - Do not store chain-of-thought.
 - Do not silently fall back from Claude to Codex.
-- Do not share CLI home directories between users.
-- Do not accept arbitrary workspace paths from remote messages.
+- Do not upload or share CLI home directories, credentials, repositories, or local paths.
+- Do not accept arbitrary workspace paths, executables, or commands from cloud jobs or remote messages.
 - Do not start coding a huge generic agent framework.
+- Do not build the capability loop before the connector transport, binding, and
+  provider adapters work.
+- Do not let a runner or adapter read a remotely requested file without going
+  through the broker.
+- Do not let the model's output decide whether a resource may be served.
+- Do not run an unbounded follow-up loop.
 - Do not freeze prompt schema before Hien's tests.
 - Do not put all private CLI output into the product database.
-
