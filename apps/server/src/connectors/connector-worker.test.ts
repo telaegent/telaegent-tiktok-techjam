@@ -12,8 +12,10 @@ import type {
 } from "../runtime-contract.js";
 import {
   ConnectorCredentialRejectedError,
+  ConnectorTransportUnavailableError,
   ConnectorWorker,
   HttpConnectorWorkerTransport,
+  retryDelayMs,
   type ConnectorWorkerTransport,
 } from "./connector-worker.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
@@ -150,6 +152,42 @@ describe("ConnectorWorker", () => {
     );
     await expect(worker.runOnce()).resolves.toBe("completed");
     expect(transport.failures).toEqual(["RUNTIME_FAILED"]);
+  });
+
+  it("keeps raw provider text local while forwarding structural progress", async () => {
+    const transport = new FakeTransport({ kind: "job", job });
+    const runtime = new ProviderSessionManager(
+      {
+        run: async (_request, onProgress) => {
+          onProgress?.({ type: "turn_started", provider: "claude" });
+          onProgress?.({
+            type: "text_delta",
+            provider: "claude",
+            text: "private raw provider stream C:\\Users\\owner\\repo",
+          });
+          onProgress?.({ type: "turn_completed", provider: "claude" });
+          return {
+            provider: "claude" as const,
+            final: { sendCandidate: "Bounded candidate" },
+            changedFiles: [],
+            exitCode: 0,
+            durationMs: 10,
+          };
+        },
+      },
+      new InMemoryProviderSessionStore(),
+      async (_scope, request) => request,
+    );
+    const worker = new ConnectorWorker(binding, runtime, transport, {
+      cancel: async () => false,
+    });
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+    expect(transport.progressEvents).toEqual([
+      { type: "turn_started", provider: "claude" },
+      { type: "turn_completed", provider: "claude" },
+    ]);
+    expect(JSON.stringify(transport.progressEvents)).not.toContain("owner");
   });
 
   it("cancels the owned local process when cloud cancellation arrives", async () => {
@@ -290,5 +328,65 @@ describe("HttpConnectorWorkerTransport", () => {
 
     await expect(transport.poll()).rejects.toBeInstanceOf(ConnectorCredentialRejectedError);
     expect(fetchImplementation).toHaveBeenCalledOnce();
+  });
+
+  it("reconnects transient requests with capped exponential backoff", async () => {
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const delays: number[] = [];
+    const retries: Array<{ attempt: number; delayMs: number }> = [];
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+      {
+        initialDelayMs: 100,
+        maximumDelayMs: 150,
+        jitterRatio: 0,
+        sleep: async (delayMs) => { delays.push(delayMs); },
+        onRetry: (event) => { retries.push({ ...event }); },
+      },
+    );
+
+    await expect(transport.poll()).resolves.toBeNull();
+    expect(delays).toEqual([100, 150]);
+    expect(retries).toEqual([
+      { attempt: 1, delayMs: 100 },
+      { attempt: 2, delayMs: 150 },
+    ]);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+  });
+
+  it("bounds retry jitter even if the injected random source is invalid", () => {
+    expect(retryDelayMs(3, 100, 250, 0.2, () => -10)).toBe(200);
+    expect(retryDelayMs(3, 100, 250, 0.2, () => 10)).toBe(250);
+  });
+
+  it("drops advisory progress after bounded reconnect attempts", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status: 503 }));
+    const delays: number[] = [];
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+      {
+        initialDelayMs: 10,
+        maximumDelayMs: 20,
+        jitterRatio: 0,
+        sleep: async (delayMs) => { delays.push(delayMs); },
+      },
+    );
+
+    await expect(transport.progress(job.jobId, {
+      type: "turn_started",
+      provider: "claude",
+    })).rejects.toBeInstanceOf(ConnectorTransportUnavailableError);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    expect(delays).toEqual([10, 20]);
   });
 });

@@ -20,6 +20,7 @@ const principal: ConnectorPrincipal = {
 class MemoryCredentials implements ConnectorCredentialRepository {
   readonly records = new Map<string, ConnectorPrincipal>();
   lastStatusInput: ConnectorPrincipal | null = null;
+  bindings: ConnectorSetupStatus["bindings"] = [];
 
   async create(input: Readonly<{
     authenticatedUserId: string;
@@ -75,7 +76,7 @@ class MemoryCredentials implements ConnectorCredentialRepository {
             lastSeenAt: null,
           }
         : null,
-      bindings: [],
+      bindings: this.bindings,
       bindingsTruncated: false,
     };
   }
@@ -261,5 +262,93 @@ describe("connector credentials", () => {
       credentials: "omit",
       redirect: "error",
     });
+  });
+
+  it("restores only a durable ready binding after a backend restart", async () => {
+    const repository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(repository, 3_600);
+    const issued = await credentials.issue(
+      principal.authenticatedUserId,
+      principal.connectorInstanceId,
+    );
+    const connectorBindingId = "50000000-0000-4000-8000-000000000005";
+    repository.bindings = [{
+      connectorBindingId,
+      projectId: "20000000-0000-4000-8000-000000000002",
+      githubRepositoryId: "987654321",
+      repositoryFullName: "telaegent/restart-contract",
+      visibility: "private",
+      defaultBranch: "main",
+      currentBranch: "main",
+      commitSha: "a".repeat(40),
+      repositoryPermission: "write",
+      repositoryAccessStatus: "verified",
+      membershipStatus: "active",
+      bindingStatus: "ready",
+      verifiedAt: "2026-08-31T23:59:30.000Z",
+      bindingLastSeenAt: null,
+      unavailableReason: null,
+    }];
+    const relay = new LongPollConnectorJobRelay();
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay,
+        credentials,
+        authenticatedUserId: async () => principal.authenticatedUserId,
+        resolveConnectorPrincipal: createConnectorPrincipalResolver(credentials),
+      },
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/connectors/jobs/next?connectorBindingId=${connectorBindingId}&waitMs=0`,
+      headers: { authorization: `Bearer ${issued.credential}` },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(relay.registeredRepository(principal, connectorBindingId)).toBe("987654321");
+    expect(repository.lastStatusInput).toEqual(principal);
+    await app.close();
+  });
+
+  it("does not restore revoked, suspended, stale, or unavailable bindings", async () => {
+    const repository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(repository, 3_600);
+    const connectorBindingId = "50000000-0000-4000-8000-000000000005";
+    const ready: ConnectorSetupStatus["bindings"][number] = {
+      connectorBindingId,
+      projectId: "20000000-0000-4000-8000-000000000002",
+      githubRepositoryId: "987654321",
+      repositoryFullName: "telaegent/restart-contract",
+      visibility: "private",
+      defaultBranch: "main",
+      currentBranch: null,
+      commitSha: null,
+      repositoryPermission: "read",
+      repositoryAccessStatus: "verified",
+      membershipStatus: "active",
+      bindingStatus: "ready",
+      verifiedAt: "2026-08-31T23:59:30.000Z",
+      bindingLastSeenAt: null,
+      unavailableReason: null,
+    };
+
+    for (const unsafe of [
+      { ...ready, bindingStatus: "revoked" as const },
+      { ...ready, membershipStatus: "suspended" as const },
+      { ...ready, repositoryAccessStatus: "revalidation_required" as const },
+      { ...ready, bindingStatus: "unavailable" as const, unavailableReason: "lost_access" },
+    ]) {
+      repository.bindings = [unsafe];
+      await expect(
+        credentials.restoreReadyBinding(principal, connectorBindingId),
+      ).resolves.toBeNull();
+    }
   });
 });
