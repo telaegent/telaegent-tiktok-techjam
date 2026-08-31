@@ -28,7 +28,7 @@
     "check": "npm run typecheck && npm run test && npm run build",
     "poc": "npm run up",
     "legacy:poc": "bash ./scripts/start-local-poc.sh",
-    "start": "node --env-file-if-exists=.env apps/server/dist/index.js",
+    "start": "node --env-file-if-exists=.env scripts/start.mjs",
     "test:protocol": "npm run test -w @launchpad/server -- src/telagent/protocol",
     "eval:fake": "npm run eval:fake -w @launchpad/server --",
     "eval:claude": "npm run eval:claude -w @launchpad/server --",
