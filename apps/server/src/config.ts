@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { isSafeSupabaseOrigin } from "./supabase-origin.js";
 
 const envSchema = z.object({
   HOST: z.string().default("0.0.0.0"),
@@ -62,10 +63,17 @@ const envSchema = z.object({
     .min(3_600)
     .max(2_592_000)
     .default(1_209_600),
+  CONNECTOR_CREDENTIAL_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(3_600)
+    .max(2_592_000)
+    .default(1_209_600),
   GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
   GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),
   GITHUB_OAUTH_TIMEOUT_MS: z.coerce.number().int().min(250).max(30_000).default(5_000),
   AUTHORIZATION_PERSISTENCE: z.enum(["memory", "supabase"]).default("memory"),
+  CONVERSATION_PERSISTENCE: z.enum(["memory", "supabase"]).default("memory"),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
   ARK_API_KEY: z.string().optional(),
@@ -130,10 +138,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     telaegentPublicOrigin: identity.publicOrigin,
     telaegentCookieSecret: identity.cookieSecret,
     telaegentSessionTtlSeconds: env.TELAEGENT_SESSION_TTL_SECONDS,
+    connectorCredentialTtlSeconds: env.CONNECTOR_CREDENTIAL_TTL_SECONDS,
     githubOAuthClientId: identity.clientId,
     githubOAuthClientSecret: identity.clientSecret,
     githubOAuthTimeoutMs: env.GITHUB_OAUTH_TIMEOUT_MS,
     authorizationPersistence: env.AUTHORIZATION_PERSISTENCE,
+    conversationPersistence: env.CONVERSATION_PERSISTENCE,
     supabaseUrl: supabase.url,
     supabaseSecretKey: supabase.secretKey,
     arkApiKey: env.ARK_API_KEY?.trim() ?? "",
@@ -234,15 +244,18 @@ function invalidGitHubIdentityConfig(): Error {
 function loadSupabaseBackendConfig(
   env: Readonly<{
     AUTHORIZATION_PERSISTENCE: "memory" | "supabase";
+    CONVERSATION_PERSISTENCE: "memory" | "supabase";
     TELAEGENT_IDENTITY_PROVIDER: "disabled" | "github";
     SUPABASE_URL?: string | undefined;
     SUPABASE_SECRET_KEY?: string | undefined;
   }>,
 ): Readonly<{ url: string; secretKey: string }> {
-  // Credentials are inert unless persistence is explicitly switched. This
-  // prevents a copied local .env from silently turning database access on.
+  // Credentials are inert until something that needs the database is
+  // explicitly switched on. This prevents a copied local .env from silently
+  // turning database access on.
   if (
     env.AUTHORIZATION_PERSISTENCE !== "supabase" &&
+    env.CONVERSATION_PERSISTENCE !== "supabase" &&
     env.TELAEGENT_IDENTITY_PROVIDER !== "github"
   ) {
     return { url: "", secretKey: "" };
@@ -257,12 +270,7 @@ function loadSupabaseBackendConfig(
     throw invalidSupabaseBackendConfig();
   }
   if (
-    url.protocol !== "https:" ||
-    url.username.length > 0 ||
-    url.password.length > 0 ||
-    url.search.length > 0 ||
-    url.hash.length > 0 ||
-    (url.pathname !== "/" && url.pathname !== "") ||
+    !isSafeSupabaseOrigin(url) ||
     !/^sb_secret_[A-Za-z0-9_-]{20,480}$/.test(secretKey)
   ) {
     throw invalidSupabaseBackendConfig();

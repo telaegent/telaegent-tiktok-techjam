@@ -30,6 +30,11 @@ import {
   type RepositoryProofRouteDependencies,
 } from "./repository-proof/routes.js";
 import { RepositoryProofError } from "./repository-proof/service.js";
+import {
+  connectorTransportRoutes,
+  registerConnectorTransportRoutes,
+  type ConnectorTransportRouteDependencies,
+} from "./connectors/routes.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
@@ -66,6 +71,7 @@ export async function createApp(
   conversationApi?: ConversationRouteDependencies,
   identityApi?: IdentityRouteDependencies,
   repositoryProofApi?: RepositoryProofRouteDependencies,
+  connectorTransportApi?: ConnectorTransportRouteDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -97,7 +103,9 @@ export async function createApp(
       (repositoryProofApi &&
         connectorAuthenticatedRepositoryProofRoutes.has(
           request.routeOptions.url ?? "",
-        ))
+        )) ||
+      (connectorTransportApi &&
+        connectorTransportRoutes.has(request.routeOptions.url ?? ""))
     ) {
       return;
     }
@@ -144,6 +152,9 @@ export async function createApp(
   }
   if (repositoryProofApi) {
     registerRepositoryProofRoutes(app, repositoryProofApi);
+  }
+  if (connectorTransportApi) {
+    registerConnectorTransportRoutes(app, connectorTransportApi);
   }
 
   if (config.nodeEnv === "production") {
