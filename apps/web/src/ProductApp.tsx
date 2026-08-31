@@ -1050,8 +1050,8 @@ function ProjectChat({
     setEditingCandidate(false);
     try {
       const created = await api.createConversationReply(conversationConfig.conversationId, {
-        githubRepositoryId: conversationConfig.githubRepositoryId,
-        provider: "codex",
+        githubRepositoryId: project.githubRepositoryId,
+        provider,
         incomingMessageId: message.id,
       });
       setDraft(created.draft);
