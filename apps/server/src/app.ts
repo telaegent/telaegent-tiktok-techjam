@@ -40,6 +40,11 @@ import {
   userAuthenticatedProjectRoutes,
   type ProjectRouteDependencies,
 } from "./projects/routes.js";
+import {
+  registerCapabilityScopeRoutes,
+  userAuthenticatedCapabilityRoutes,
+  type CapabilityScopeRouteDependencies,
+} from "./capability/routes.js";
 import { setPrivateNoStore } from "./http-cache.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
@@ -62,6 +67,7 @@ const messageBody = z.object({
 });
 const userAuthenticatedConversationRoutes = new Set([
   "/api/conversations/:conversationId/drafts",
+  "/api/conversations/:conversationId/replies",
   "/api/conversations/:conversationId/messages",
   "/api/drafts/:draftId",
   "/api/drafts/:draftId/run",
@@ -79,6 +85,7 @@ export async function createApp(
   repositoryProofApi?: RepositoryProofRouteDependencies,
   connectorTransportApi?: ConnectorTransportRouteDependencies,
   projectApi?: ProjectRouteDependencies,
+  capabilityScopeApi?: CapabilityScopeRouteDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -125,7 +132,9 @@ export async function createApp(
       (connectorTransportApi &&
         connectorTransportRoutes.has(request.routeOptions.url ?? "")) ||
       (projectApi &&
-        userAuthenticatedProjectRoutes.has(request.routeOptions.url ?? ""))
+        userAuthenticatedProjectRoutes.has(request.routeOptions.url ?? "")) ||
+      (capabilityScopeApi &&
+        userAuthenticatedCapabilityRoutes.has(request.routeOptions.url ?? ""))
     ) {
       return;
     }
@@ -181,6 +190,9 @@ export async function createApp(
   }
   if (projectApi) {
     registerProjectRoutes(app, projectApi);
+  }
+  if (capabilityScopeApi) {
+    registerCapabilityScopeRoutes(app, capabilityScopeApi);
   }
 
   if (config.nodeEnv === "production") {

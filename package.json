@@ -19,7 +19,7 @@
     "connector:connect": "npm run connector:connect -w @launchpad/server --",
     "build": "npm run build -w @launchpad/web && npm run build -w @launchpad/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @launchpad/server",
+    "test": "npm run test --workspaces --if-present",
     "check": "npm run typecheck && npm run test && npm run build",
     "poc": "./scripts/start-local-poc.sh",
     "start": "npm run start -w @launchpad/server",

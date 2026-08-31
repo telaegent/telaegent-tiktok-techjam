@@ -69,6 +69,35 @@ export {
   SupabaseAuthorizationRepositoryError,
   SupabasePrivateRuntimeAuthorizationRepository,
 } from "./supabase-authorization-repository.js";
+export type {
+  AuthorizedCapabilityRoute,
+  AuthorizeCapabilityRouteInput,
+  CapabilityGrantId,
+  CapabilityGrantMode,
+  CapabilityGrantStatus,
+  CapabilityOperation,
+  CapabilityRouteAuthorizationSnapshot,
+  CapabilityRouteSnapshotQuery,
+  CollaborationTask,
+  CollaborationTaskId,
+  CollaborationTaskStatus,
+  ResolveCapabilityRouteInput,
+  ResolvedCapabilityRoute,
+  ResourceCapabilityGrant,
+  ResourceId,
+} from "./capability-types.js";
+export type {
+  CapabilityRouteAuthorizationReadOptions,
+  CapabilityRouteAuthorizationRepository,
+} from "./capability-repository.js";
+export {
+  CapabilityRouteAuthorizationError,
+  CapabilityRouteAuthorizationService,
+} from "./capability-route-authorization.js";
+export type {
+  CapabilityRouteAuthorizationDenialReason,
+  CapabilityRouteAuthorizationPolicy,
+} from "./capability-route-authorization.js";
 export { SupabaseAuthorizationRpcClient } from "./supabase-authorization-client.js";
 export type {
   SupabaseAuthorizationRpcClientOptions,
@@ -83,3 +112,49 @@ export type {
   SupabasePrivateRuntimeAuthorizationRpcRequest,
   SupabasePrivateRuntimeAuthorizationSnapshotDto,
 } from "./supabase-authorization-repository.js";
+export {
+  mapSupabaseCapabilityRouteSnapshot,
+  SupabaseCapabilityRepositoryError,
+  SupabaseCapabilityRouteAuthorizationRepository,
+} from "./supabase-capability-repository.js";
+export type {
+  SupabaseCapabilityRepositoryErrorCode,
+  SupabaseCapabilityRouteRpcRequest,
+  SupabaseCapabilityRouteSnapshotDto,
+  SupabaseCapabilitySnapshotClient,
+} from "./supabase-capability-repository.js";
+export { SupabaseCapabilityScopeRequestRepository } from "./capability-scope-requests.js";
+export type {
+  BeginCapabilityFollowUpRoundInput,
+  CapabilityFollowUpRoundOutcome,
+  CapabilityScopeDecision,
+  CapabilityScopeDecisionOutcome,
+  CapabilityScopeRequestOptions,
+  CapabilityScopeRequestRepository,
+  DecideCapabilityScopeRequestInput,
+  ListPendingCapabilityScopeRequestsInput,
+  PendingCapabilityScopeRequest,
+  RecordCapabilityScopeRequestInput,
+  RecordCapabilityScopeRequestOutcome,
+  SupabaseCapabilityScopeRequestClient,
+} from "./capability-scope-requests.js";
+export { SupabaseCapabilityGrantRepository } from "./capability-grants.js";
+export type {
+  CapabilityGrantRepository,
+  ConsumeCapabilityGrantInput,
+  ConsumeCapabilityGrantOutcome,
+  ListTaskCapabilityGrantsInput,
+  ListTaskCapabilityGrantsOutcome,
+  SupabaseCapabilityGrantClient,
+} from "./capability-grants.js";
+export { SupabaseCollaborationTaskRepository } from "./collaboration-tasks.js";
+export type {
+  CollaborationTaskEndStatus,
+  CollaborationTaskOptions,
+  CollaborationTaskRepository,
+  EndCollaborationTaskInput,
+  EndCollaborationTaskOutcome,
+  OpenCollaborationTaskInput,
+  OpenCollaborationTaskOutcome,
+  SupabaseCollaborationTaskClient,
+} from "./collaboration-tasks.js";

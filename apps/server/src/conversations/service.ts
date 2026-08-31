@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AuthorizePrivateRuntimeInput } from "../authorization/types.js";
+import type { PrivateDraftFollowUp } from "../capability/draft-follow-up.js";
 import { HttpError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import type { AgentProvider } from "../runtime-contract.js";
@@ -7,10 +8,14 @@ import { normalizeRuntimeFailure, RuntimeProviderError } from "../runtime-errors
 import { redactText } from "../telagent/redaction.js";
 import {
   PROTOCOL_LIMITS,
-  type SenderTurnOutput,
+  type ProtocolRole,
+  type ProtocolTurnOutput,
 } from "../telagent/protocol/contract.js";
 import { guardTurn, inspectCandidate, type GuardFinding } from "../telagent/protocol/guards.js";
-import { senderOutputSchema } from "../telagent/protocol/schemas.js";
+import {
+  recipientOutputSchema,
+  senderOutputSchema,
+} from "../telagent/protocol/schemas.js";
 import type { StartAuthorizedProtocolTurnInput } from "../telagent/protocol/authorized-turn-service.js";
 import type { ConversationRepository } from "./repository.js";
 import {
@@ -24,6 +29,7 @@ import {
 export type ConversationAction =
   | "read"
   | "create_draft"
+  | "create_reply"
   | "clarify_draft"
   | "run_draft"
   | "send"
@@ -55,11 +61,28 @@ export class MessagePolicyError extends Error {
 export interface ConversationServiceOptions {
   now?: (() => Date) | undefined;
   createId?: (() => string) | undefined;
+  createTurnId?: (() => string) | undefined;
+  /**
+   * Carries a turn's questions to the other person's machine (build plan 8).
+   *
+   * Absent by default. Without it a turn that asked for files simply answers
+   * with what it already had, which is what every deployment did before the
+   * capability loop existed.
+   */
+  followUp?: PrivateDraftFollowUp | undefined;
 }
+
+/**
+ * Build plan 8.7. The database holds the same bound on the task itself; this is
+ * the in-process copy, so a runtime that never reached the database still stops.
+ */
+const MAX_FOLLOW_UP_ROUNDS = 5;
 
 export class ConversationService {
   private readonly now: () => Date;
   private readonly createId: () => string;
+  private readonly createTurnId: () => string;
+  private readonly followUp: PrivateDraftFollowUp | undefined;
 
   constructor(
     private readonly repository: ConversationRepository,
@@ -69,6 +92,8 @@ export class ConversationService {
   ) {
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomUUID;
+    this.createTurnId = options.createTurnId ?? randomUUID;
+    this.followUp = options.followUp;
   }
 
   async createDraft(input: Readonly<{
@@ -86,7 +111,9 @@ export class ConversationService {
       githubRepositoryId: input.githubRepositoryId,
       ownerUserId: input.authenticatedUserId,
       provider: input.provider,
+      role: "sender",
       roughMessage: input.roughMessage,
+      incomingMessageId: null,
       privateTurns: [],
       state: "created",
       turnId: null,
@@ -102,6 +129,56 @@ export class ConversationService {
     return toPrivateDraftView(await this.repository.createDraft(draft));
   }
 
+  /**
+   * Opens a private draft that answers an approved collaborator message.
+   *
+   * This is the recipient half of the signature interaction. It is deliberately
+   * a normal draft: the reply it produces is still owner-private until the owner
+   * approves it, and still leaves through `sendDraft`, so a reply crosses the
+   * trust boundary under exactly the same human gate as any other message.
+   */
+  async createRecipientDraft(input: Readonly<{
+    authenticatedUserId: string;
+    githubRepositoryId: string;
+    conversationId: string;
+    provider: AgentProvider;
+    incomingMessageId: string;
+    ownerGuidance?: string | undefined;
+    idempotencyKey: string;
+  }>): Promise<Readonly<{ draft: PrivateDraftView; replayed: boolean }>> {
+    await this.authorize(input, "create_reply");
+    const timestamp = this.now().toISOString();
+    const draft: PrivateDraft = {
+      draftId: this.createId(),
+      conversationId: input.conversationId,
+      githubRepositoryId: input.githubRepositoryId,
+      ownerUserId: input.authenticatedUserId,
+      provider: input.provider,
+      role: "recipient",
+      roughMessage: input.ownerGuidance ?? null,
+      incomingMessageId: input.incomingMessageId,
+      privateTurns: input.ownerGuidance
+        ? [{ speaker: "owner", text: input.ownerGuidance }]
+        : [],
+      state: "created",
+      turnId: null,
+      privateMessage: null,
+      sendCandidate: null,
+      riskFlags: [],
+      guardFindings: [],
+      failure: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      sentMessageId: null,
+    };
+    const created = await this.repository.createRecipientDraft({
+      draft,
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (!created) throw new HttpError(409, "Message cannot be replied to");
+    return { draft: toPrivateDraftView(created.draft), replayed: created.replayed };
+  }
+
   async getDraft(authenticatedUserId: string, draftId: string): Promise<PrivateDraftView> {
     const draft = await this.ownedDraft(authenticatedUserId, draftId);
     await this.authorizeDraft(draft, "read");
@@ -113,21 +190,44 @@ export class ConversationService {
     if (draft.state !== "created") throw new HttpError(409, "Private draft cannot be run");
     await this.authorizeDraft(draft, "run_draft");
 
-    const started = await this.runtime.start<SenderTurnOutput>({
-      authorization: this.authorizationInput(draft),
-      provider: draft.provider,
-      role: "sender",
-      correlationId: draft.draftId,
-    });
+    const turnId = this.createTurnId();
     const running = await this.repository.markDraftRunning({
       draftId: draft.draftId,
       ownerUserId: authenticatedUserId,
-      turnId: started.turnId,
+      turnId,
       updatedAt: this.now().toISOString(),
     });
     if (!running) throw new HttpError(409, "Private draft cannot be run");
 
-    void this.settleTurn(draft.draftId, started.turnId, started.completion);
+    let started: StartedPrivateRuntimeTurn<ProtocolTurnOutput>;
+    try {
+      started = await this.runtime.start<ProtocolTurnOutput>({
+        authorization: this.authorizationInput(draft),
+        provider: draft.provider,
+        role: draft.role,
+        correlationId: draft.draftId,
+        turnId,
+      });
+    } catch (error) {
+      await this.failTurn(draft.draftId, turnId, error);
+      throw error;
+    }
+    if (started.turnId !== turnId) {
+      await this.runtime.cancel({
+        turnId: started.turnId,
+        authenticatedUserId,
+        githubRepositoryId: draft.githubRepositoryId,
+        conversationId: draft.conversationId,
+      }).catch(() => false);
+      const error = new RuntimeProviderError(
+        "INVALID_AGENT_OUTPUT",
+        "Private runtime returned an unexpected turn identifier",
+      );
+      await this.failTurn(draft.draftId, turnId, error);
+      throw error;
+    }
+
+    void this.settleTurn(draft, turnId, started.completion);
     return toPrivateDraftView(running);
   }
 
@@ -238,8 +338,16 @@ export class ConversationService {
     return this.repository.listMessages(input.conversationId);
   }
 
-  private async completeTurn(draftId: string, turnId: string, rawOutput: unknown): Promise<void> {
-    const parsed = senderOutputSchema.safeParse(rawOutput);
+  private async completeTurn(
+    draftId: string,
+    role: ProtocolRole,
+    turnId: string,
+    rawOutput: unknown,
+  ): Promise<void> {
+    const parsed =
+      role === "sender"
+        ? senderOutputSchema.safeParse(rawOutput)
+        : recipientOutputSchema.safeParse(rawOutput);
     if (!parsed.success) {
       return this.failTurn(
         draftId,
@@ -249,7 +357,11 @@ export class ConversationService {
     }
     const output = parsed.data;
     const guarded = guardTurn(output);
-    const privateMessage = redactText(output.assistantMessage).value;
+    // Both roles carry one owner-visible private message; only the field name
+    // differs. Neither is ever transmitted to the collaborator.
+    const privateMessage = redactText(
+      "assistantMessage" in output ? output.assistantMessage : output.privateSummary,
+    ).value;
     await this.repository.completeDraft({
       draftId,
       expectedTurnId: turnId,
@@ -263,14 +375,63 @@ export class ConversationService {
     });
   }
 
+  /**
+   * Runs the follow-up rounds a turn asked for, then settles the draft.
+   *
+   * The loop lives inside one settling on purpose. Approved bytes travel in
+   * flight and are never stored, so the only place they can be used is the
+   * prompt of the round that asked for them; a round that spanned two requests
+   * would have to keep somebody else's file somewhere in between.
+   *
+   * A round that brings nothing back ends the loop rather than retrying. The
+   * questions are with a human at that point, and this turn answers with what
+   * it already had instead of waiting on a person.
+   */
+  private async runFollowUpRounds(
+    draft: PrivateDraft,
+    first: Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>,
+  ): Promise<Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>> {
+    if (!this.followUp) return first;
+    let result = first;
+    for (let round = 0; round < MAX_FOLLOW_UP_ROUNDS; round += 1) {
+      const requests = result.resourceRequests ?? [];
+      if (requests.length === 0) return result;
+
+      const delivered = await this.followUp.run(
+        {
+          incomingMessageId: draft.incomingMessageId,
+          conversationId: draft.conversationId,
+          githubRepositoryId: draft.githubRepositoryId,
+          ownerUserId: draft.ownerUserId,
+        },
+        requests,
+      );
+      if (delivered.length === 0) return result;
+
+      // A fresh runtime turn, carrying the approved files in its prompt. The
+      // draft keeps the turn identifier it claimed, so what the owner sees is
+      // still one turn and only the settled result can complete it.
+      const started = await this.runtime.start<ProtocolTurnOutput>({
+        authorization: this.authorizationInput(draft),
+        provider: draft.provider,
+        role: draft.role,
+        correlationId: draft.draftId,
+        deliveredResources: delivered,
+      });
+      result = await started.completion;
+    }
+    return result;
+  }
+
   private async settleTurn(
-    draftId: string,
+    draft: PrivateDraft,
     turnId: string,
-    completion: StartedPrivateRuntimeTurn<SenderTurnOutput>["completion"],
+    completion: StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"],
   ): Promise<void> {
+    const draftId = draft.draftId;
     try {
-      const result = await completion;
-      await this.completeTurn(draftId, turnId, result.final);
+      const result = await this.runFollowUpRounds(draft, await completion);
+      await this.completeTurn(draftId, draft.role, turnId, result.final);
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe
       // owner-facing state. Raw provider/database errors never enter the draft.

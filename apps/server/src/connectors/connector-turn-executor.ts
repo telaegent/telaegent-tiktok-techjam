@@ -14,6 +14,7 @@ import type {
   SessionMode,
 } from "../runtime-contract.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
+import type { ConnectorResourceRequest } from "./resource-exchange.js";
 
 export interface ConnectorJobRequest {
   jobId: string;
@@ -44,6 +45,13 @@ export interface ConnectorJobResult<T = unknown> {
   changedFiles: string[];
   exitCode: number;
   durationMs: number;
+  /**
+   * Resources this turn asked a peer for (build plan 8.3).
+   *
+   * Absent on an ordinary turn. Present entries are routed by the cloud to the
+   * owning connector; they never authorize anything by themselves.
+   */
+  resourceRequests?: readonly ConnectorResourceRequest[] | undefined;
 }
 
 export interface ConnectorJobRelay {

@@ -11,7 +11,9 @@ import {
  *
  * `conversation-rpc-payloads.fixture.json` is verbatim output captured by
  * applying every migration in `supabase/migrations` to PostgreSQL 16 and
- * running one full draft lifecycle plus one failed-and-cancelled draft. Hand
+ * running one full draft lifecycle, one failed-and-cancelled draft, and one
+ * two-agent round trip whose reply is opened against the collaborator's
+ * approved message. Hand
  * written fixtures cannot catch a projection that renames a key, drops
  * BIGINT precision, or changes a timestamp format, because the same wrong
  * assumption would be written into both sides. These payloads can.
@@ -22,6 +24,8 @@ import {
 const ownedDraftId = "a4000000-0000-4000-8000-000000000001";
 const conversationId = "a3000000-0000-4000-8000-000000000001";
 const ownerUserId = "a1000000-0000-4000-8000-000000000001";
+const recipientDraftId = "a4000000-0000-4000-8000-000000000005";
+const incomingMessageId = "a6000000-0000-4000-8000-000000000002";
 const largestBigint = "9223372036854775807";
 
 function repositoryReturning(result: unknown): SupabaseConversationRepository {
@@ -129,6 +133,75 @@ describe("conversation RPC payload contract", () => {
       provider: "codex",
       sentAt: "2026-08-31T09:00:06.000Z",
     });
+  });
+
+  it("accepts the row returned by create_recipient_draft", async () => {
+    const result = await repositoryReturning(
+      payloads.recipientCreated,
+    ).createRecipientDraft({
+      draft: { draftId: recipientDraftId },
+      idempotencyKey: "reply-owner-1",
+    } as never);
+    const draft = result?.draft;
+
+    expect(result?.replayed).toBe(false);
+    expect(draft?.role).toBe("recipient");
+    expect(draft?.incomingMessageId).toBe(incomingMessageId);
+    // Optional steering, not the owner's rough ask: a recipient draft answers
+    // a message, so the column the sender flow requires is nullable here.
+    expect(draft?.roughMessage).toBe("keep it short");
+    expect(draft?.privateTurns).toEqual([
+      { speaker: "owner", text: "keep it short" },
+    ]);
+  });
+
+  it("keeps a sender draft free of any incoming message", async () => {
+    const draft = await repositoryReturning(payloads.created).getDraft(ownedDraftId);
+
+    expect(draft?.role).toBe("sender");
+    expect(draft?.incomingMessageId).toBeNull();
+  });
+
+  it("refuses a reply to a message the owner sent themselves", async () => {
+    const draft = await repositoryReturning(
+      payloads.recipientRejectedOwnMessage,
+    ).createRecipientDraft({
+      draft: { draftId: recipientDraftId },
+      idempotencyKey: "reply-rejected",
+    } as never);
+
+    expect(draft).toBeNull();
+  });
+
+  /**
+   * The collaborator's text is the one string in the system that a stranger
+   * wrote. It reaches the model exactly once, inside the untrusted data
+   * envelope. If the loader also replayed it as ordinary shared history the
+   * envelope would be decorative, so the SQL bounds history strictly earlier
+   * than the message being answered and this pins that.
+   */
+  it("delivers the answered message only through the envelope field", () => {
+    const recipient = payloads.recipientContext;
+
+    expect(recipient.incomingMessage).toBe("Does rounding happen before or after tax?");
+    expect(recipient.sharedHistory.map((entry) => entry.id)).toEqual([
+      "a6000000-0000-4000-8000-000000000001",
+    ]);
+    // A sender turn opened at the same instant does see it, as plain history.
+    expect(payloads.senderContext.sharedHistory.map((entry) => entry.id)).toContain(
+      incomingMessageId,
+    );
+  });
+
+  /**
+   * `load_sender_protocol_context` hardcodes `'role', 'sender'` in its own
+   * result, so a recipient row loaded through it would arrive claiming to be a
+   * sender turn and the runtime adapter's purpose check could not see it. Each
+   * loader has to reject the other role's rows itself.
+   */
+  it("keeps each role's durable loader blind to the other role's drafts", () => {
+    expect(payloads.senderLoaderOnRecipientDraft).toBeNull();
+    expect(payloads.recipientLoaderOnSenderDraft).toBeNull();
   });
 
   it("never projects a credential, session reference or raw provider stream", () => {

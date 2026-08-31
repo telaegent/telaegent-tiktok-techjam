@@ -8,11 +8,20 @@ import settingsIcon from "../../../ui/icon/setting.svg";
 import {
   api,
   ApiError,
+  type AgentProvider,
   type ConnectorCredential,
   type ConversationMessage,
   type PrivateDraftView,
+  type ProjectCollaborator,
+  type ProjectConversation,
+  type ProjectSummary,
   type TelaegentWebUser,
 } from "./api";
+import {
+  assertConversationScope,
+  connectedCollaborators,
+  selectConnectedPeer,
+} from "./project-conversation";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -20,7 +29,7 @@ type ProductRoute = "onboarding" | "projects" | "connections" | "settings" | "wo
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
 type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
 type WorkspaceTab = "chat" | "people" | "settings";
-type MessageLoadState = "unconfigured" | "loading" | "ready" | "error";
+type AsyncLoadState = "idle" | "loading" | "ready" | "error";
 
 type Collaborator = {
   id: string;
@@ -41,27 +50,16 @@ type SharedMessage = {
   meta: string;
 };
 
-const conversationConfig = {
-  conversationId: import.meta.env.VITE_TELAEGENT_CONVERSATION_ID?.trim() ?? "",
-  githubRepositoryId:
-    import.meta.env.VITE_TELAEGENT_GITHUB_REPOSITORY_ID?.trim() ?? "",
-};
-
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const repositoryIdPattern = /^[1-9][0-9]*$/;
 
-function conversationConfigurationError(): string | null {
-  if (!uuidPattern.test(conversationConfig.conversationId)) {
-    return "Set VITE_TELAEGENT_CONVERSATION_ID to a conversation UUID.";
-  }
-  if (!repositoryIdPattern.test(conversationConfig.githubRepositoryId)) {
-    return "Set VITE_TELAEGENT_GITHUB_REPOSITORY_ID to the stable numeric GitHub repository ID.";
+function projectConfigurationError(githubRepositoryId: string): string | null {
+  if (!repositoryIdPattern.test(githubRepositoryId)) {
+    return "The selected project does not have a valid stable GitHub repository ID.";
   }
   return null;
 }
 
-function formatProvider(provider: ConversationMessage["provider"]): string {
+function formatProvider(provider: AgentProvider): string {
   return provider === "claude" ? "Claude Code" : "Codex";
 }
 
@@ -131,74 +129,38 @@ function draftFailureGuidance(draft: PrivateDraftView): string {
   }
 }
 
-const collaborators: Collaborator[] = [
-  {
-    id: "justin",
-    initial: "J",
-    name: "Justin",
-    topic: "Auth and environment",
-    provider: "Claude Code",
-    branch: "feat/auth-service",
-    status: "connected",
-  },
-  {
-    id: "khoa",
-    initial: "K",
-    name: "Khoa",
-    topic: "Backend API contract",
-    provider: "Codex",
-    branch: "feat/api-contract",
-    status: "connected",
-  },
-  {
-    id: "thai",
-    initial: "T",
-    name: "Thai",
-    topic: "Cloud relay and connector networking",
-    provider: "Claude Code",
-    branch: "infra/connector-relay",
-    status: "available",
-  },
-  {
-    id: "hien",
-    initial: "H",
-    name: "Hien",
-    topic: "Agent protocol",
-    provider: "Codex",
-    branch: "research/agent-protocol",
-    status: "pending",
-  },
-];
+function collaboratorView(collaborator: ProjectCollaborator): Collaborator {
+  return {
+    id: collaborator.userId,
+    initial: collaborator.githubLogin.slice(0, 2).toUpperCase(),
+    name: `@${collaborator.githubLogin}`,
+    topic: "Approved project conversation",
+    provider: "Local agent",
+    branch: "Repository scoped",
+    status:
+      collaborator.connectionStatus === "connected"
+        ? "connected"
+        : collaborator.connectionStatus.startsWith("pending")
+          ? "pending"
+          : "available",
+  };
+}
 
-const projects = [
-  {
-    id: "telaegent",
-    owner: "telaegent",
-    name: "telaegent-tiktok-techjam",
-    description: "Project-scoped collaboration between independently owned coding agents.",
-    collaborators: 4,
-    provider: "Codex",
-    updated: "Active now",
-  },
-  {
-    id: "duelook",
-    owner: "phuong-labs",
-    name: "DueLook",
-    description: "Deadline and milestone tracking for small product teams.",
-    collaborators: 1,
-    provider: "Claude Code",
-    updated: "Yesterday",
-  },
-  {
-    id: "secret",
-    owner: "phuong-labs",
-    name: "secret",
-    description: "Private experiments and configuration research.",
-    collaborators: 0,
-    provider: "Codex",
-    updated: "6 days ago",
-  },
-];
+function repositoryParts(fullName: string): { owner: string; name: string } {
+  const separator = fullName.indexOf("/");
+  return separator > 0
+    ? { owner: fullName.slice(0, separator), name: fullName.slice(separator + 1) }
+    : { owner: "GitHub", name: fullName };
+}
+
+function projectAvailability(project: ProjectSummary): string {
+  if (project.projectStatus !== "active" || project.membershipStatus !== "active") {
+    return "Unavailable";
+  }
+  if (project.repositoryAccessStatus !== "verified") return "Needs verification";
+  if (project.binding.status !== "ready") return "Connector offline";
+  return "Open";
+}
 
 function TypingDots({ label = "Working" }: { label?: string }) {
   return (
@@ -233,6 +195,8 @@ function Onboarding({
   const [connectorError, setConnectorError] = useState<ApiError | null>(null);
   const [checkingConnector, setCheckingConnector] = useState(false);
   const [connectedAgents, setConnectedAgents] = useState<string[]>([]);
+  const [connectorSourcePath, setConnectorSourcePath] = useState("");
+  const [repositoryPath, setRepositoryPath] = useState("");
   const steps: OnboardingStep[] = ["identity", "github", "agent", "ready"];
   const stepIndex = steps.indexOf(step);
 
@@ -257,16 +221,20 @@ function Onboarding({
   }
 
   function connectorCommand(credential: ConnectorCredential): string {
+    const quotePowerShell = (value: string) => `'${value.replaceAll("'", "''")}'`;
+    const source = connectorSourcePath.trim() || "<Telaegent source folder>";
+    const workspace = repositoryPath.trim() || "<repository folder>";
     return [
+      `Set-Location -LiteralPath ${quotePowerShell(source)}`,
       `$env:TELAEGENT_URL='${window.location.origin}'`,
       `$env:TELAEGENT_CONNECTOR_INSTANCE_ID='${credential.connectorInstanceId}'`,
       `$env:TELAEGENT_CONNECTOR_CREDENTIAL='${credential.credential}'`,
-      "npm run connector:connect -w @launchpad/server -- connect .",
+      `npm.cmd run connector:connect -- connect ${quotePowerShell(workspace)}`,
     ].join("; ");
   }
 
   async function copyConnectorCommand() {
-    if (connectorCredential) {
+    if (connectorCredential && connectorSourcePath.trim() && repositoryPath.trim()) {
       await navigator.clipboard.writeText(connectorCommand(connectorCredential));
     }
   }
@@ -386,7 +354,7 @@ function Onboarding({
               {githubStage === "connector" && connectorCredential && (
                 <div className="device-flow">
                   <div>
-                    <span>Run locally in your repository</span>
+                    <span>Configure local paths</span>
                     <strong>Connect this installation</strong>
                   </div>
                   <div>
@@ -394,12 +362,43 @@ function Onboarding({
                     <code>repo · gh · Claude/Codex · sessions</code>
                   </div>
                   <p>Run the command, then continue once the terminal confirms the connector is connected.</p>
+                  <div className="connector-path-fields">
+                    <label>
+                      <span>Telaegent source folder</span>
+                      <input
+                        type="text"
+                        value={connectorSourcePath}
+                        onChange={(event) => setConnectorSourcePath(event.target.value)}
+                        placeholder="D:\\Projects\\telaegent\\telaegent-tiktok-techjam"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </label>
+                    <label>
+                      <span>Repository to connect</span>
+                      <input
+                        type="text"
+                        value={repositoryPath}
+                        onChange={(event) => setRepositoryPath(event.target.value)}
+                        placeholder="D:\\Projects\\Testing\\my-repository"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </label>
+                  </div>
                   <div className="connector-command-block">
                     <code className="connector-command">{connectorCommand(connectorCredential)}</code>
-                    <p>Paste this once in PowerShell at the repository root. It verifies your local GitHub CLI and starts the outbound connector. The credential expires {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(connectorCredential.expiresAt))}.</p>
+                    <p>The command changes to the Telaegent source folder before launching the connector and passes the separate repository folder as its workspace. Neither path is uploaded. The credential expires {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(connectorCredential.expiresAt))}.</p>
                   </div>
                   <div className="inline-actions">
-                    <button className="app-secondary-action" type="button" onClick={() => void copyConnectorCommand()}>Copy command</button>
+                    <button
+                      className="app-secondary-action"
+                      type="button"
+                      disabled={!connectorSourcePath.trim() || !repositoryPath.trim()}
+                      onClick={() => void copyConnectorCommand()}
+                    >
+                      Copy command
+                    </button>
                     <button
                       className="app-primary-action"
                       type="button"
@@ -529,12 +528,16 @@ function ProductNav({
 
 function ProjectsScreen({
   onOpenProject,
-  requestAccepted,
-  onAcceptRequest,
+  projects,
+  loading,
+  error,
+  onRetry,
 }: {
-  onOpenProject: () => void;
-  requestAccepted: boolean;
-  onAcceptRequest: () => void;
+  onOpenProject: (project: ProjectSummary) => void;
+  projects: ProjectSummary[];
+  loading: boolean;
+  error: ApiError | null;
+  onRetry: () => void;
 }) {
   return (
     <div className="app-page projects-page">
@@ -546,57 +549,59 @@ function ProjectsScreen({
 
       <div className="projects-layout">
         <section className="project-list" aria-label="Connected repositories">
-          {projects.map((project, index) => (
-            <button type="button" key={project.id} disabled={index !== 0} onClick={onOpenProject}>
+          {loading && (
+            <div className="api-state"><TypingDots label="Loading projects" /><p>Loading repositories verified by your connector.</p></div>
+          )}
+          {!loading && error && (
+            <div className="api-state error" role="alert">
+              <strong>{error.code ?? "Project discovery unavailable"}</strong>
+              <p>{apiErrorGuidance(error)}</p>
+              {error.retryable && <button type="button" onClick={onRetry}>Retry</button>}
+            </div>
+          )}
+          {!loading && !error && projects.length === 0 && (
+            <div className="api-state">
+              <strong>No verified repositories yet</strong>
+              <p>Run the local connector from a GitHub repository, then refresh this page.</p>
+            </div>
+          )}
+          {projects.map((project, index) => {
+            const repository = repositoryParts(project.repositoryFullName);
+            const availability = projectAvailability(project);
+            const available = availability === "Open";
+            return (
+            <button type="button" key={project.projectId} disabled={!available} onClick={() => onOpenProject(project)}>
               <span className="repo-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
               <span className="repo-title">
-                <small>{project.owner}</small>
-                <strong>{project.name}</strong>
-                <p>{project.description}</p>
+                <small>{repository.owner}</small>
+                <strong>{repository.name}</strong>
+                <p>{project.visibility} repository · default branch {project.defaultBranch}</p>
               </span>
               <span className="repo-meta">
-                <small>{project.collaborators} collaborators</small>
-                <strong>{project.provider}</strong>
-                <small>{project.updated}</small>
+                <small>{project.connectedCollaboratorCount} connected collaborator{project.connectedCollaboratorCount === 1 ? "" : "s"}</small>
+                <strong>{project.binding.currentBranch ?? project.defaultBranch}</strong>
+                <small>{project.binding.lastSeenAt ? "Connector seen recently" : "Awaiting connector presence"}</small>
               </span>
-              <span className="repo-open">{index === 0 ? "Open" : "No conversations"}</span>
+              <span className="repo-open">{availability}</span>
             </button>
-          ))}
+          )})}
         </section>
 
-        <aside className={`connection-request-card${requestAccepted ? " accepted" : ""}`}>
-          <span className="app-eyebrow">Connection request</span>
-          {requestAccepted ? (
-            <>
-              <h2>Linh is connected.</h2>
-              <p>You can now exchange approved messages inside phuong-labs/DueLook.</p>
-              <div className="ready-summary"><span><StatusMark /> Project-scoped connection active</span></div>
-            </>
-          ) : (
-            <>
-              <h2>Linh wants to connect agents.</h2>
-              <p className="request-project">phuong-labs/DueLook</p>
-              <div className="permission-copy">
-                <strong>This allows</strong>
-                <span><StatusMark /> Project-scoped messages</span>
-                <span><StatusMark /> Agent-assisted questions</span>
-                <strong>This does not allow</strong>
-                <span><StatusMark tone="quiet" /> Direct repository access</span>
-                <span><StatusMark tone="quiet" /> Unapproved messages from your side</span>
-              </div>
-              <div className="inline-actions">
-                <button className="app-secondary-action" type="button">Decline</button>
-                <button className="app-primary-action" type="button" onClick={onAcceptRequest}>Accept connection</button>
-              </div>
-            </>
-          )}
+        <aside className="connection-request-card">
+          <span className="app-eyebrow">Project trust</span>
+          <h2>Connections stay repository-scoped.</h2>
+          <p>Only repositories independently proven by your local GitHub CLI appear here.</p>
+          <div className="permission-copy">
+            <span><StatusMark /> Approved messages are durable</span>
+            <span><StatusMark tone="quiet" /> Local paths and credentials stay local</span>
+          </div>
         </aside>
       </div>
     </div>
   );
 }
 
-function ConnectionsScreen({ requestAccepted, onAcceptRequest }: { requestAccepted: boolean; onAcceptRequest: () => void }) {
+function LiveConnectionsScreen() {
   return (
     <div className="app-page compact-page">
       <header className="app-page-heading">
@@ -604,76 +609,33 @@ function ConnectionsScreen({ requestAccepted, onAcceptRequest }: { requestAccept
         <h1>Connections</h1>
         <p>A connection belongs to one repository and can be revoked at any time.</p>
       </header>
-
-      <section className="settings-section">
-        <header><h2>Incoming</h2><span>{requestAccepted ? "0" : "1"}</span></header>
-        {!requestAccepted ? (
-          <article className="connection-row">
-            <span className="app-avatar">L</span>
-            <div><strong>Linh</strong><small>phuong-labs/DueLook · project-scoped messaging</small></div>
-            <button className="app-secondary-action" type="button">Decline</button>
-            <button className="app-primary-action" type="button" onClick={onAcceptRequest}>Accept</button>
-          </article>
-        ) : (
-          <p className="empty-line">No pending requests.</p>
-        )}
-      </section>
-
-      <section className="settings-section">
-        <header><h2>Active</h2><span>2</span></header>
-        {collaborators.slice(0, 2).map((person) => (
-          <article className="connection-row" key={person.id}>
-            <span className="app-avatar">{person.initial}</span>
-            <div><strong>{person.name}</strong><small>telaegent/backend · {person.provider}</small></div>
-            <span className="connection-state"><StatusMark /> Connected</span>
-          </article>
-        ))}
+      <section className="settings-section api-state">
+        <strong>Connection management is not available yet</strong>
+        <p>The backend routes now exist: <code>api.projectCollaborators</code>, <code>api.requestProjectConnection</code>, <code>api.respondToProjectConnection</code>, and <code>api.revokeProjectConnection</code>. This screen has yet to be built on them.</p>
       </section>
     </div>
   );
 }
 
-function ToolsSettings() {
-  const [claudeConnected, setClaudeConnected] = useState(false);
-
+function LiveToolsSettings({ projects }: { projects: ProjectSummary[] }) {
   return (
     <div className="app-page compact-page">
       <header className="app-page-heading">
         <span className="app-eyebrow">Account and connected tools</span>
         <h1>Settings</h1>
-        <p>Manage cloud connections and the local tools reported by your connector.</p>
+        <p>Cloud-safe state reported by your local connector.</p>
       </header>
-
       <section className="settings-section">
-        <header><h2>Account</h2></header>
-        <article className="tool-row">
-          <div><strong>Local connector</strong><small>@phuong · telaegent/backend</small></div>
-          <span><StatusMark /> Online</span>
-        </article>
+        <header><h2>Local execution</h2></header>
+        <p className="empty-line">Provider availability is proven by the local connector. Durable per-provider status is not exposed by the backend yet.</p>
       </section>
-
-      <section className="settings-section">
-        <header><h2>Coding agents</h2></header>
-        <article className="tool-row">
-          <div><strong>Codex</strong><small>Local default for telaegent/backend</small></div>
-          <span><StatusMark /> Connected locally</span>
-        </article>
-        <article className="tool-row warning">
-          <div><strong>Claude Code</strong><small>{claudeConnected ? "Local connection restored" : "Local authentication unavailable · sign in locally"}</small></div>
-          {claudeConnected ? (
-            <span><StatusMark /> Connected locally</span>
-          ) : (
-            <button className="app-secondary-action" type="button" onClick={() => setClaudeConnected(true)}>Reconnect</button>
-          )}
-        </article>
-      </section>
-
       <section className="settings-section">
         <header><h2>Repositories</h2></header>
+        {projects.length === 0 && <p className="empty-line">No verified repositories.</p>}
         {projects.map((project) => (
-          <article className="tool-row" key={project.id}>
-            <div><strong>{project.owner}/{project.name}</strong><small>Registered by local connector</small></div>
-            <button className="app-text-button danger" type="button">Disconnect</button>
+          <article className="tool-row" key={project.projectId}>
+            <div><strong>{project.repositoryFullName}</strong><small>Registered by local connector · {project.binding.status}</small></div>
+            <span className="connection-state"><StatusMark tone={project.binding.status === "ready" ? "ok" : "warn"} /> {project.binding.status}</span>
           </article>
         ))}
       </section>
@@ -682,14 +644,24 @@ function ToolsSettings() {
 }
 
 function WorkspaceSidebar({
-  selectedId,
+  project,
+  collaborators,
+  collaboratorsState,
+  collaboratorsError,
+  selectedPeerUserId,
   onSelect,
+  onRetryCollaborators,
   tab,
   onTabChange,
   onBack,
 }: {
-  selectedId: string;
+  project: ProjectSummary;
+  collaborators: ProjectCollaborator[];
+  collaboratorsState: AsyncLoadState;
+  collaboratorsError: ApiError | null;
+  selectedPeerUserId: string | null;
   onSelect: (id: string) => void;
+  onRetryCollaborators: () => void;
   tab: WorkspaceTab;
   onTabChange: (tab: WorkspaceTab) => void;
   onBack: () => void;
@@ -699,8 +671,8 @@ function WorkspaceSidebar({
       <button className="workspace-back" type="button" onClick={onBack}>← All projects</button>
       <div className="workspace-repository">
         <span>Repository</span>
-        <strong>telaegent/backend</strong>
-        <small>feat/auth-ui · a184f2c</small>
+        <strong>{project.repositoryFullName}</strong>
+        <small>{project.binding.currentBranch ?? project.defaultBranch} · {project.binding.commitSha?.slice(0, 7) ?? "commit unavailable"}</small>
       </div>
       <div className="workspace-tabs">
         <button className={tab === "chat" ? "selected" : ""} type="button" onClick={() => onTabChange("chat")}>Conversation</button>
@@ -709,9 +681,23 @@ function WorkspaceSidebar({
       </div>
       {tab === "chat" && (
         <div className="workspace-conversations">
-          <span>People</span>
-          {collaborators.filter((person) => person.status === "connected").map((person) => (
-            <button className={selectedId === person.id ? "selected" : ""} type="button" key={person.id} onClick={() => onSelect(person.id)}>
+          <span>Conversation</span>
+          {collaboratorsState === "loading" && (
+            <div className="workspace-conversation-state"><TypingDots label="Loading collaborators" /></div>
+          )}
+          {collaboratorsState === "error" && collaboratorsError && (
+            <div className="workspace-conversation-state error">
+              <small>{apiErrorGuidance(collaboratorsError)}</small>
+              {collaboratorsError.retryable && <button type="button" onClick={onRetryCollaborators}>Retry</button>}
+            </div>
+          )}
+          {collaboratorsState === "ready" && collaborators.length === 0 && (
+            <div className="workspace-conversation-state">
+              <small>No connected collaborator yet. Open Collaborators to establish project trust.</small>
+            </div>
+          )}
+          {collaborators.map((collaborator) => collaboratorView(collaborator)).map((person) => (
+            <button className={selectedPeerUserId === person.id ? "selected" : ""} type="button" key={person.id} onClick={() => onSelect(person.id)}>
               <span className="app-avatar">{person.initial}</span>
               <span><strong>{person.name}</strong><small>{person.topic}</small></span>
             </button>
@@ -719,8 +705,8 @@ function WorkspaceSidebar({
         </div>
       )}
       <div className="workspace-agent">
-        <span><StatusMark /> Your Codex is ready</span>
-        <small>Only for this repository</small>
+        <span><StatusMark tone={project.binding.status === "ready" ? "ok" : "warn"} /> Connector {project.binding.status}</span>
+        <small>Scoped only to this repository</small>
       </div>
     </aside>
   );
@@ -746,6 +732,7 @@ function mapConversationMessage(
 function PrivateAgentRoom({
   open,
   draft,
+  answering,
   recipient,
   clarification,
   approvedContent,
@@ -762,6 +749,8 @@ function PrivateAgentRoom({
 }: {
   open: boolean;
   draft: PrivateDraftView | null;
+  /** The approved collaborator message this draft answers, on a reply. */
+  answering: SharedMessage | null;
   recipient: Collaborator;
   clarification: string;
   approvedContent: string;
@@ -786,19 +775,26 @@ function PrivateAgentRoom({
     <aside className={`workspace-private-room${open ? " open" : ""}`} aria-hidden={!open}>
       <header>
         <div>
-          <strong>{state === "ready" ? "Message Approval" : "Message Preparation"}</strong>
+          <strong>{state === "ready" ? (answering ? "Reply Approval" : "Message Approval") : (answering ? "Reply Preparation" : "Message Preparation")}</strong>
           <small>Private with {draft ? formatProvider(draft.provider) : "your agent"}. Not visible to {recipient.name}.</small>
         </div>
         <button type="button" onClick={onNo} disabled={busy}>No</button>
       </header>
 
       <div className="private-scope-bar">
-        <span>{conversationConfig.githubRepositoryId || "repository not configured"}</span>
+        <span>{draft?.githubRepositoryId ?? "repository not configured"}</span>
         <span>{draft?.draftId ? `draft ${draft.draftId.slice(0, 8)}` : "private draft"}</span>
       </div>
 
       <div className="workspace-private-thread" aria-live="polite">
-        {draft && (
+        {answering && (
+          <article className="private-bubble answering">
+            <span>{recipient.name} · approved message</span>
+            <p>{answering.body}</p>
+          </article>
+        )}
+
+        {draft?.roughMessage && (
           <article className="private-bubble user"><span>You</span><p>{draft.roughMessage}</p></article>
         )}
 
@@ -901,19 +897,33 @@ function PrivateAgentRoom({
 }
 
 function ProjectChat({
-  selectedId,
+  project,
+  peer,
+  conversation,
+  conversationState,
+  conversationError,
+  onRetryConversation,
   currentUserId,
 }: {
-  selectedId: string;
+  project: ProjectSummary;
+  peer: ProjectCollaborator | null;
+  conversation: ProjectConversation | null;
+  conversationState: AsyncLoadState;
+  conversationError: ApiError | null;
+  onRetryConversation: () => void;
   currentUserId: string | null;
 }) {
-  const selected = collaborators.find((person) => person.id === selectedId) ?? collaborators[0];
+  const selected = peer ? collaboratorView(peer) : null;
   const [composer, setComposer] = useState("");
+  const [provider, setProvider] = useState<AgentProvider>("claude");
   const [roughMessage, setRoughMessage] = useState("");
   const [messages, setMessages] = useState<SharedMessage[]>([]);
-  const [messageLoadState, setMessageLoadState] = useState<MessageLoadState>("loading");
+  const [messageLoadState, setMessageLoadState] = useState<AsyncLoadState>("idle");
   const [messageError, setMessageError] = useState<ApiError | null>(null);
   const [draft, setDraft] = useState<PrivateDraftView | null>(null);
+  // Set only while a reply draft is open, so the private room can show what is
+  // being answered and Retry can reopen the same reply.
+  const [answering, setAnswering] = useState<SharedMessage | null>(null);
   const [privateRoomOpen, setPrivateRoomOpen] = useState(false);
   const [clarification, setClarification] = useState("");
   const [approvedContent, setApprovedContent] = useState("");
@@ -921,21 +931,24 @@ function ProjectChat({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
   const ownMessageIds = useRef(new Set<string>());
-  const configurationError = conversationConfigurationError();
-  const isBoundConversation = selected.id === "justin";
+  // A network retry or double click reuses the same backend creation key. A
+  // deliberate runtime retry clears it and opens a new private attempt.
+  const replyCreationKeys = useRef(new Map<string, string>());
+  const configurationError = projectConfigurationError(project.githubRepositoryId);
+  const conversationId = conversation?.conversationId ?? null;
 
   async function loadMessages() {
-    if (configurationError || !isBoundConversation) {
+    if (configurationError || !conversationId) {
       setMessages([]);
-      setMessageLoadState("unconfigured");
+      setMessageLoadState("idle");
       return;
     }
     setMessageLoadState("loading");
     setMessageError(null);
     try {
       const result = await api.conversationMessages(
-        conversationConfig.conversationId,
-        conversationConfig.githubRepositoryId,
+        conversationId,
+        project.githubRepositoryId,
       );
       setMessages(result.messages.map((message) =>
         mapConversationMessage(message, currentUserId, ownMessageIds.current.has(message.messageId)),
@@ -949,19 +962,24 @@ function ProjectChat({
 
   useEffect(() => {
     let active = true;
+    ownMessageIds.current.clear();
+    replyCreationKeys.current.clear();
+    setComposer("");
+    setRoughMessage("");
     setPrivateRoomOpen(false);
     setDraft(null);
+    setAnswering(null);
     setActionError(null);
-    if (configurationError || !isBoundConversation) {
+    if (configurationError || !conversationId) {
       setMessages([]);
-      setMessageLoadState("unconfigured");
+      setMessageLoadState("idle");
       return () => { active = false; };
     }
     setMessageLoadState("loading");
     setMessageError(null);
     void api.conversationMessages(
-      conversationConfig.conversationId,
-      conversationConfig.githubRepositoryId,
+      conversationId,
+      project.githubRepositoryId,
     ).then((result) => {
       if (!active) return;
       setMessages(result.messages.map((message) =>
@@ -974,15 +992,15 @@ function ProjectChat({
       setMessageLoadState("error");
     });
     return () => { active = false; };
-  }, [selectedId, configurationError, isBoundConversation, currentUserId]);
+  }, [conversationId, configurationError, currentUserId, project.githubRepositoryId]);
 
   useEffect(() => {
-    if (configurationError || !isBoundConversation || messageLoadState !== "ready") return;
+    if (configurationError || !conversationId || messageLoadState !== "ready") return;
     let active = true;
     const timer = window.setInterval(() => {
       void api.conversationMessages(
-        conversationConfig.conversationId,
-        conversationConfig.githubRepositoryId,
+        conversationId,
+        project.githubRepositoryId,
       ).then((result) => {
         if (!active) return;
         setMessages(result.messages.map((message) =>
@@ -996,7 +1014,7 @@ function ProjectChat({
       active = false;
       window.clearInterval(timer);
     };
-  }, [configurationError, isBoundConversation, messageLoadState]);
+  }, [configurationError, conversationId, messageLoadState, project.githubRepositoryId]);
 
   useEffect(() => {
     if (!privateRoomOpen || draft?.state !== "agent_working") return;
@@ -1031,14 +1049,56 @@ function ProjectChat({
   }
 
   async function createAndRunDraft(message: string) {
+    if (!conversationId) return;
     setBusy(true);
     setDraft(null);
     setActionError(null);
     try {
-      const created = await api.createConversationDraft(conversationConfig.conversationId, {
-        githubRepositoryId: conversationConfig.githubRepositoryId,
-        provider: "codex",
+      const created = await api.createConversationDraft(conversationId, {
+        githubRepositoryId: project.githubRepositoryId,
+        provider,
         roughMessage: message,
+      });
+      setDraft(created.draft);
+      setPrivateRoomOpen(true);
+      await runDraft(created.draft.draftId);
+    } catch (error) {
+      setActionError(normalizeApiError(error));
+      setPrivateRoomOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Opens the recipient half of the round trip.
+   *
+   * The reply is an ordinary private draft: it stays owner-private and still
+   * leaves only through Send, so answering a collaborator faces the same gate
+   * as starting a message.
+   */
+  async function createAndRunReply(message: SharedMessage, forceNew = false) {
+    if (!conversationId) return;
+    setBusy(true);
+    setDraft(null);
+    setActionError(null);
+    setAnswering(message);
+    setRoughMessage("");
+    setClarification("");
+    setApprovedContent("");
+    setEditingCandidate(false);
+    try {
+      if (forceNew) replyCreationKeys.current.delete(message.id);
+      let idempotencyKey = replyCreationKeys.current.get(message.id);
+      if (!idempotencyKey) {
+        idempotencyKey = `reply:${message.id}:${crypto.randomUUID()}`;
+        replyCreationKeys.current.set(message.id, idempotencyKey);
+      }
+      const created = await api.createConversationReply(conversationId, {
+        githubRepositoryId: project.githubRepositoryId,
+        provider,
+        incomingMessageId: message.id,
+        idempotencyKey,
       });
       setDraft(created.draft);
       setPrivateRoomOpen(true);
@@ -1054,8 +1114,9 @@ function ProjectChat({
   function submitRoughMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextMessage = composer.trim();
-    if (!nextMessage || configurationError || !isBoundConversation) return;
+    if (!nextMessage || configurationError || !conversationId) return;
     setRoughMessage(nextMessage);
+    setAnswering(null);
     setClarification("");
     setApprovedContent("");
     setEditingCandidate(false);
@@ -1088,8 +1149,10 @@ function ProjectChat({
     setActionError(null);
     try {
       await api.cancelConversationDraft(draft.draftId);
+      if (answering) replyCreationKeys.current.delete(answering.id);
       setPrivateRoomOpen(false);
       setDraft(null);
+      setAnswering(null);
       setComposer("");
     } catch (error) {
       setActionError(normalizeApiError(error));
@@ -1108,10 +1171,12 @@ function ProjectChat({
         idempotencyKey: `send:${draft.draftId}:${crypto.randomUUID()}`,
       });
       ownMessageIds.current.add(result.message.messageId);
+      if (answering) replyCreationKeys.current.delete(answering.id);
       setMessages((current) => [...current, mapConversationMessage(result.message, currentUserId, true)]);
       setMessageLoadState("ready");
       setPrivateRoomOpen(false);
       setDraft(null);
+      setAnswering(null);
       setComposer("");
       await loadMessages();
     } catch (error) {
@@ -1128,6 +1193,10 @@ function ProjectChat({
       setBusy(false);
       return;
     }
+    if (answering) {
+      await createAndRunReply(answering, true);
+      return;
+    }
     if (roughMessage) await createAndRunDraft(roughMessage);
   }
 
@@ -1135,25 +1204,35 @@ function ProjectChat({
     <section className={`project-chat${privateRoomOpen ? " private-open" : ""}`}>
       <header className="project-chat-header">
         <div>
-          <span className="app-avatar">{selected.initial}</span>
-          <span><strong>{selected.name}</strong><small>Approved project conversation</small></span>
+          <span className="app-avatar">{selected?.initial ?? "--"}</span>
+          <span><strong>{selected?.name ?? "Select a collaborator"}</strong><small>Approved project conversation</small></span>
         </div>
-        <div className="chat-header-meta"><span>Codex ↔ {selected.provider}</span></div>
+        <div className="chat-header-meta"><span>{formatProvider(provider)} ↔ {selected?.provider ?? "local agent"}</span></div>
       </header>
 
       <div className="chat-project-strip">
-        <span><StatusMark tone={messageLoadState === "error" ? "warn" : "ok"} /> telaegent/backend</span>
-        <small>Repository ID {conversationConfig.githubRepositoryId || "not configured"}</small>
+        <span><StatusMark tone={messageLoadState === "error" ? "warn" : "ok"} /> {project.repositoryFullName}</span>
+        <small>Repository ID {project.githubRepositoryId}</small>
       </div>
 
       <div className="shared-thread" aria-live="polite">
         {messageLoadState === "loading" && (
           <div className="turn-status"><TypingDots label="Loading approved messages" /><span>Loading approved messages</span></div>
         )}
-        {messageLoadState === "unconfigured" && (
+        {conversationState === "loading" && (
+          <div className="turn-status"><TypingDots label="Opening conversation" /><span>Opening the project-scoped conversation</span></div>
+        )}
+        {conversationState === "error" && conversationError && (
+          <div className="api-state error" role="alert">
+            <strong>{conversationError.code || `Conversation unavailable (${conversationError.status || "offline"})`}</strong>
+            <p>{apiErrorGuidance(conversationError)}</p>
+            {conversationError.retryable && <button type="button" onClick={onRetryConversation}>Retry</button>}
+          </div>
+        )}
+        {conversationState === "idle" && (
           <div className="api-state">
-            <strong>{isBoundConversation ? "Connect this workspace to a conversation" : "No conversation is bound to this collaborator"}</strong>
-            <p>{isBoundConversation ? configurationError : "The backend does not yet provide conversation discovery, so this screen can only open the configured conversation."}</p>
+            <strong>{configurationError ? "This project cannot open a conversation" : "Choose a connected collaborator"}</strong>
+            <p>{configurationError ?? "A shared conversation opens only for a peer who accepted this project connection."}</p>
           </div>
         )}
         {messageLoadState === "error" && messageError && (
@@ -1165,9 +1244,9 @@ function ProjectChat({
         )}
         {messageLoadState === "ready" && messages.length === 0 && (
           <div className="empty-conversation">
-            <span className="app-avatar">{selected.initial}</span>
-            <h2>Start a project conversation with {selected.name}.</h2>
-            <p>Your rough message goes to your agent privately before {selected.name} can see it.</p>
+            <span className="app-avatar">{selected?.initial ?? "--"}</span>
+            <h2>Start a project conversation with {selected?.name ?? "this collaborator"}.</h2>
+            <p>Your rough message goes to your agent privately before {selected?.name ?? "the collaborator"} can see it.</p>
           </div>
         )}
         {messages.map((message) => (
@@ -1175,114 +1254,134 @@ function ProjectChat({
             <span>{message.author} · {message.provider}</span>
             <p>{message.body}</p>
             <small>{message.meta}</small>
+            {message.side === "incoming" && (
+              <button
+                className="app-secondary-action shared-message-reply"
+                type="button"
+                onClick={() => void createAndRunReply(message)}
+                disabled={busy || privateRoomOpen}
+              >
+                Prepare reply
+              </button>
+            )}
           </article>
         ))}
       </div>
 
       <form className="shared-composer" onSubmit={submitRoughMessage}>
         <label htmlFor="project-message">Ask your agent to prepare a message</label>
+        <label className="composer-provider-picker">
+          <span>Local provider</span>
+          <select value={provider} onChange={(event) => setProvider(event.target.value as AgentProvider)} disabled={busy}>
+            <option value="claude">Claude Code</option>
+            <option value="codex">Codex</option>
+          </select>
+        </label>
         <div>
           <textarea
             id="project-message"
             rows={2}
             value={composer}
             onChange={(event) => setComposer(event.target.value)}
-            placeholder={`Ask ${selected.name} about this project…`}
-            disabled={!!configurationError || !isBoundConversation}
+            placeholder={`Ask ${selected?.name ?? "a connected collaborator"} about this project…`}
+            disabled={!!configurationError || !conversationId || conversationState !== "ready"}
           />
-          <button type="submit" disabled={busy || !composer.trim() || !!configurationError || !isBoundConversation}>Prepare privately</button>
+          <button type="submit" disabled={busy || !composer.trim() || !!configurationError || !conversationId || conversationState !== "ready"}>Prepare privately</button>
         </div>
-        <small>Enter prepares a private draft. Only Send shares the approved result with {selected.name}.</small>
+        <small>Enter prepares a private draft. Only Send shares the approved result with {selected?.name ?? "the collaborator"}.</small>
       </form>
 
-      <PrivateAgentRoom
-        open={privateRoomOpen}
-        draft={draft}
-        recipient={selected}
-        clarification={clarification}
-        approvedContent={approvedContent}
-        editingCandidate={editingCandidate}
-        busy={busy}
-        error={actionError}
-        onClarificationChange={setClarification}
-        onApprovedContentChange={setApprovedContent}
-        onClarify={clarifyDraft}
-        onNo={() => void rejectDraft()}
-        onEdit={() => setEditingCandidate(true)}
-        onSend={() => void sendDraft()}
-        onRetry={() => void retryDraft()}
-      />
+      {selected && (
+        <PrivateAgentRoom
+          open={privateRoomOpen}
+          draft={draft}
+          answering={answering}
+          recipient={selected}
+          clarification={clarification}
+          approvedContent={approvedContent}
+          editingCandidate={editingCandidate}
+          busy={busy}
+          error={actionError}
+          onClarificationChange={setClarification}
+          onApprovedContentChange={setApprovedContent}
+          onClarify={clarifyDraft}
+          onNo={() => void rejectDraft()}
+          onEdit={() => setEditingCandidate(true)}
+          onSend={() => void sendDraft()}
+          onRetry={() => void retryDraft()}
+        />
+      )}
     </section>
   );
 }
 
-function ProjectPeople() {
-  const [states, setStates] = useState<Record<string, Collaborator["status"]>>(
-    Object.fromEntries(collaborators.map((person) => [person.id, person.status])),
-  );
-
+function ProjectPeople({
+  project,
+  collaborators,
+  state,
+  error,
+  onRetry,
+}: {
+  project: ProjectSummary;
+  collaborators: ProjectCollaborator[];
+  state: AsyncLoadState;
+  error: ApiError | null;
+  onRetry: () => void;
+}) {
   return (
     <div className="workspace-page">
       <header className="workspace-page-heading">
-        <span className="app-eyebrow">telaegent/backend</span>
+        <span className="app-eyebrow">{project.repositoryFullName}</span>
         <h1>Project collaborators</h1>
         <p>A connection allows project-scoped messages. It never grants direct repository access.</p>
       </header>
       <div className="collaborator-list">
-        {collaborators.map((person) => {
-          const state = states[person.id];
-          return (
-            <article key={person.id}>
-              <span className="app-avatar">{person.initial}</span>
-              <div><strong>{person.name}</strong><small>{person.topic} · {person.provider}</small></div>
-              {state === "connected" && <span className="connection-state"><StatusMark /> Connected</span>}
-              {state === "pending" && <span className="connection-state quiet">Pending</span>}
-              {state === "available" && (
-                <button className="app-secondary-action" type="button" onClick={() => setStates((current) => ({ ...current, [person.id]: "pending" }))}>
-                  Request to talk
-                </button>
-              )}
-            </article>
-          );
-        })}
+        {state === "loading" && <div className="api-state"><TypingDots label="Loading collaborators" /><p>Loading independently verified project members.</p></div>}
+        {state === "error" && error && (
+          <div className="api-state error" role="alert">
+            <strong>{error.code || "Collaborators unavailable"}</strong>
+            <p>{apiErrorGuidance(error)}</p>
+            {error.retryable && <button type="button" onClick={onRetry}>Retry</button>}
+          </div>
+        )}
+        {state === "ready" && collaborators.length === 0 && (
+          <div className="api-state"><strong>No other verified member yet</strong><p>Another Telaegent user must independently connect this same GitHub repository before either side can request project trust.</p></div>
+        )}
+        {collaborators.map((collaborator) => (
+          <article key={collaborator.userId}>
+            <span className="app-avatar">{collaborator.githubLogin.slice(0, 2).toUpperCase()}</span>
+            <div>
+              <strong>@{collaborator.githubLogin}</strong>
+              <small>{collaborator.connectionStatus.replaceAll("_", " ")}</small>
+            </div>
+            <span className="connection-state"><StatusMark tone={collaborator.connectionStatus === "connected" ? "ok" : "quiet"} /> {collaborator.connectionStatus.replaceAll("_", " ")}</span>
+          </article>
+        ))}
       </div>
     </div>
   );
 }
 
-function ProjectSettings() {
-  const [agent, setAgent] = useState("Codex");
+function ProjectSettings({ project }: { project: ProjectSummary }) {
   return (
     <div className="workspace-page">
       <header className="workspace-page-heading">
-        <span className="app-eyebrow">telaegent/backend</span>
+        <span className="app-eyebrow">{project.repositoryFullName}</span>
         <h1>Project settings</h1>
         <p>These choices apply only to this repository.</p>
       </header>
       <section className="settings-section">
         <header><h2>Project agent</h2></header>
-        <div className="agent-choice">
-          {["Codex", "Claude Code"].map((item) => (
-            <button className={agent === item ? "selected" : ""} type="button" key={item} onClick={() => setAgent(item)}>
-              <span>{item}</span><small>{agent === item ? "Current" : "Use for this project"}</small>
-            </button>
-          ))}
-        </div>
+        <p className="empty-line">Choose a provider when preparing a message. Persistent project defaults need a backend-owned provider preference contract.</p>
       </section>
       <section className="settings-section">
         <header><h2>Active connections</h2></header>
-        {collaborators.slice(0, 2).map((person) => (
-          <article className="tool-row" key={person.id}>
-            <div><strong>{person.name}</strong><small>Can exchange approved messages in this project</small></div>
-            <button className="app-text-button danger" type="button">Revoke</button>
-          </article>
-        ))}
+        <p className="empty-line">Use the Collaborators workflow to manage project-scoped trust. Dedicated connection controls are not available on this settings screen yet.</p>
       </section>
       <section className="settings-section danger-zone">
         <header><h2>Repository connection</h2></header>
         <article className="tool-row">
-          <div><strong>Disconnect telaegent/backend</strong><small>Conversations remain in your history, but agents lose repository context.</small></div>
-          <button className="app-secondary-action" type="button">Disconnect</button>
+          <div><strong>Disconnect {project.repositoryFullName}</strong><small>Credential revocation exists, but project-scoped disconnect is not exposed to the browser yet.</small></div>
         </article>
       </section>
     </div>
@@ -1290,20 +1389,153 @@ function ProjectSettings() {
 }
 
 function Workspace({
+  project,
   onBack,
   currentUserId,
 }: {
+  project: ProjectSummary;
   onBack: () => void;
   currentUserId: string | null;
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("chat");
-  const [selectedId, setSelectedId] = useState("justin");
+  const [collaborators, setCollaborators] = useState<ProjectCollaborator[]>([]);
+  const [collaboratorsState, setCollaboratorsState] = useState<AsyncLoadState>("loading");
+  const [collaboratorsError, setCollaboratorsError] = useState<ApiError | null>(null);
+  const [selectedPeerUserId, setSelectedPeerUserId] = useState<string | null>(null);
+  const [conversation, setConversation] = useState<ProjectConversation | null>(null);
+  const [conversationPeerUserId, setConversationPeerUserId] = useState<string | null>(null);
+  const [conversationState, setConversationState] = useState<AsyncLoadState>("idle");
+  const [conversationError, setConversationError] = useState<ApiError | null>(null);
+  const [conversationAttempt, setConversationAttempt] = useState(0);
+  const collaboratorRequest = useRef(0);
+
+  async function loadCollaborators() {
+    const requestId = ++collaboratorRequest.current;
+    setCollaboratorsState("loading");
+    setCollaboratorsError(null);
+    setCollaborators([]);
+    setSelectedPeerUserId(null);
+    setConversation(null);
+    setConversationPeerUserId(null);
+    setConversationState("idle");
+    setConversationError(null);
+    try {
+      const result = await api.projectCollaborators(project.projectId, { limit: 50 });
+      if (requestId !== collaboratorRequest.current) return;
+      setCollaborators(result.collaborators);
+      setSelectedPeerUserId((current) =>
+        selectConnectedPeer(result.collaborators, current),
+      );
+      setCollaboratorsState("ready");
+    } catch (error) {
+      if (requestId !== collaboratorRequest.current) return;
+      setCollaborators([]);
+      setSelectedPeerUserId(null);
+      setCollaboratorsError(normalizeApiError(error));
+      setCollaboratorsState("error");
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    const requestId = ++collaboratorRequest.current;
+    setCollaboratorsState("loading");
+    setCollaboratorsError(null);
+    setCollaborators([]);
+    setSelectedPeerUserId(null);
+    setConversation(null);
+    setConversationPeerUserId(null);
+    setConversationState("idle");
+    setConversationError(null);
+    void api.projectCollaborators(project.projectId, { limit: 50 }).then((result) => {
+      if (!active || requestId !== collaboratorRequest.current) return;
+      setCollaborators(result.collaborators);
+      setSelectedPeerUserId(selectConnectedPeer(result.collaborators, null));
+      setCollaboratorsState("ready");
+    }).catch((error: unknown) => {
+      if (!active || requestId !== collaboratorRequest.current) return;
+      setCollaboratorsError(normalizeApiError(error));
+      setCollaboratorsState("error");
+    });
+    return () => { active = false; };
+  }, [project.projectId]);
+
+  useEffect(() => {
+    let active = true;
+    setConversation(null);
+    setConversationPeerUserId(null);
+    setConversationError(null);
+    if (!selectedPeerUserId || !currentUserId) {
+      setConversationState("idle");
+      return () => { active = false; };
+    }
+    const projectError = projectConfigurationError(project.githubRepositoryId);
+    if (projectError) {
+      setConversationError(
+        new ApiError(projectError, 400, "INVALID_PROJECT_SCOPE", false),
+      );
+      setConversationState("error");
+      return () => { active = false; };
+    }
+    const selectedPeer = collaborators.find(
+      (candidate) =>
+        candidate.userId === selectedPeerUserId &&
+        candidate.connectionStatus === "connected",
+    );
+    if (!selectedPeer) {
+      setSelectedPeerUserId(selectConnectedPeer(collaborators, null));
+      setConversationState("idle");
+      return () => { active = false; };
+    }
+    setConversationState("loading");
+    void api.createProjectConversation(project.projectId, selectedPeerUserId)
+      .then((result) => {
+        if (!active) return;
+        const scoped = assertConversationScope({
+          conversation: result.conversation,
+          projectId: project.projectId,
+          githubRepositoryId: project.githubRepositoryId,
+          currentUserId,
+          peerUserId: selectedPeerUserId,
+        });
+        setConversation(scoped);
+        setConversationPeerUserId(selectedPeerUserId);
+        setConversationState("ready");
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setConversationError(normalizeApiError(error));
+        setConversationState("error");
+      });
+    return () => { active = false; };
+  }, [
+    collaborators,
+    conversationAttempt,
+    currentUserId,
+    project.githubRepositoryId,
+    project.projectId,
+    selectedPeerUserId,
+  ]);
+
+  const connected = connectedCollaborators(collaborators);
+  const selectedPeer = connected.find(
+    (candidate) => candidate.userId === selectedPeerUserId,
+  ) ?? null;
+  const selectedConversation =
+    selectedPeer && conversationPeerUserId === selectedPeer.userId
+      ? conversation
+      : null;
 
   return (
     <div className="workspace-shell">
       <WorkspaceSidebar
-        selectedId={selectedId}
-        onSelect={setSelectedId}
+        project={project}
+        collaborators={connected}
+        collaboratorsState={collaboratorsState}
+        collaboratorsError={collaboratorsError}
+        selectedPeerUserId={selectedPeerUserId}
+        onSelect={setSelectedPeerUserId}
+        onRetryCollaborators={() => void loadCollaborators()}
         tab={tab}
         onTabChange={setTab}
         onBack={onBack}
@@ -1314,9 +1546,27 @@ function Workspace({
           <button className={tab === item ? "selected" : ""} type="button" key={item} onClick={() => setTab(item)}>{item}</button>
         ))}
       </div>
-      {tab === "chat" && <ProjectChat selectedId={selectedId} currentUserId={currentUserId} />}
-      {tab === "people" && <ProjectPeople />}
-      {tab === "settings" && <ProjectSettings />}
+      {tab === "chat" && (
+        <ProjectChat
+          project={project}
+          peer={selectedPeer}
+          conversation={selectedConversation}
+          conversationState={selectedPeer ? conversationState : "idle"}
+          conversationError={conversationError}
+          onRetryConversation={() => setConversationAttempt((attempt) => attempt + 1)}
+          currentUserId={currentUserId}
+        />
+      )}
+      {tab === "people" && (
+        <ProjectPeople
+          project={project}
+          collaborators={collaborators}
+          state={collaboratorsState}
+          error={collaboratorsError}
+          onRetry={() => void loadCollaborators()}
+        />
+      )}
+      {tab === "settings" && <ProjectSettings project={project} />}
     </div>
   );
 }
@@ -1335,7 +1585,42 @@ export default function ProductApp({
   onLogout: () => void | Promise<void>;
 }) {
   const [route, setRoute] = useState<ProductRoute>("onboarding");
-  const [requestAccepted, setRequestAccepted] = useState(false);
+  const [discoveredProjects, setDiscoveredProjects] = useState<ProjectSummary[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<ApiError | null>(null);
+  const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
+
+  async function loadProjects() {
+    if (!user || projectsLoading) return;
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const result = await api.projects({ limit: 50 });
+      setDiscoveredProjects(result.projects);
+      setSelectedProject((current) =>
+        current
+          ? result.projects.find((project) => project.projectId === current.projectId) ?? null
+          : null,
+      );
+    } catch (error) {
+      setProjectsError(normalizeApiError(error));
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (route === "onboarding" || !user) return;
+    void loadProjects();
+    // Project discovery is refreshed on navigation; connector/revocation state
+    // must not be treated as a permanent browser cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, user?.userId]);
+
+  function openProject(project: ProjectSummary) {
+    setSelectedProject(project);
+    setRoute("workspace");
+  }
 
   if (route === "onboarding") {
     return (
@@ -1356,7 +1641,9 @@ export default function ProductApp({
           <img src={theme === "dark" ? telaegentLogoBright : telaegentLogo} alt="Telaegent" />
         </button>
         <div className="app-topbar-context">
-          {route === "workspace" ? <><span>Project</span><strong>telaegent/backend</strong></> : <strong>Telaegent cloud</strong>}
+          {route === "workspace" && selectedProject
+            ? <><span>Project</span><strong>{selectedProject.repositoryFullName}</strong></>
+            : <strong>Telaegent cloud</strong>}
         </div>
         <div className="app-topbar-actions">
           <button className="app-text-button" type="button" onClick={onToggleTheme}>{theme === "dark" ? "Light" : "Dark"}</button>
@@ -1371,14 +1658,24 @@ export default function ProductApp({
         <main className="app-content">
           {route === "projects" && (
             <ProjectsScreen
-              onOpenProject={() => setRoute("workspace")}
-              requestAccepted={requestAccepted}
-              onAcceptRequest={() => setRequestAccepted(true)}
+              onOpenProject={openProject}
+              projects={discoveredProjects}
+              loading={projectsLoading}
+              error={projectsError}
+              onRetry={() => void loadProjects()}
             />
           )}
-          {route === "connections" && <ConnectionsScreen requestAccepted={requestAccepted} onAcceptRequest={() => setRequestAccepted(true)} />}
-          {route === "settings" && <ToolsSettings />}
-          {route === "workspace" && <Workspace onBack={() => setRoute("projects")} currentUserId={user?.userId ?? null} />}
+          {route === "connections" && <LiveConnectionsScreen />}
+          {route === "settings" && <LiveToolsSettings projects={discoveredProjects} />}
+          {route === "workspace" && selectedProject && (
+            <Workspace project={selectedProject} onBack={() => setRoute("projects")} currentUserId={user?.userId ?? null} />
+          )}
+          {route === "workspace" && !selectedProject && (
+            <div className="app-page api-state">
+              <strong>Select a verified project first</strong>
+              <button type="button" onClick={() => setRoute("projects")}>Back to projects</button>
+            </div>
+          )}
         </main>
       </div>
     </div>

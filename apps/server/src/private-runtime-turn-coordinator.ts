@@ -110,9 +110,13 @@ export class PrivateRuntimeTurnCoordinator {
     scope: ProviderSessionScope,
     request: ManagedAgentTurnRequest,
     beforeExecution?: () => void | Promise<void>,
+    suppliedTurnId?: string,
   ): StartedPrivateRuntimeTurn<T> {
     const owner = progressOwner(scope);
-    const turnId = randomUUID();
+    const turnId = suppliedTurnId ?? randomUUID();
+    if (this.turns.has(turnId)) {
+      throw new Error("Private runtime turn ID is already active");
+    }
     const streamId = this.progress.open(owner);
     this.turns.set(turnId, {
       turnId,

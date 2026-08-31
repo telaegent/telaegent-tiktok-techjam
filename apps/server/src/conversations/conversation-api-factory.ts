@@ -3,6 +3,7 @@ import {
   PrivateRuntimeAuthorizationService,
   type PrivateRuntimeAuthorizer,
 } from "../authorization/private-runtime-authorization.js";
+import type { PrivateDraftFollowUp } from "../capability/draft-follow-up.js";
 import type { AppConfig } from "../config.js";
 import { HttpError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
@@ -91,6 +92,12 @@ export interface ConversationApiFactoryOptions {
   runtime?: PrivateDraftTurnRuntime | undefined;
   authenticatedUserId?: AuthenticatedUserResolver | undefined;
   authorizer?: PrivateRuntimeAuthorizer | undefined;
+  /**
+   * The capability loop (build plan 8). Omitted, a turn that asks for files
+   * on a collaborator's machine simply answers without them: no question
+   * crosses, and nothing is asserted on anyone's behalf.
+   */
+  followUp?: PrivateDraftFollowUp | undefined;
 }
 
 /**
@@ -112,6 +119,7 @@ export function createConversationApi(
     options.repository ?? createConfiguredConversationRepository(config),
     new AuthorizedConversationAccess(authorizer),
     options.runtime ?? new ConnectorUnavailableDraftRuntime(),
+    options.followUp ? { followUp: options.followUp } : {},
   );
   return {
     service,

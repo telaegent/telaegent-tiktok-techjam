@@ -1,6 +1,7 @@
 import type {
   CompleteDraftInput,
   ConversationRepository,
+  CreateRecipientDraftResult,
   SendDraftInput,
 } from "./repository.js";
 import type {
@@ -20,11 +21,52 @@ export class InMemoryConversationRepository implements ConversationRepository {
   private readonly messages = new Map<string, SharedMessage>();
   private readonly approvals = new Map<string, OutboundApproval>();
   private readonly sendsByKey = new Map<string, { messageId: string; approvalId: string }>();
+  private readonly recipientDraftsByKey = new Map<string, string>();
 
   async createDraft(draft: PrivateDraft): Promise<PrivateDraft> {
     if (this.drafts.has(draft.draftId)) throw new Error("Duplicate private draft ID");
     this.drafts.set(draft.draftId, cloneDraft(draft));
     return cloneDraft(draft);
+  }
+
+  async createRecipientDraft(input: Readonly<{
+    draft: PrivateDraft;
+    idempotencyKey: string;
+  }>): Promise<CreateRecipientDraftResult | null> {
+    const { draft } = input;
+    const key = sendKey(draft.ownerUserId, input.idempotencyKey);
+    const replayedDraftId = this.recipientDraftsByKey.get(key);
+    if (replayedDraftId) {
+      const replayed = this.drafts.get(replayedDraftId);
+      if (
+        !replayed ||
+        replayed.role !== "recipient" ||
+        replayed.conversationId !== draft.conversationId ||
+        replayed.githubRepositoryId !== draft.githubRepositoryId ||
+        replayed.provider !== draft.provider ||
+        replayed.incomingMessageId !== draft.incomingMessageId ||
+        replayed.roughMessage !== draft.roughMessage
+      ) {
+        return null;
+      }
+      return { draft: cloneDraft(replayed), replayed: true };
+    }
+    if (this.drafts.has(draft.draftId)) throw new Error("Duplicate private draft ID");
+    if (draft.incomingMessageId === null) return null;
+    const incoming = this.messages.get(draft.incomingMessageId);
+    // Mirrors the scope guard in create_recipient_draft: an owner answers a
+    // collaborator's message in this conversation and repository, never their own.
+    if (
+      !incoming ||
+      incoming.conversationId !== draft.conversationId ||
+      incoming.githubRepositoryId !== draft.githubRepositoryId ||
+      incoming.senderUserId === draft.ownerUserId
+    ) {
+      return null;
+    }
+    this.drafts.set(draft.draftId, cloneDraft(draft));
+    this.recipientDraftsByKey.set(key, draft.draftId);
+    return { draft: cloneDraft(draft), replayed: false };
   }
 
   async getDraft(draftId: string): Promise<PrivateDraft | null> {

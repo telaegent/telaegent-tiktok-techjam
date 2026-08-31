@@ -1,17 +1,38 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { isGitHubRepositoryId } from "../authorization/github-repository-id.js";
 import { HttpError } from "../errors.js";
 import type { ProjectRepository } from "./repository.js";
-import type { ProjectListPage } from "./types.js";
+import type {
+  ProjectCollaborator,
+  ProjectConnection,
+  ProjectConversation,
+  ProjectListPage,
+} from "./types.js";
 
 const cursorPayload = z.strictObject({
   version: z.literal(1),
   afterGitHubRepositoryId: z.string().refine(isGitHubRepositoryId),
 });
 const cursorPattern = /^[A-Za-z0-9_-]{1,256}$/;
+const uuid = z.string().uuid();
+
+export interface ProjectServiceOptions {
+  now?: (() => Date) | undefined;
+  createId?: (() => string) | undefined;
+}
 
 export class ProjectService {
-  constructor(private readonly repository: ProjectRepository) {}
+  private readonly now: () => Date;
+  private readonly createId: () => string;
+
+  constructor(
+    private readonly repository: ProjectRepository,
+    options: ProjectServiceOptions = {},
+  ) {
+    this.now = options.now ?? (() => new Date());
+    this.createId = options.createId ?? randomUUID;
+  }
 
   async listProjects(input: Readonly<{
     authenticatedUserId: string;
@@ -39,6 +60,128 @@ export class ProjectService {
           : null,
     };
   }
+
+  /**
+   * Project members who independently proved access to the same repository.
+   *
+   * This is not a GitHub collaborator listing. Nobody appears here because a
+   * repository says they may; they appear because they connected their own
+   * GitHub identity and proved the same repository ID themselves.
+   */
+  async listCollaborators(input: Readonly<{
+    authenticatedUserId: string;
+    projectId: string;
+    limit: number;
+  }>): Promise<{ collaborators: ProjectCollaborator[] }> {
+    const collaborators = await this.repository.listCollaborators({
+      authenticatedUserId: uuid.parse(input.authenticatedUserId),
+      projectId: uuid.parse(input.projectId),
+      limit: z.number().int().min(1).max(50).parse(input.limit),
+    });
+    if (collaborators === null) throw notAvailable();
+    return { collaborators };
+  }
+
+  /**
+   * Asks a peer to connect on this project.
+   *
+   * The request grants nothing on its own; it only lets the recipient decide.
+   * The connection ID is minted here rather than accepted from the client, so a
+   * caller cannot aim a request at an existing row.
+   */
+  async requestConnection(input: Readonly<{
+    authenticatedUserId: string;
+    projectId: string;
+    recipientUserId: string;
+  }>): Promise<{ connection: ProjectConnection }> {
+    const requesterUserId = uuid.parse(input.authenticatedUserId);
+    const recipientUserId = uuid.parse(input.recipientUserId);
+    if (requesterUserId === recipientUserId) {
+      throw new HttpError(400, "A project connection needs two distinct people");
+    }
+    const connection = await this.repository.requestConnection({
+      projectConnectionId: this.createId(),
+      projectId: uuid.parse(input.projectId),
+      requesterUserId,
+      recipientUserId,
+      requestedAt: this.now().toISOString(),
+    });
+    if (connection === null) throw notAvailable();
+    return { connection };
+  }
+
+  /** Accepts or declines a pending request. Only the recipient may do this. */
+  async respondToConnection(input: Readonly<{
+    authenticatedUserId: string;
+    projectConnectionId: string;
+    decision: "accept" | "decline";
+  }>): Promise<{ connection: ProjectConnection }> {
+    const connection = await this.repository.respondToConnection({
+      projectConnectionId: uuid.parse(input.projectConnectionId),
+      recipientUserId: uuid.parse(input.authenticatedUserId),
+      decision: input.decision,
+      respondedAt: this.now().toISOString(),
+    });
+    if (connection === null) throw notAvailable();
+    return { connection };
+  }
+
+  /**
+   * Withdraws or revokes a connection. Either side may do this at any time, and
+   * it takes effect on the next authorization check rather than on a schedule.
+   */
+  async revokeConnection(input: Readonly<{
+    authenticatedUserId: string;
+    projectConnectionId: string;
+  }>): Promise<{ connection: ProjectConnection }> {
+    const connection = await this.repository.revokeConnection({
+      projectConnectionId: uuid.parse(input.projectConnectionId),
+      authenticatedUserId: uuid.parse(input.authenticatedUserId),
+      revokedAt: this.now().toISOString(),
+    });
+    if (connection === null) throw notAvailable();
+    return { connection };
+  }
+
+  /**
+   * Opens, or returns, the shared conversation for one connected pair.
+   *
+   * Idempotent on the pair: a second call returns the conversation already
+   * open. That matters because the shared approved conversation is the
+   * project's canonical memory, and splitting it across duplicate rows would
+   * quietly lose collaboration history.
+   */
+  async createConversation(input: Readonly<{
+    authenticatedUserId: string;
+    projectId: string;
+    peerUserId: string;
+  }>): Promise<{ conversation: ProjectConversation }> {
+    const authenticatedUserId = uuid.parse(input.authenticatedUserId);
+    const peerUserId = uuid.parse(input.peerUserId);
+    if (authenticatedUserId === peerUserId) {
+      throw new HttpError(400, "A conversation needs two distinct participants");
+    }
+    const conversation = await this.repository.createConversation({
+      conversationId: this.createId(),
+      projectId: uuid.parse(input.projectId),
+      authenticatedUserId,
+      peerUserId,
+    });
+    if (conversation === null) throw notAvailable();
+    return { conversation };
+  }
+}
+
+/**
+ * The single refusal for every connection operation.
+ *
+ * Not a member, peer never proved access, already connected, already answered,
+ * project archived: all of these collapse to one status with one message. A
+ * caller who is not entitled to act learns only that, never anything about the
+ * project's membership or another person's state.
+ */
+function notAvailable(): HttpError {
+  return new HttpError(403, "This project connection action is not available");
 }
 
 function decodeCursor(value: string | undefined): string | null {

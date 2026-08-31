@@ -24,7 +24,9 @@ function draftRow(overrides: Record<string, unknown> = {}): Record<string, unkno
     githubRepositoryId,
     ownerUserId,
     provider: "codex",
+    role: "sender",
     roughMessage: "why does the checkout total drift by a cent",
+    incomingMessageId: null,
     privateTurns: [{ speaker: "owner", text: "why does the total drift" }],
     state: "ready",
     turnId,
@@ -106,7 +108,9 @@ const sampleDraft: PrivateDraft = {
   githubRepositoryId,
   ownerUserId,
   provider: "codex",
+  role: "sender",
   roughMessage: "why does the checkout total drift by a cent",
+  incomingMessageId: null,
   privateTurns: [],
   state: "created",
   turnId: null,
@@ -166,6 +170,51 @@ describe("SupabaseConversationRepository", () => {
       params: { p_draft_id: draftId },
     });
     expect(draft?.draftId).toBe(draftId);
+  });
+
+  it("creates a recipient draft with an owner-scoped idempotency key", async () => {
+    const recipient = {
+      ...sampleDraft,
+      role: "recipient" as const,
+      roughMessage: "keep it short",
+      incomingMessageId: messageId,
+      privateTurns: [{ speaker: "owner" as const, text: "keep it short" }],
+    };
+    const { repository, calls } = repositoryReturning({
+      draft: draftRow({
+        role: "recipient",
+        roughMessage: "keep it short",
+        incomingMessageId: messageId,
+        privateTurns: [{ speaker: "owner", text: "keep it short" }],
+        state: "created",
+      }),
+      replayed: false,
+    });
+
+    const result = await repository.createRecipientDraft({
+      draft: recipient,
+      idempotencyKey: "reply-1",
+    });
+
+    expect(calls[0]).toEqual({
+      functionName: "create_recipient_draft",
+      params: {
+        p_draft_id: draftId,
+        p_conversation_id: conversationId,
+        p_github_repository_id: githubRepositoryId,
+        p_owner_user_id: ownerUserId,
+        p_provider: "codex",
+        p_incoming_message_id: messageId,
+        p_owner_guidance: "keep it short",
+        p_idempotency_key: "reply-1",
+        p_created_at: timestamp,
+        p_updated_at: timestamp,
+      },
+    });
+    expect(result?.replayed).toBe(false);
+    expect(result?.draft.privateTurns).toEqual([
+      { speaker: "owner", text: "keep it short" },
+    ]);
   });
 
   it("marks a draft running with the owner and turn the caller claims", async () => {

@@ -12,10 +12,13 @@ import type {
 } from "../runtime-contract.js";
 import {
   ConnectorCredentialRejectedError,
+  ConnectorTransportUnavailableError,
   ConnectorWorker,
   HttpConnectorWorkerTransport,
+  retryDelayMs,
   type ConnectorWorkerTransport,
 } from "./connector-worker.js";
+import type { ResourceExchangeResponse } from "./resource-exchange.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
 
@@ -47,6 +50,7 @@ class FakeTransport implements ConnectorWorkerTransport {
   readonly progressEvents: RuntimeProgressEvent[] = [];
   readonly results: ConnectorJobResult[] = [];
   readonly failures: string[] = [];
+  readonly resourceResponses: ResourceExchangeResponse[] = [];
   readonly pollTimes: number[] = [];
   private deliveries: Array<ConnectorDelivery | Error>;
 
@@ -77,6 +81,10 @@ class FakeTransport implements ConnectorWorkerTransport {
   async failure(_jobId: string, code: string): Promise<void> {
     this.failures.push(code);
   }
+
+  async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
+    this.resourceResponses.push(response);
+  }
 }
 
 function sessions(run: (request: MiddlewareRunRequest) => Promise<NormalizedRunResult>) {
@@ -86,6 +94,115 @@ function sessions(run: (request: MiddlewareRunRequest) => Promise<NormalizedRunR
     async (_scope, request) => request,
   );
 }
+
+/**
+ * The ask half of the capability loop (build plan 8.2).
+ *
+ * A model has one channel back - the JSON object it was told to produce - so
+ * its questions arrive inside the answer, while the cloud reads them from the
+ * result envelope. These cover the move between the two, on the last machine
+ * that is still the asking developer's own.
+ */
+describe("carrying a turn\u0027s questions off the machine that asked them", () => {
+  function answering(final: unknown) {
+    const transport = new FakeTransport({
+      kind: "job",
+      job: { ...job, purpose: "recipient_answer" as const },
+    });
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async () => ({
+        provider: "claude" as const,
+        final,
+        changedFiles: [],
+        exitCode: 0,
+        durationMs: 10,
+      })),
+      transport,
+      { cancel: async () => false },
+    );
+    return { transport, worker };
+  }
+
+  const answer = (resourceRequests: unknown) => ({
+    state: "ready",
+    privateSummary: "Answered from what I can see.",
+    sendCandidate: "Our rotation window is one hour.",
+    riskFlags: [],
+    sourcePaths: ["src/auth/session.ts"],
+    resourceRequests,
+  });
+
+  it("posts the questions beside the answer, and leaves the answer alone", async () => {
+    const final = answer([
+      { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+    ]);
+    const { transport, worker } = answering(final);
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]?.resourceRequests).toEqual([
+      { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+    ]);
+    // The answer is passed on exactly as written. The cloud parses it against
+    // the protocol schema, and editing it here would be a claim about
+    // somebody's turn that a transport step is not entitled to make.
+    expect(transport.results[0]?.final).toEqual(final);
+  });
+
+  it("says nothing about resources when a turn asked for none", async () => {
+    const { transport, worker } = answering(answer(undefined));
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]).not.toHaveProperty("resourceRequests");
+  });
+
+  it("drops a request it cannot recognise without losing the turn", async () => {
+    // A path is the shape a model reaches for and the one form that must never
+    // travel. Dropping it silently keeps the answer - which the owner is
+    // waiting on - rather than failing a turn over a malformed question.
+    const { transport, worker } = answering(
+      answer([
+        { kind: "path", path: "src/auth/session.ts", reason: "to read it" },
+        { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+      ]),
+    );
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]?.resourceRequests).toEqual([
+      { kind: "hint", hint: "the auth session module", reason: "to compare windows" },
+    ]);
+    expect(transport.failures).toEqual([]);
+  });
+
+  it("trims a turn that asks for more than transport will carry", async () => {
+    // The result route caps the batch. Trimming here means an over-curious
+    // turn loses its excess questions rather than its whole answer.
+    const { transport, worker } = answering(
+      answer(
+        Array.from({ length: 20 }, (_, index) => ({
+          kind: "hint",
+          hint: "file " + String(index),
+          reason: "why",
+        })),
+      ),
+    );
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]?.resourceRequests).toHaveLength(16);
+  });
+
+  it("ignores a non-object answer rather than trusting its shape", async () => {
+    const { transport, worker } = answering("not an object");
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+
+    expect(transport.results[0]).not.toHaveProperty("resourceRequests");
+  });
+});
 
 describe("ConnectorWorker", () => {
   it("resolves the workspace only from its local binding", async () => {
@@ -150,6 +267,42 @@ describe("ConnectorWorker", () => {
     );
     await expect(worker.runOnce()).resolves.toBe("completed");
     expect(transport.failures).toEqual(["RUNTIME_FAILED"]);
+  });
+
+  it("keeps raw provider text local while forwarding structural progress", async () => {
+    const transport = new FakeTransport({ kind: "job", job });
+    const runtime = new ProviderSessionManager(
+      {
+        run: async (_request, onProgress) => {
+          onProgress?.({ type: "turn_started", provider: "claude" });
+          onProgress?.({
+            type: "text_delta",
+            provider: "claude",
+            text: "private raw provider stream C:\\Users\\owner\\repo",
+          });
+          onProgress?.({ type: "turn_completed", provider: "claude" });
+          return {
+            provider: "claude" as const,
+            final: { sendCandidate: "Bounded candidate" },
+            changedFiles: [],
+            exitCode: 0,
+            durationMs: 10,
+          };
+        },
+      },
+      new InMemoryProviderSessionStore(),
+      async (_scope, request) => request,
+    );
+    const worker = new ConnectorWorker(binding, runtime, transport, {
+      cancel: async () => false,
+    });
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+    expect(transport.progressEvents).toEqual([
+      { type: "turn_started", provider: "claude" },
+      { type: "turn_completed", provider: "claude" },
+    ]);
+    expect(JSON.stringify(transport.progressEvents)).not.toContain("owner");
   });
 
   it("cancels the owned local process when cloud cancellation arrives", async () => {
@@ -290,5 +443,65 @@ describe("HttpConnectorWorkerTransport", () => {
 
     await expect(transport.poll()).rejects.toBeInstanceOf(ConnectorCredentialRejectedError);
     expect(fetchImplementation).toHaveBeenCalledOnce();
+  });
+
+  it("reconnects transient requests with capped exponential backoff", async () => {
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const delays: number[] = [];
+    const retries: Array<{ attempt: number; delayMs: number }> = [];
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+      {
+        initialDelayMs: 100,
+        maximumDelayMs: 150,
+        jitterRatio: 0,
+        sleep: async (delayMs) => { delays.push(delayMs); },
+        onRetry: (event) => { retries.push({ ...event }); },
+      },
+    );
+
+    await expect(transport.poll()).resolves.toBeNull();
+    expect(delays).toEqual([100, 150]);
+    expect(retries).toEqual([
+      { attempt: 1, delayMs: 100 },
+      { attempt: 2, delayMs: 150 },
+    ]);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+  });
+
+  it("bounds retry jitter even if the injected random source is invalid", () => {
+    expect(retryDelayMs(3, 100, 250, 0.2, () => -10)).toBe(200);
+    expect(retryDelayMs(3, 100, 250, 0.2, () => 10)).toBe(250);
+  });
+
+  it("drops advisory progress after bounded reconnect attempts", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status: 503 }));
+    const delays: number[] = [];
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+      {
+        initialDelayMs: 10,
+        maximumDelayMs: 20,
+        jitterRatio: 0,
+        sleep: async (delayMs) => { delays.push(delayMs); },
+      },
+    );
+
+    await expect(transport.progress(job.jobId, {
+      type: "turn_started",
+      provider: "claude",
+    })).rejects.toBeInstanceOf(ConnectorTransportUnavailableError);
+    expect(fetchImplementation).toHaveBeenCalledTimes(3);
+    expect(delays).toEqual([10, 20]);
   });
 });

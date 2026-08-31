@@ -33,9 +33,24 @@ function project(githubRepositoryId: string): ProjectSummary {
   };
 }
 
+/** Every connection operation refuses; these tests only exercise discovery. */
+const refusesConnections = {
+  listCollaborators: async () => null,
+  requestConnection: async () => null,
+  respondToConnection: async () => null,
+  revokeConnection: async () => null,
+  createConversation: async () => null,
+} as const;
+
 class MemoryProjects implements ProjectRepository {
   readonly rows = [project("10"), project("20"), project("30")];
   readonly calls: Array<Parameters<ProjectRepository["listForUser"]>[0]> = [];
+
+  listCollaborators = refusesConnections.listCollaborators;
+  requestConnection = refusesConnections.requestConnection;
+  respondToConnection = refusesConnections.respondToConnection;
+  revokeConnection = refusesConnections.revokeConnection;
+  createConversation = refusesConnections.createConversation;
 
   async listForUser(
     input: Parameters<ProjectRepository["listForUser"]>[0],
@@ -85,6 +100,7 @@ describe("ProjectService", () => {
 
   it("fails closed if a repository violates the requested bound", async () => {
     const repository: ProjectRepository = {
+      ...refusesConnections,
       listForUser: async () => [project("1"), project("2"), project("3")],
     };
     await expect(

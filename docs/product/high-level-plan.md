@@ -924,7 +924,15 @@ for those exact files, from that same peer, read-only, without interrupting the
 owner again. Anything outside that set returns to the human.
 
 Full specification in [canonical build plan section 8](canonical-build-plan.md).
-It is a design commitment; no code implements it yet.
+This is now working product behaviour: task and grant records, cloud route
+authorization, the local registry and file broker, the deterministic policy,
+the scope-expansion queue, resource transfer through the relay, and the
+bounded follow-up rounds all exist in the server and the connector.
+
+What is missing is the owner-facing surface. The decision is recorded and
+enforced, but no screen presents it yet, so an owner answers a scope request
+through the API rather than the dialog in section 8.1. The loop has also not
+been evaluated against a live provider.
 
 The rule underneath it:
 

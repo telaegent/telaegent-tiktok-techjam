@@ -38,6 +38,11 @@ import { createAuthorizedProtocolTurnRuntime } from "./telagent/protocol/authori
 import type { ProjectRouteDependencies } from "./projects/routes.js";
 import { ProjectService } from "./projects/service.js";
 import { SupabaseProjectRepository } from "./projects/supabase-repository.js";
+import type { CapabilityScopeRouteDependencies } from "./capability/routes.js";
+import { CapabilityScopeExpansionService } from "./capability/service.js";
+import { createPrivateDraftFollowUp } from "./capability/follow-up-factory.js";
+import { SupabaseCapabilityScopeRequestRepository } from "./authorization/capability-scope-requests.js";
+import { SupabaseAuthorizationRpcClient } from "./authorization/supabase-authorization-client.js";
 
 const config = loadConfig();
 // Preserve the inherited Starter Kit only when its legacy Ark credentials are
@@ -73,6 +78,12 @@ let identityApi: IdentityRouteDependencies | undefined;
 let connectorTransportApi: ConnectorTransportRouteDependencies | undefined;
 let repositoryProofApi: RepositoryProofRouteDependencies | undefined;
 let projectApi: ProjectRouteDependencies | undefined;
+let capabilityScopeApi: CapabilityScopeRouteDependencies | undefined;
+// The human gate and the loop that queues into it are composed apart but
+// share one instance: a request the loop raises has to land in the same
+// queue the owner is answering from.
+let capabilityScope: CapabilityScopeExpansionService | undefined;
+let authorizationRpc: SupabaseAuthorizationRpcClient | undefined;
 const conversationOptions: ConversationApiFactoryOptions = {};
 if (config.telaegentIdentityProvider === "github") {
   const secureCookies = config.telaegentPublicOrigin.startsWith("https://");
@@ -140,6 +151,20 @@ if (config.telaegentIdentityProvider === "github") {
       await relay.unregisterRepositoryBinding(principal, githubRepositoryId);
     },
   };
+  // The human gate on the capability loop. It shares the authorization RPC
+  // client because the queue and the grants it creates are the same trust
+  // boundary, reached through the same service-role key.
+  if (config.authorizationPersistence === "supabase") {
+    authorizationRpc = new SupabaseAuthorizationRpcClient({
+      supabaseUrl: config.supabaseUrl,
+      secretKey: config.supabaseSecretKey,
+    });
+    capabilityScope = new CapabilityScopeExpansionService({
+      repository: new SupabaseCapabilityScopeRequestRepository(authorizationRpc),
+    });
+    capabilityScopeApi = { service: capabilityScope, authenticatedUserId };
+  }
+
   projectApi = {
     service: new ProjectService(
       new SupabaseProjectRepository(
@@ -181,6 +206,18 @@ if (config.telaegentIdentityProvider === "github") {
       protocolRuntime.turns,
       protocolRuntime.coordinator,
     );
+    // The capability loop. A recipient turn that asks for files on the other
+    // person's machine now has somewhere to send the question; without this it
+    // answered without them. It is composed only alongside the connector
+    // runtime, because a round it could not route would spend itself for
+    // nothing.
+    if (capabilityScope && authorizationRpc) {
+      conversationOptions.followUp = createPrivateDraftFollowUp({
+        authorization: authorizationRpc,
+        relay,
+        scope: capabilityScope,
+      });
+    }
   }
 }
 
@@ -195,6 +232,7 @@ const app = await createApp(
   repositoryProofApi,
   connectorTransportApi,
   projectApi,
+  capabilityScopeApi,
 );
 
 const shutdown = async (signal: string) => {

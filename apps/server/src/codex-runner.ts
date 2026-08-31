@@ -105,6 +105,7 @@ export function buildCodexArgs(
   request: RunnerRequest,
   sandboxMode: AppConfig["codexSandboxMode"],
   workspacePath = request.workspacePath,
+  model = "",
 ): string[] {
   const args = [
     "exec",
@@ -115,6 +116,7 @@ export function buildCodexArgs(
     "-C",
     workspacePath,
   ];
+  if (model) args.push("--model", model);
   if (request.threadId) {
     args.push("resume", request.threadId, request.prompt);
   } else {
@@ -127,6 +129,7 @@ export function buildCodexMiddlewareArgs(
   request: LocalMiddlewareRunRequest,
   outputSchemaPath: string,
   workspacePath = request.workspacePath,
+  model = "",
 ): string[] {
   const args = [
     "exec",
@@ -141,6 +144,7 @@ export function buildCodexMiddlewareArgs(
     "--output-schema",
     outputSchemaPath,
   ];
+  if (model) args.push("--model", model);
   if (request.sandboxMode === "workspace-write") {
     args.push(
       "-c",
@@ -308,7 +312,12 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       agentId: request.agentId,
       workspacePath: request.workspacePath,
       threadId: request.threadId,
-      args: buildCodexArgs(request, this.config.codexSandboxMode),
+      args: buildCodexArgs(
+        request,
+        this.config.codexSandboxMode,
+        request.workspacePath,
+        this.config.codexModel,
+      ),
     });
     return { output: result.output, threadId: result.threadId, usage: result.usage };
   }
@@ -337,7 +346,12 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
           workspacePath: request.workspacePath,
           threadId:
             request.sessionMode === "continue" ? request.sessionId ?? null : null,
-          args: buildCodexMiddlewareArgs(request, schemaPath),
+          args: buildCodexMiddlewareArgs(
+            request,
+            schemaPath,
+            request.workspacePath,
+            this.config.codexModel,
+          ),
         },
         request.runtimePrompt,
         onProgress,

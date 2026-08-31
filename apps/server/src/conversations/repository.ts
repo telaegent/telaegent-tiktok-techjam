@@ -28,6 +28,12 @@ export interface SendDraftInput {
   updatedAt: string;
 }
 
+export interface CreateRecipientDraftResult {
+  draft: PrivateDraft;
+  /** True when the same owner-scoped creation key replayed an existing draft. */
+  replayed: boolean;
+}
+
 /**
  * Persistence boundary for the canonical messaging lifecycle.
  *
@@ -37,6 +43,18 @@ export interface SendDraftInput {
  */
 export interface ConversationRepository {
   createDraft(draft: PrivateDraft): Promise<PrivateDraft>;
+  /**
+   * Opens a private draft that answers an approved collaborator message.
+   *
+   * Returns `null` when `incomingMessageId` is not a message this owner may
+   * answer in this scope -- absent, out of conversation, out of repository, or
+   * authored by the owner themselves. That check belongs to the adapter because
+   * it is a scope guard, not a product decision.
+   */
+  createRecipientDraft(input: Readonly<{
+    draft: PrivateDraft;
+    idempotencyKey: string;
+  }>): Promise<CreateRecipientDraftResult | null>;
   getDraft(draftId: string): Promise<PrivateDraft | null>;
   markDraftRunning(input: {
     draftId: string;

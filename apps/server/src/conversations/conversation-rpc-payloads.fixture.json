@@ -1,5 +1,6 @@
 {
   "created": {
+    "role": "sender",
     "state": "created",
     "turnId": null,
     "draftId": "a4000000-0000-4000-8000-000000000001",
@@ -16,9 +17,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": null,
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "running": {
+    "role": "sender",
     "state": "agent_working",
     "turnId": "a5000000-0000-4000-8000-000000000001",
     "draftId": "a4000000-0000-4000-8000-000000000001",
@@ -35,9 +38,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": null,
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "needsClarification": {
+    "role": "sender",
     "state": "needs_clarification",
     "turnId": "a5000000-0000-4000-8000-000000000001",
     "draftId": "a4000000-0000-4000-8000-000000000001",
@@ -67,9 +72,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": "which storefront?",
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "clarified": {
+    "role": "sender",
     "state": "created",
     "turnId": null,
     "draftId": "a4000000-0000-4000-8000-000000000001",
@@ -95,9 +102,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": null,
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "rerunning": {
+    "role": "sender",
     "state": "agent_working",
     "turnId": "a5000000-0000-4000-8000-000000000002",
     "draftId": "a4000000-0000-4000-8000-000000000001",
@@ -123,9 +132,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": null,
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "ready": {
+    "role": "sender",
     "state": "ready",
     "turnId": "a5000000-0000-4000-8000-000000000002",
     "draftId": "a4000000-0000-4000-8000-000000000001",
@@ -151,6 +162,7 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": "Rounding is applied before tax.",
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "sent": {
@@ -176,6 +188,7 @@
     "replayed": false
   },
   "fetched": {
+    "role": "sender",
     "state": "sent",
     "turnId": "a5000000-0000-4000-8000-000000000002",
     "draftId": "a4000000-0000-4000-8000-000000000001",
@@ -201,6 +214,7 @@
     "sentMessageId": "a6000000-0000-4000-8000-000000000001",
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": "Rounding is applied before tax.",
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "listed": [
@@ -216,6 +230,7 @@
     }
   ],
   "createdSecond": {
+    "role": "sender",
     "state": "created",
     "turnId": null,
     "draftId": "a4000000-0000-4000-8000-000000000002",
@@ -232,9 +247,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": null,
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "runningSecond": {
+    "role": "sender",
     "state": "agent_working",
     "turnId": "a5000000-0000-4000-8000-000000000003",
     "draftId": "a4000000-0000-4000-8000-000000000002",
@@ -251,9 +268,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": null,
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "failed": {
+    "role": "sender",
     "state": "runtime_failed",
     "turnId": "a5000000-0000-4000-8000-000000000003",
     "draftId": "a4000000-0000-4000-8000-000000000002",
@@ -274,9 +293,11 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": "The agent could not run.",
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
   },
   "cancelled": {
+    "role": "sender",
     "state": "cancelled",
     "turnId": "a5000000-0000-4000-8000-000000000003",
     "draftId": "a4000000-0000-4000-8000-000000000002",
@@ -297,6 +318,186 @@
     "sentMessageId": null,
     "conversationId": "a3000000-0000-4000-8000-000000000001",
     "privateMessage": "The agent could not run.",
+    "incomingMessageId": null,
     "githubRepositoryId": "9223372036854775807"
-  }
+  },
+  "collaboratorDraft": {
+    "role": "sender",
+    "state": "created",
+    "turnId": null,
+    "draftId": "a4000000-0000-4000-8000-000000000004",
+    "failure": null,
+    "provider": "claude",
+    "createdAt": "2026-08-31T09:02:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:02:00.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000002",
+    "privateTurns": [],
+    "roughMessage": "ask about the rounding change",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "incomingMessageId": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "collaboratorReady": {
+    "role": "sender",
+    "state": "ready",
+    "turnId": "a5000000-0000-4000-8000-000000000004",
+    "draftId": "a4000000-0000-4000-8000-000000000004",
+    "failure": null,
+    "provider": "claude",
+    "createdAt": "2026-08-31T09:02:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:02:02.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000002",
+    "privateTurns": [],
+    "roughMessage": "ask about the rounding change",
+    "guardFindings": [],
+    "sendCandidate": "Does rounding happen before or after tax?",
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": "Does rounding happen before or after tax?",
+    "incomingMessageId": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "collaboratorSent": {
+    "message": {
+      "body": "Does rounding happen before or after tax?",
+      "origin": "agent",
+      "sentAt": "2026-08-31T09:02:03.000Z",
+      "provider": "claude",
+      "messageId": "a6000000-0000-4000-8000-000000000002",
+      "senderUserId": "a1000000-0000-4000-8000-000000000002",
+      "conversationId": "a3000000-0000-4000-8000-000000000001",
+      "githubRepositoryId": "9223372036854775807"
+    },
+    "approval": {
+      "draftId": "a4000000-0000-4000-8000-000000000004",
+      "messageId": "a6000000-0000-4000-8000-000000000002",
+      "approvalId": "a7000000-0000-4000-8000-000000000002",
+      "approvedAt": "2026-08-31T09:02:03.000Z",
+      "actorUserId": "a1000000-0000-4000-8000-000000000002",
+      "approvedBody": "Does rounding happen before or after tax?",
+      "idempotencyKey": "send-collab-1"
+    },
+    "replayed": false
+  },
+  "senderContextDraft": {
+    "role": "sender",
+    "state": "created",
+    "turnId": null,
+    "draftId": "a4000000-0000-4000-8000-000000000003",
+    "failure": null,
+    "provider": "codex",
+    "createdAt": "2026-08-31T09:00:00.000Z",
+    "riskFlags": [],
+    "updatedAt": "2026-08-31T09:00:00.000Z",
+    "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+    "privateTurns": [],
+    "roughMessage": "why does the checkout total drift by a cent",
+    "guardFindings": [],
+    "sendCandidate": null,
+    "sentMessageId": null,
+    "conversationId": "a3000000-0000-4000-8000-000000000001",
+    "privateMessage": null,
+    "incomingMessageId": null,
+    "githubRepositoryId": "9223372036854775807"
+  },
+  "senderContext": {
+    "role": "sender",
+    "facts": {
+      "branch": "main",
+      "commit": "81ad2e0000000000000000000000000000000000",
+      "ownerName": "owner-dev",
+      "collaboratorName": "collab-dev",
+      "githubRepositoryId": "9223372036854775807",
+      "repositoryFullName": "acme/storefront"
+    },
+    "ownerInput": "why does the checkout total drift by a cent",
+    "privateTurns": [],
+    "projectFacts": [
+      "Repository: acme/storefront",
+      "Default branch: main",
+      "Current branch: main",
+      "Current commit: 81ad2e0000000000000000000000000000000000"
+    ],
+    "sharedHistory": [
+      {
+        "at": "2026-08-31T09:00:06.000Z",
+        "id": "a6000000-0000-4000-8000-000000000001",
+        "text": "Rounding is applied before tax.",
+        "author": "owner-dev",
+        "origin": "agent"
+      },
+      {
+        "at": "2026-08-31T09:02:03.000Z",
+        "id": "a6000000-0000-4000-8000-000000000002",
+        "text": "Does rounding happen before or after tax?",
+        "author": "collab-dev",
+        "origin": "agent"
+      }
+    ]
+  },
+  "recipientCreated": {
+    "draft": {
+      "role": "recipient",
+      "state": "created",
+      "turnId": null,
+      "draftId": "a4000000-0000-4000-8000-000000000005",
+      "failure": null,
+      "provider": "codex",
+      "createdAt": "2026-08-31T09:03:00.000Z",
+      "riskFlags": [],
+      "updatedAt": "2026-08-31T09:03:00.000Z",
+      "ownerUserId": "a1000000-0000-4000-8000-000000000001",
+      "privateTurns": [
+        { "speaker": "owner", "text": "keep it short" }
+      ],
+      "roughMessage": "keep it short",
+      "guardFindings": [],
+      "sendCandidate": null,
+      "sentMessageId": null,
+      "conversationId": "a3000000-0000-4000-8000-000000000001",
+      "privateMessage": null,
+      "incomingMessageId": "a6000000-0000-4000-8000-000000000002",
+      "githubRepositoryId": "9223372036854775807"
+    },
+    "replayed": false
+  },
+  "recipientContext": {
+    "role": "recipient",
+    "facts": {
+      "branch": "main",
+      "commit": "81ad2e0000000000000000000000000000000000",
+      "ownerName": "owner-dev",
+      "collaboratorName": "collab-dev",
+      "githubRepositoryId": "9223372036854775807",
+      "repositoryFullName": "acme/storefront"
+    },
+    "privateTurns": [
+      { "speaker": "owner", "text": "keep it short" }
+    ],
+    "projectFacts": [
+      "Repository: acme/storefront",
+      "Default branch: main",
+      "Current branch: main",
+      "Current commit: 81ad2e0000000000000000000000000000000000"
+    ],
+    "sharedHistory": [
+      {
+        "at": "2026-08-31T09:00:06.000Z",
+        "id": "a6000000-0000-4000-8000-000000000001",
+        "text": "Rounding is applied before tax.",
+        "author": "owner-dev",
+        "origin": "agent"
+      }
+    ],
+    "incomingMessage": "Does rounding happen before or after tax?"
+  },
+  "recipientRejectedOwnMessage": null,
+  "senderLoaderOnRecipientDraft": null,
+  "recipientLoaderOnSenderDraft": null
 }
