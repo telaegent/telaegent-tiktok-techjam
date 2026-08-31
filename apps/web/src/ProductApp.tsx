@@ -578,17 +578,17 @@ function ProjectsScreen({
               <p>Run the local connector from a GitHub repository, then refresh this page.</p>
             </div>
           )}
-          {projects.map((project, index) => {
+          {projects.map((project) => {
             const repository = repositoryParts(project.repositoryFullName);
             const availability = projectAvailability(project);
             const available = availability === "Open";
             return (
             <button type="button" key={project.projectId} disabled={!available} onClick={() => onOpenProject(project)}>
-              <span className="repo-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+              <span className="repo-mark" aria-hidden="true">{repository.name.slice(0, 2).toUpperCase()}</span>
               <span className="repo-title">
                 <small>{repository.owner}</small>
                 <strong>{repository.name}</strong>
-                <p>{project.visibility} repository · default branch {project.defaultBranch}</p>
+                <p><span>{project.visibility} repository</span><span>Default branch {project.defaultBranch}</span></p>
               </span>
               <span className="repo-meta">
                 <small>{project.connectedCollaboratorCount} connected collaborator{project.connectedCollaboratorCount === 1 ? "" : "s"}</small>
@@ -1283,7 +1283,7 @@ function ProjectChat({
           <span className="app-avatar">{selected?.initial ?? "--"}</span>
           <span><strong>{selected?.name ?? "Select a collaborator"}</strong><small>Approved project conversation</small></span>
         </div>
-        <div className="chat-header-meta"><span>{formatProvider(provider)} ↔ {selected?.provider ?? "local agent"}</span></div>
+        <div className="chat-header-meta"><span>{formatProvider(provider)} / {selected?.provider ?? "local agent"}</span></div>
       </header>
 
       <div className="chat-project-strip">
@@ -1308,29 +1308,30 @@ function ProjectChat({
               return (
                 <article className="scope-approval-card" key={request.scopeRequestId}>
                   <header>
-                    <div>
-                      <span className="scope-approval-kicker">Your decision is needed</span>
-                      <h2>{request.requestedHint ?? request.candidateResourceId}</h2>
-                      {request.requestedHint && (
-                        <small className="scope-resource-id">Resource {request.candidateResourceId}</small>
-                      )}
-                    </div>
-                    <span className="scope-read-badge">Read only</span>
+                    <h2>File access request</h2>
+                    <span className="scope-pending-state"><i aria-hidden="true" /> Pending</span>
                   </header>
-                  <dl>
-                    <div>
-                      <dt>Requested by</dt>
-                      <dd>{requestingPeer}</dd>
-                    </div>
-                    <div>
-                      <dt>Agent's stated reason</dt>
-                      <dd>&ldquo;{request.requestedReason}&rdquo;</dd>
-                    </div>
-                  </dl>
+                  <div
+                    className="scope-access-route"
+                    aria-label={`${requestingPeer} requests read-only access to ${request.requestedHint ?? request.candidateResourceId}`}
+                  >
+                    <span>{requestingPeer}</span>
+                    <span className="scope-route-operation" aria-hidden="true"><i />read<i /></span>
+                    <code>{request.requestedHint ?? request.candidateResourceId}</code>
+                  </div>
+                  <div className="scope-request-reason">
+                    <span>Reason</span>
+                    <p>{request.requestedReason}</p>
+                  </div>
                   <p className="scope-task-note">
-                    Allow for this task includes later versions of this exact file until the task ends
-                    {` (${formatTaskExpiry(request.taskExpiresAt)})`} or you revoke access.
+                    <strong>One-time access</strong> reads this version. <strong>Task access</strong> follows updates until {formatTaskExpiry(request.taskExpiresAt)}.
                   </p>
+                  {request.requestedHint && (
+                    <details className="scope-technical-details">
+                      <summary>Technical details</summary>
+                      <code>{request.candidateResourceId}</code>
+                    </details>
+                  )}
                   <footer>
                     <button
                       className="scope-deny"
@@ -1339,25 +1340,25 @@ function ProjectChat({
                       onClick={() => void decideScopeRequest(request.scopeRequestId, "deny")}
                     >
                       Deny
-                      <small>The agent continues without this file.</small>
                     </button>
-                    <button
-                      type="button"
-                      disabled={deciding}
-                      onClick={() => void decideScopeRequest(request.scopeRequestId, "once")}
-                    >
-                      Allow once
-                      <small>Read this request only.</small>
-                    </button>
-                    <button
-                      className="scope-task-allow"
-                      type="button"
-                      disabled={deciding}
-                      onClick={() => void decideScopeRequest(request.scopeRequestId, "task")}
-                    >
-                      Allow for this task
-                      <small>Reuse access to this file until the task ends.</small>
-                    </button>
+                    <div>
+                      <button
+                        className="scope-task-allow"
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => void decideScopeRequest(request.scopeRequestId, "task")}
+                      >
+                        Allow for this task
+                      </button>
+                      <button
+                        className="scope-once-allow"
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => void decideScopeRequest(request.scopeRequestId, "once")}
+                      >
+                        Allow once
+                      </button>
+                    </div>
                   </footer>
                   {deciding && <span className="scope-deciding" role="status"><TypingDots label="Recording your decision" /> Recording your decision</span>}
                 </article>
@@ -1400,7 +1401,7 @@ function ProjectChat({
         )}
         {messages.map((message) => (
           <article className={`shared-message ${message.side}`} key={message.id}>
-            <span>{message.author} · {message.provider}</span>
+            <span>{message.author} / {message.provider}</span>
             <p>{message.body}</p>
             <small>{message.meta}</small>
             {message.side === "incoming" && (
@@ -1726,14 +1727,16 @@ export default function ProductApp({
   onExit,
   user,
   onLogout,
+  preview = false,
 }: {
   theme: Theme;
   onToggleTheme: () => void;
   onExit: () => void;
   user: TelaegentWebUser | null;
   onLogout: () => void | Promise<void>;
+  preview?: boolean;
 }) {
-  const [route, setRoute] = useState<ProductRoute>("onboarding");
+  const [route, setRoute] = useState<ProductRoute>(preview ? "projects" : "onboarding");
   const [discoveredProjects, setDiscoveredProjects] = useState<ProjectSummary[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState<ApiError | null>(null);
@@ -1784,7 +1787,7 @@ export default function ProductApp({
   }
 
   return (
-    <div className="product-app-shell">
+    <div className={`product-app-shell${preview ? " preview-mode" : ""}`}>
       <header className="app-topbar">
         <button className="app-wordmark" type="button" onClick={onExit} aria-label="Back to Telaegent landing">
           <img src={theme === "dark" ? telaegentLogoBright : telaegentLogo} alt="Telaegent" />
@@ -1792,7 +1795,7 @@ export default function ProductApp({
         <div className="app-topbar-context">
           {route === "workspace" && selectedProject
             ? <><span>Project</span><strong>{selectedProject.repositoryFullName}</strong></>
-            : <strong>Telaegent cloud</strong>}
+            : <strong>{preview ? "Local UI preview" : "Telaegent cloud"}</strong>}
         </div>
         <div className="app-topbar-actions">
           <button className="app-text-button" type="button" onClick={onToggleTheme}>{theme === "dark" ? "Light" : "Dark"}</button>

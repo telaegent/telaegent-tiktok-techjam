@@ -790,6 +790,7 @@ button:disabled:active,
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--surface-raised);
+  transition: margin-right var(--motion-drawer) var(--motion-ease-in-out);
 }
 
 .private-open .shared-conversation {
@@ -2403,6 +2404,10 @@ button:disabled:active,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .shared-conversation {
+    transition: none;
+  }
+
   html {
     scroll-behavior: auto;
   }
@@ -2433,10 +2438,16 @@ button:disabled:active,
     transform: none;
   }
 
-  .private-room,
-  .private-open .private-room {
+  .private-room {
+    opacity: 0;
     transform: none;
-    transition: visibility 0s;
+    transition: opacity 120ms linear, visibility 0s linear 120ms;
+  }
+
+  .private-open .private-room {
+    opacity: 1;
+    transform: none;
+    transition-delay: 0s;
   }
 
   .agent-thinking {

@@ -7,6 +7,7 @@ import codexLogo from "../../../ui/logo/codex-color.svg";
 import ProductApp from "./ProductApp";
 import SandboxPreview from "./SandboxPreview";
 import { api, type TelaegentSession } from "./api";
+import { isUiPreviewEnabled } from "./preview-api";
 
 type Theme = "light" | "dark";
 type Surface = "landing" | "product";
@@ -157,6 +158,7 @@ function HowItWorks() {
 }
 
 export default function App() {
+  const uiPreview = isUiPreviewEnabled();
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [surface, setSurface] = useState<Surface>(() =>
     new URLSearchParams(window.location.search).get("view") === "platform"
@@ -249,6 +251,7 @@ export default function App() {
         onToggleTheme={toggleTheme}
         onExit={() => setSurface("landing")}
         user={session.enabled && session.authenticated ? session.user : null}
+        preview={uiPreview}
         onLogout={async () => {
           if (session.enabled) {
             await api.logout();

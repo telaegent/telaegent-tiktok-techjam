@@ -1,4 +1,5 @@
 import type { Agent, AgentRun, Message, SystemInfo } from "./types";
+import { isUiPreviewEnabled, previewRequest } from "./preview-api";
 
 export type AgentProvider = "codex" | "claude";
 
@@ -247,6 +248,9 @@ export function setAuthToken(token: string): void {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  if (isUiPreviewEnabled()) {
+    return await previewRequest(url, options) as T;
+  }
   const headers = {
     ...(options?.body ? { "Content-Type": "application/json" } : {}),
     ...(authToken ? { Authorization: "Bearer " + authToken } : {}),
