@@ -143,14 +143,20 @@ Additional technical evidence and decision records:
 
 ## Working in this repository
 
-The inherited scaffold can still be checked locally. This validates preserved code only; it does **not** prove that the connector/cloud split is implemented end to end.
+Windows, macOS, and Linux use the same one-command setup:
 
-```bash
-npm install
-npm run check
+```text
+npm run setup
 ```
 
-Do not use real repositories, provider credentials, or production data with the inherited scaffold.
+To set up and start the local browser plus API in one command, run
+`npm run up`. The setup creates safe local defaults, installs locked
+dependencies, builds the application, and reports every missing external
+end-to-end prerequisite. It never hides provider, GitHub, or Supabase sign-in.
+
+See [the cross-platform setup guide](docs/setup.md) for full two-user connector
+setup, exact environment values, diagnostics, and the boundary between
+automated repository setup and explicit external account provisioning.
 
 Before changing product behavior, architecture, security policy, API contracts, runtime integration, or UX, read the four canonical documents above and the relevant owner brief. In particular, do not turn an unvalidated hypothesis into a product claim.
 
