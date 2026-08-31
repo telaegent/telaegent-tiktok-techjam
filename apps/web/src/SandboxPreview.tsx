@@ -20,30 +20,8 @@ type SandboxTransfer = {
   evaluation: SandboxSide;
 };
 
-const avatarBackgrounds: Record<SandboxPersonId, string> = {
-  tom: "087f9c",
-  eugene: "9a5b42",
-  laura: "526d82",
-  ash: "61705a",
-  ed: "866b3d",
-  gareth: "39685c",
-  norman: "5d618f",
-  tung: "76556f",
-};
-
 function avatarUrl(id: SandboxPersonId) {
-  const person = peopleById[id];
-  const params = new URLSearchParams({
-    name: person.name,
-    size: "96",
-    background: avatarBackgrounds[id],
-    color: "f7f7f4",
-    length: "1",
-    bold: "true",
-    format: "svg",
-  });
-
-  return `https://ui-avatars.com/api/?${params.toString()}`;
+  return `https://github.com/identicons/${encodeURIComponent(id)}.png`;
 }
 
 function SandboxAvatar({ id, className = "" }: { id: SandboxPersonId; className?: string }) {
@@ -57,6 +35,8 @@ function SandboxAvatar({ id, className = "" }: { id: SandboxPersonId; className?
       width="48"
       height="48"
       decoding="async"
+      loading="lazy"
+      referrerPolicy="no-referrer"
     />
   );
 }

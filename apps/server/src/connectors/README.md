@@ -44,7 +44,9 @@ legacy shared API token is not connector authentication.
    response is explicitly non-cacheable and the browser must not persist it.
 3. Set `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
    `TELAEGENT_CONNECTOR_CREDENTIAL` in the local shell.
-4. Run `npm run connector:connect -- connect .` from this repository.
+4. Run `npm.cmd run connector:connect -- connect .` from the Telaegent source
+   root in PowerShell. The script builds the connector before starting it, so
+   it does not depend on the development-time TypeScript loader.
 
 The connector canonicalizes the Git root, collects an allowlisted `gh`/`git`
 repository proof, receives an opaque binding, detects locally authenticated

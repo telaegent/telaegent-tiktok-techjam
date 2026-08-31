@@ -3,11 +3,13 @@
   font-style: normal;
   font-display: swap;
   font-weight: 200 800;
-  src: url("@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2") format("woff2-variations");
+  src: url("@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2")
+    format("woff2-variations");
 }
 
 :root {
-  font-family: "Manrope Variable", "Arial Nova", "Helvetica Neue", Arial, sans-serif;
+  font-family:
+    "Manrope Variable", "Arial Nova", "Helvetica Neue", Arial, sans-serif;
   color: #161616;
   background: #f5f5f3;
   font-synthesis: none;
@@ -28,7 +30,8 @@
   --caution-soft: #eee1d8;
   --button: #191919;
   --button-text: #f4f4f1;
-  --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --mono:
+    "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --motion-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -697,6 +700,7 @@ button:disabled:active,
   display: block;
   background: var(--surface-raised);
   object-fit: cover;
+  image-rendering: crisp-edges;
 }
 
 .person-row strong,
@@ -2320,7 +2324,6 @@ button:disabled:active,
     transform: none;
     animation: none;
   }
-
 }
 
 @keyframes perspective-switch-nudge {
