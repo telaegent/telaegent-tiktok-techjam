@@ -40,17 +40,28 @@ legacy shared API token is not connector authentication.
 
 1. Sign in through the website.
 2. `POST /api/connectors/credentials` with a stable, random installation ID.
-   Save the returned credential locally; the backend stores only its hash.
+   Save the returned credential locally; the backend stores only its hash. The
+   response is explicitly non-cacheable and the browser must not persist it.
 3. Set `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
    `TELAEGENT_CONNECTOR_CREDENTIAL` in the local shell.
 4. Run `npm run connector:connect -- connect .` from this repository.
 
 The connector canonicalizes the Git root, collects an allowlisted `gh`/`git`
-repository proof, receives an opaque binding, starts outbound long polling, and
-runs one fixed read-only Claude probe through the cloud relay. It prints
-`TELAEGENT IS CONNECTED` only after the normalized result returns through the
-relay. Local paths, GitHub/provider credentials, raw CLI output, and provider
-session IDs remain local.
+repository proof, receives an opaque binding, detects locally authenticated
+Claude Code and Codex CLIs, and runs one fixed read-only relay probe for each
+available provider. Claude-only, Codex-only, and dual-provider installations
+are valid. It prints `TELAEGENT IS CONNECTED` only after a normalized result
+returns through the relay. Local paths, GitHub/provider credentials, raw CLI
+output, and provider session IDs remain local.
+
+The signed-in browser can poll
+`GET /api/connectors/installations/:connectorInstanceId/status`. The backend
+derives the user from the HttpOnly Telaegent session and returns only that
+owner's credential lifecycle plus bounded, safe repository/binding metadata.
+It returns no bearer, token hash, local path, remote URL, GitHub/provider
+credential, or provider session. The response is non-cacheable. A `ready`
+binding proves durable repository registration; `lastSeenAt` is telemetry, not
+a promise that the process will remain online.
 
 This is a source-tree proof command, not finished `npx telaegent` packaging.
 Reconnect/backoff, durable presence telemetry, installer/update signing, and

@@ -49,6 +49,8 @@ describe("connector long-poll HTTP transport", () => {
       url: `/api/connectors/jobs/next?connectorBindingId=${bindingId}&waitMs=0`,
     });
     expect(delivery.statusCode).toBe(200);
+    expect(delivery.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(delivery.headers.pragma).toBe("no-cache");
     expect(delivery.json()).toEqual({ kind: "job", job });
 
     const result = await app.inject({
@@ -141,6 +143,7 @@ describe("connector long-poll HTTP transport", () => {
     const probeRequest = app.inject({
       method: "POST",
       url: `/api/connectors/bindings/${bindingId}/probe`,
+      payload: { provider: "codex" },
     });
     const delivery = await app.inject({
       method: "GET",
@@ -151,7 +154,7 @@ describe("connector long-poll HTTP transport", () => {
     expect(leased.job).toMatchObject({
       connectorBindingId: bindingId,
       githubRepositoryId: job.githubRepositoryId,
-      provider: "claude",
+      provider: "codex",
       sandboxMode: "read-only",
       networkMode: "none",
       outputSchemaName: "connector-connection-probe.schema.json",
@@ -160,7 +163,7 @@ describe("connector long-poll HTTP transport", () => {
       method: "POST",
       url: `/api/connectors/jobs/${leased.job.jobId}/result`,
       payload: {
-        provider: "claude",
+        provider: "codex",
         final: { message: "TELAEGENT IS CONNECTED" },
         changedFiles: [],
         exitCode: 0,
@@ -170,7 +173,7 @@ describe("connector long-poll HTTP transport", () => {
     expect(result.statusCode).toBe(204);
     const probe = await probeRequest;
     expect(probe.statusCode).toBe(200);
-    expect(probe.json()).toEqual({ connected: true, provider: "claude", durationMs: 25 });
+    expect(probe.json()).toEqual({ connected: true, provider: "codex", durationMs: 25 });
     await app.close();
   });
 

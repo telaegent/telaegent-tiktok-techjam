@@ -35,6 +35,12 @@ import {
   registerConnectorTransportRoutes,
   type ConnectorTransportRouteDependencies,
 } from "./connectors/routes.js";
+import {
+  registerProjectRoutes,
+  userAuthenticatedProjectRoutes,
+  type ProjectRouteDependencies,
+} from "./projects/routes.js";
+import { setPrivateNoStore } from "./http-cache.js";
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
@@ -72,11 +78,23 @@ export async function createApp(
   identityApi?: IdentityRouteDependencies,
   repositoryProofApi?: RepositoryProofRouteDependencies,
   connectorTransportApi?: ConnectorTransportRouteDependencies,
+  projectApi?: ProjectRouteDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: config.logLevel,
       redact: ["req.headers.authorization", "req.headers.cookie"],
+      serializers: {
+        // OAuth callbacks carry a short-lived authorization code and state in
+        // the query string. Keep request-path observability without ever
+        // placing those values (or future cursor/search values) in logs.
+        req(request) {
+          return {
+            method: request.method,
+            url: request.url.split("?", 1)[0] ?? request.url,
+          };
+        },
+      },
     },
     bodyLimit: 1_048_576,
   });
@@ -105,7 +123,9 @@ export async function createApp(
           request.routeOptions.url ?? "",
         )) ||
       (connectorTransportApi &&
-        connectorTransportRoutes.has(request.routeOptions.url ?? ""))
+        connectorTransportRoutes.has(request.routeOptions.url ?? "")) ||
+      (projectApi &&
+        userAuthenticatedProjectRoutes.has(request.routeOptions.url ?? ""))
     ) {
       return;
     }
@@ -134,10 +154,13 @@ export async function createApp(
   if (identityApi) {
     registerIdentityRoutes(app, identityApi);
   } else {
-    app.get("/api/auth/session", async () => ({
-      enabled: false,
-      authenticated: false,
-    }));
+    app.get("/api/auth/session", async (_request, reply) => {
+      setPrivateNoStore(reply);
+      return {
+        enabled: false,
+        authenticated: false,
+      };
+    });
   }
 
   if (service) {
@@ -155,6 +178,9 @@ export async function createApp(
   }
   if (connectorTransportApi) {
     registerConnectorTransportRoutes(app, connectorTransportApi);
+  }
+  if (projectApi) {
+    registerProjectRoutes(app, projectApi);
   }
 
   if (config.nodeEnv === "production") {

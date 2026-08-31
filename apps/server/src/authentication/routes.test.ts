@@ -56,6 +56,7 @@ describe("Telaegent identity HTTP routes", () => {
     expect(started.headers["set-cookie"]).toContain(
       "Path=/api/auth/github/callback",
     );
+    expect(started.headers["cache-control"]).toBe("no-store, max-age=0");
 
     const callback = await app.inject({
       method: "GET",
@@ -70,6 +71,7 @@ describe("Telaegent identity HTTP routes", () => {
         expect.stringContaining("telaegent_oauth=; Max-Age=0"),
       ]),
     );
+    expect(callback.headers["cache-control"]).toBe("no-store, max-age=0");
 
     const session = await app.inject({
       method: "GET",
@@ -77,6 +79,7 @@ describe("Telaegent identity HTTP routes", () => {
       headers: { cookie: "telaegent_session=" + "t".repeat(43) },
     });
     expect(session.json()).toEqual({ enabled: true, authenticated: true, user });
+    expect(session.headers["cache-control"]).toBe("no-store, max-age=0");
 
     const crossSiteLogout = await app.inject({
       method: "POST",
@@ -100,6 +103,7 @@ describe("Telaegent identity HTTP routes", () => {
     expect(sameSiteLogout.statusCode).toBe(204);
     expect(logout).toHaveBeenCalledWith("t".repeat(43));
     expect(sameSiteLogout.headers["set-cookie"]).toContain("Max-Age=0");
+    expect(sameSiteLogout.headers["cache-control"]).toBe("no-store, max-age=0");
     await app.close();
   });
 });

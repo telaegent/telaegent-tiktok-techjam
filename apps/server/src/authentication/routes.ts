@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { setPrivateNoStore } from "../http-cache.js";
 import type { TelaegentIdentityService } from "./identity-service.js";
 import { UserAuthenticationError } from "./types.js";
 
@@ -26,7 +27,8 @@ export function registerIdentityRoutes(
     ? "__Secure-telaegent_oauth"
     : "telaegent_oauth";
 
-  app.get("/api/auth/session", async (request) => {
+  app.get("/api/auth/session", async (request, reply) => {
+    setPrivateNoStore(reply);
     const user = await dependencies.service.loadSession(
       readCookie(request, sessionCookieName),
     );
@@ -37,6 +39,7 @@ export function registerIdentityRoutes(
   });
 
   app.get("/api/auth/github/start", async (request, reply) => {
+    setPrivateNoStore(reply);
     const query = startQuerySchema.parse(request.query);
     const login = await dependencies.service.beginGitHubLogin(query.returnTo);
     reply.header(
@@ -51,6 +54,7 @@ export function registerIdentityRoutes(
   });
 
   app.get("/api/auth/github/callback", async (request, reply) => {
+    setPrivateNoStore(reply);
     const query = callbackQuerySchema.parse(request.query);
     const completed = await dependencies.service.completeGitHubLogin({
       ...query,
@@ -72,6 +76,7 @@ export function registerIdentityRoutes(
   });
 
   app.post("/api/auth/logout", async (request, reply) => {
+    setPrivateNoStore(reply);
     enforceSameOrigin(request, dependencies.publicOrigin);
     await dependencies.service.logout(readCookie(request, sessionCookieName));
     reply.header(

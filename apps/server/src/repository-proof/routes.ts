@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { isGitHubRepositoryId } from "../authorization/github-repository-id.js";
+import { setPrivateNoStore } from "../http-cache.js";
 import type { ConnectorPrincipal } from "./contract.js";
 import type { RepositoryProofService } from "./service.js";
 
@@ -44,6 +45,7 @@ export function registerRepositoryProofRoutes(
   dependencies: RepositoryProofRouteDependencies,
 ): void {
   app.post("/api/connectors/repository-proofs", async (request, reply) => {
+    setPrivateNoStore(reply);
     const principal = await dependencies.resolveConnectorPrincipal(request);
     const result = await dependencies.service.register(principal, request.body);
     await dependencies.onBindingRegistered?.(
@@ -56,7 +58,8 @@ export function registerRepositoryProofRoutes(
 
   app.post(
     "/api/connectors/repositories/:githubRepositoryId/unavailable",
-    async (request) => {
+    async (request, reply) => {
+      setPrivateNoStore(reply);
       const principal = await dependencies.resolveConnectorPrincipal(request);
       const params = repositoryParamsSchema.parse(request.params);
       const binding = await dependencies.service.markUnavailable(
@@ -72,7 +75,7 @@ export function registerRepositoryProofRoutes(
         principal,
         binding.githubRepositoryId,
       );
-      return { binding };
+      return reply.send({ binding });
     },
   );
 }

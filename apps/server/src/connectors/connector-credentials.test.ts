@@ -5,7 +5,9 @@ import { loadConfig } from "../config.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
 import {
   ConnectorCredentialService,
+  SupabaseConnectorCredentialRepository,
   createConnectorPrincipalResolver,
+  type ConnectorSetupStatus,
   type ConnectorCredentialRepository,
 } from "./connector-credentials.js";
 import { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
@@ -17,6 +19,7 @@ const principal: ConnectorPrincipal = {
 
 class MemoryCredentials implements ConnectorCredentialRepository {
   readonly records = new Map<string, ConnectorPrincipal>();
+  lastStatusInput: ConnectorPrincipal | null = null;
 
   async create(input: Readonly<{
     authenticatedUserId: string;
@@ -52,6 +55,29 @@ class MemoryCredentials implements ConnectorCredentialRepository {
       }
     }
     return changed;
+  }
+
+  async loadSetupStatus(
+    input: Readonly<ConnectorPrincipal>,
+  ): Promise<ConnectorSetupStatus> {
+    this.lastStatusInput = input;
+    const active = [...this.records.values()].some(
+      (record) =>
+        record.authenticatedUserId === input.authenticatedUserId &&
+        record.connectorInstanceId === input.connectorInstanceId,
+    );
+    return {
+      connectorInstanceId: input.connectorInstanceId,
+      credential: active
+        ? {
+            status: "active",
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            lastSeenAt: null,
+          }
+        : null,
+      bindings: [],
+      bindingsTruncated: false,
+    };
   }
 }
 
@@ -115,6 +141,8 @@ describe("connector credentials", () => {
       payload: { connectorInstanceId: principal.connectorInstanceId },
     });
     expect(issue.statusCode).toBe(201);
+    expect(issue.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(issue.headers.pragma).toBe("no-cache");
     const credential = issue.json().connector.credential as string;
     expect(authenticatedUserId).toHaveBeenCalledOnce();
 
@@ -124,7 +152,114 @@ describe("connector credentials", () => {
       headers: { authorization: `Bearer ${credential}` },
     });
     expect(session.statusCode).toBe(200);
+    expect(session.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(session.headers.pragma).toBe("no-cache");
     expect(session.json()).toEqual({ connector: principal });
+
+    const status = await app.inject({
+      method: "GET",
+      url: `/api/connectors/installations/${principal.connectorInstanceId}/status`,
+    });
+    expect(status.statusCode).toBe(200);
+    expect(status.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(status.headers.pragma).toBe("no-cache");
+    expect(status.json()).toEqual({
+      connector: {
+        connectorInstanceId: principal.connectorInstanceId,
+        credential: {
+          status: "active",
+          expiresAt: "2026-09-01T00:00:00.000Z",
+          lastSeenAt: null,
+        },
+        bindings: [],
+        bindingsTruncated: false,
+      },
+    });
+    expect(repository.lastStatusInput).toEqual(principal);
+    expect(JSON.stringify(status.json())).not.toContain(credential);
     await app.close();
+  });
+
+  it("rejects malformed installation status identifiers before persistence", async () => {
+    const repository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(repository, 3_600);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay: new LongPollConnectorJobRelay(),
+        credentials,
+        authenticatedUserId: async () => principal.authenticatedUserId,
+        resolveConnectorPrincipal: createConnectorPrincipalResolver(credentials),
+      },
+    );
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/connectors/installations/not-valid/status",
+    });
+    expect(response.statusCode).toBe(400);
+    expect(repository.lastStatusInput).toBeNull();
+    await app.close();
+  });
+
+  it("loads setup status through the owner-scoped backend RPC", async () => {
+    const setupStatus: ConnectorSetupStatus = {
+      connectorInstanceId: principal.connectorInstanceId,
+      credential: {
+        status: "active",
+        expiresAt: "2026-09-01T00:00:00.000Z",
+        lastSeenAt: "2026-08-31T23:59:45.000Z",
+      },
+      bindings: [{
+        connectorBindingId: "50000000-0000-4000-8000-000000000005",
+        projectId: "20000000-0000-4000-8000-000000000002",
+        githubRepositoryId: "987654321",
+        repositoryFullName: "telaegent/status-contract",
+        visibility: "private",
+        defaultBranch: "main",
+        currentBranch: "feat/status",
+        commitSha: "a".repeat(40),
+        repositoryPermission: "write",
+        repositoryAccessStatus: "verified",
+        membershipStatus: "active",
+        bindingStatus: "ready",
+        verifiedAt: "2026-08-31T23:59:30.000Z",
+        bindingLastSeenAt: "2026-08-31T23:59:30.000Z",
+        unavailableReason: null,
+      }],
+      bindingsTruncated: false,
+    };
+    const fetchImplementation = vi.fn(async () => new Response(
+      JSON.stringify(setupStatus),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ));
+    const repository = new SupabaseConnectorCredentialRepository(
+      "https://example.supabase.co",
+      "backend-secret",
+      1_000,
+      fetchImplementation,
+    );
+
+    await expect(repository.loadSetupStatus(principal)).resolves.toEqual(setupStatus);
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+    const [url, request] = fetchImplementation.mock.calls[0]!;
+    expect(url).toBe(
+      "https://example.supabase.co/rest/v1/rpc/load_connector_setup_status",
+    );
+    expect(JSON.parse(String(request?.body))).toEqual({
+      p_user_id: principal.authenticatedUserId,
+      p_connector_instance_id: principal.connectorInstanceId,
+      p_max_bindings: 25,
+    });
+    expect(request).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
+    });
   });
 });

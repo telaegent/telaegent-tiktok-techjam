@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ConnectorPrincipalResolver } from "../repository-proof/routes.js";
 import type { RuntimeProgressEvent } from "../runtime-contract.js";
 import type { AuthenticatedUserResolver } from "../conversations/routes.js";
+import { setPrivateNoStore } from "../http-cache.js";
 import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 
@@ -52,6 +53,7 @@ const failureSchema = z.strictObject({
   ]),
 });
 const providerSchema = z.enum(["codex", "claude"]);
+const probeBodySchema = z.strictObject({ provider: providerSchema });
 const failureDetailSchema = z.strictObject({
   code: z.enum([
     "RUNTIME_UNAVAILABLE",
@@ -112,6 +114,7 @@ export const connectorTransportRoutes = new Set([
   "/api/connectors/jobs/:jobId/failure",
   "/api/connectors/credentials",
   "/api/connectors/credentials/:connectorInstanceId",
+  "/api/connectors/installations/:connectorInstanceId/status",
   "/api/connectors/bindings/:connectorBindingId/probe",
   "/api/connectors/session",
 ]);
@@ -120,12 +123,16 @@ export function registerConnectorTransportRoutes(
   app: FastifyInstance,
   dependencies: ConnectorTransportRouteDependencies,
 ): void {
-  app.get("/api/connectors/session", async (request) => ({
-    connector: await dependencies.resolveConnectorPrincipal(request),
-  }));
+  app.get("/api/connectors/session", async (request, reply) => {
+    setPrivateNoStore(reply);
+    return {
+      connector: await dependencies.resolveConnectorPrincipal(request),
+    };
+  });
 
   if (dependencies.credentials && dependencies.authenticatedUserId) {
     app.post("/api/connectors/credentials", async (request, reply) => {
+      setPrivateNoStore(reply);
       const authenticatedUserId = await dependencies.authenticatedUserId!(request);
       const body = credentialBodySchema.parse(request.body);
       await dependencies.relay.unregisterPrincipal({
@@ -139,6 +146,21 @@ export function registerConnectorTransportRoutes(
         ),
       });
     });
+
+    app.get(
+      "/api/connectors/installations/:connectorInstanceId/status",
+      async (request, reply) => {
+        setPrivateNoStore(reply);
+        const authenticatedUserId = await dependencies.authenticatedUserId!(request);
+        const params = credentialParamsSchema.parse(request.params);
+        return reply.send({
+          connector: await dependencies.credentials!.setupStatus(
+            authenticatedUserId,
+            params.connectorInstanceId,
+          ),
+        });
+      },
+    );
 
     app.delete(
       "/api/connectors/credentials/:connectorInstanceId",
@@ -160,9 +182,11 @@ export function registerConnectorTransportRoutes(
 
   app.post(
     "/api/connectors/bindings/:connectorBindingId/probe",
-    async (request) => {
+    async (request, reply) => {
+      setPrivateNoStore(reply);
       const principal = await dependencies.resolveConnectorPrincipal(request);
       const { connectorBindingId } = bindingParamsSchema.parse(request.params);
+      const { provider } = probeBodySchema.parse(request.body);
       const githubRepositoryId = dependencies.relay.registeredRepository(
         principal,
         connectorBindingId,
@@ -173,7 +197,7 @@ export function registerConnectorTransportRoutes(
         userId: principal.authenticatedUserId,
         githubRepositoryId,
         conversationId: `connector-probe:${connectorBindingId}`,
-        provider: "claude",
+        provider,
         purpose: "sender_draft",
         runtimePrompt: [
           "This is a Telaegent connector probe.",
@@ -195,15 +219,18 @@ export function registerConnectorTransportRoutes(
       ) {
         throw new Error("Connector provider probe returned an invalid result");
       }
-      return {
+      return reply.send({
         connected: true,
-        provider: "claude",
+        provider,
         durationMs: result.durationMs,
-      };
+      });
     },
   );
 
   app.get("/api/connectors/jobs/next", async (request, reply) => {
+    // A leased job contains owner-private prompt/context. Intermediaries must
+    // never retain it, even though connector authentication is also required.
+    setPrivateNoStore(reply);
     const principal = await dependencies.resolveConnectorPrincipal(request);
     const query = pollQuerySchema.parse(request.query);
     // A connector abandons this poll whenever it stops waiting - it finished a

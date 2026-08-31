@@ -161,6 +161,7 @@ describe("canonical conversation API", () => {
 
     const created = await createDraft(app);
     expect(created.statusCode).toBe(201);
+    expect(created.headers["cache-control"]).toBe("no-store, max-age=0");
     const draftId = created.json().draft.draftId as string;
 
     const emptyConversation = await app.inject({
@@ -169,6 +170,9 @@ describe("canonical conversation API", () => {
       headers: { "x-test-user": OWNER },
     });
     expect(emptyConversation.json()).toEqual({ messages: [] });
+    expect(emptyConversation.headers["cache-control"]).toBe(
+      "no-store, max-age=0",
+    );
 
     const started = await app.inject({
       method: "POST",
@@ -177,6 +181,7 @@ describe("canonical conversation API", () => {
       payload: {},
     });
     expect(started.statusCode).toBe(202);
+    expect(started.headers["cache-control"]).toBe("no-store, max-age=0");
     expect(started.json().pollUrl).toBe(`/api/drafts/${draftId}`);
     expect(started.json().draft).toMatchObject({
       state: "agent_working",
