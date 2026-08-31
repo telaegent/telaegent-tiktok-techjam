@@ -3,6 +3,7 @@ import type {
   CapabilityScopeRequest,
   ConversationMessage,
   PrivateDraftView,
+  ProjectCollaborator,
   ProjectSummary,
   TelaegentSession,
 } from "./api";
@@ -29,7 +30,7 @@ describe("local UI preview", () => {
 
     const collaborators = await previewRequest(
       "/api/projects/33333333-3333-4333-8333-333333333333/collaborators?limit=50",
-    ) as { collaborators: unknown[] };
+    ) as { collaborators: ProjectCollaborator[] };
     expect(collaborators.collaborators).toHaveLength(1);
 
     const pending = await previewRequest(
@@ -79,5 +80,27 @@ describe("local UI preview", () => {
       "/api/conversations/44444444-4444-4444-8444-444444444444/messages?githubRepositoryId=987654321",
     ) as { messages: ConversationMessage[] };
     expect(conversation.messages.at(-1)?.messageId).toBe(sent.message.messageId);
+
+    const connectedPeer = collaborators.collaborators[0]!;
+    await previewRequest(
+      `/api/projects/${projects.projects[0]!.projectId}/connections/${connectedPeer.projectConnectionId}/revoke`,
+      { method: "POST", body: "{}" },
+    );
+    const revoked = await previewRequest(
+      `/api/projects/${projects.projects[0]!.projectId}/collaborators?limit=50`,
+    ) as { collaborators: ProjectCollaborator[] };
+    expect(revoked.collaborators[0]?.connectionStatus).toBe("revoked");
+
+    await previewRequest(
+      `/api/projects/${projects.projects[0]!.projectId}/connections`,
+      {
+        method: "POST",
+        body: JSON.stringify({ recipientUserId: connectedPeer.userId }),
+      },
+    );
+    const requested = await previewRequest(
+      `/api/projects/${projects.projects[0]!.projectId}/collaborators?limit=50`,
+    ) as { collaborators: ProjectCollaborator[] };
+    expect(requested.collaborators[0]?.connectionStatus).toBe("pending_outgoing");
   });
 });

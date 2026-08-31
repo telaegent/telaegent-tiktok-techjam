@@ -5,6 +5,7 @@ import type {
   ConversationMessage,
   PrivateDraftView,
   ProjectCollaborator,
+  ProjectConnection,
   ProjectConversation,
   ProjectSummary,
   SendDraftResult,
@@ -54,12 +55,35 @@ const project: ProjectSummary = {
   },
 };
 
-const collaborator: ProjectCollaborator = {
+let collaborator: ProjectCollaborator = {
   userId: peerUserId,
   githubLogin: "mark-preview",
   connectionStatus: "connected",
   projectConnectionId: "66666666-6666-4666-8666-666666666666",
 };
+
+function connection(
+  status: ProjectConnection["status"],
+  projectConnectionId = collaborator.projectConnectionId ?? crypto.randomUUID(),
+): ProjectConnection {
+  const timestamp = now();
+  return {
+    projectConnectionId,
+    projectId,
+    requesterUserId:
+      collaborator.connectionStatus === "pending_incoming"
+        ? peerUserId
+        : viewerUserId,
+    recipientUserId:
+      collaborator.connectionStatus === "pending_incoming"
+        ? viewerUserId
+        : peerUserId,
+    status,
+    requestedAt: timestamp,
+    acceptedAt: status === "connected" ? timestamp : null,
+    revokedAt: status === "revoked" ? timestamp : null,
+  };
+}
 
 const conversation: ProjectConversation = {
   conversationId,
@@ -200,6 +224,35 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
   }
   if (url.match(/^\/api\/projects\/[^/]+\/collaborators(?:\?|$)/) && method === "GET") {
     return { collaborators: [copy(collaborator)] };
+  }
+  if (url.match(/^\/api\/projects\/[^/]+\/connections$/) && method === "POST") {
+    const next = connection("pending", crypto.randomUUID());
+    collaborator = {
+      ...collaborator,
+      connectionStatus: "pending_outgoing",
+      projectConnectionId: next.projectConnectionId,
+    };
+    return { connection: copy(next) };
+  }
+  if (url.match(/^\/api\/projects\/[^/]+\/connections\/[^/]+\/respond$/) && method === "POST") {
+    const body = jsonBody(options);
+    const accepted = body["decision"] === "accept";
+    const next = connection(accepted ? "connected" : "revoked");
+    collaborator = {
+      ...collaborator,
+      connectionStatus: accepted ? "connected" : "revoked",
+      projectConnectionId: next.projectConnectionId,
+    };
+    return { connection: copy(next) };
+  }
+  if (url.match(/^\/api\/projects\/[^/]+\/connections\/[^/]+\/revoke$/) && method === "POST") {
+    const next = connection("revoked");
+    collaborator = {
+      ...collaborator,
+      connectionStatus: "revoked",
+      projectConnectionId: next.projectConnectionId,
+    };
+    return { connection: copy(next) };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/conversations$/) && method === "POST") {
     return { conversation: copy(conversation) };
