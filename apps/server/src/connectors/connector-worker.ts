@@ -88,12 +88,16 @@ export class ConnectorWorker {
     this.assertOwnedJob(job);
 
     const cancellationController = new AbortController();
+    const executionController = new AbortController();
     let cancelled = false;
     let credentialRejection: ConnectorCredentialRejectedError | undefined;
     const execution = this.sessions.run(
       this.scope(job),
       this.request(job),
       (event) => void this.transport.progress(job.jobId, event).catch(() => undefined),
+      undefined,
+      undefined,
+      executionController.signal,
     );
     // ProviderSessionManager enters through a serialized queue. Let the owned
     // run acquire that queue before a synthetic/very-fast cancellation can be
@@ -104,9 +108,11 @@ export class ConnectorWorker {
       cancellationController.signal,
       () => {
         cancelled = true;
+        executionController.abort();
       },
       (error) => {
         credentialRejection = error;
+        executionController.abort();
       },
     );
     const cancellationFailure = cancellation.then(
@@ -130,6 +136,11 @@ export class ConnectorWorker {
       await cancellation.catch((error: unknown) => {
         if (!(error instanceof ConnectorCredentialRejectedError)) throw error;
       });
+      if (executionController.signal.aborted) {
+        // Do not let a pre-launch provider task outlive revocation. The signal
+        // prevents process creation and this await lets its local cleanup finish.
+        await execution.catch(() => undefined);
+      }
     }
   }
 

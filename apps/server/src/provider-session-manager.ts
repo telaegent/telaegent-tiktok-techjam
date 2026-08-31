@@ -7,6 +7,7 @@ import type {
   RuntimeProgressSink,
 } from "./runtime-contract.js";
 import { RuntimeProviderError } from "./runtime-errors.js";
+import { throwIfRuntimeCancelled } from "./runtime-cancellation.js";
 
 export interface ProviderSessionScope {
   userId: string;
@@ -31,6 +32,7 @@ export interface ProviderSessionRuntime {
   run(
     request: MiddlewareRunRequest,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<NormalizedRunResult>;
 }
 
@@ -79,7 +81,9 @@ export class ProviderSessionManager {
     onProgress?: RuntimeProgressSink,
     onExecutionStarted?: () => void,
     beforeExecution?: () => void | Promise<void>,
+    signal?: AbortSignal,
   ): Promise<ManagedAgentTurnResult<T>> {
+    throwIfRuntimeCancelled(signal);
     this.validateScope(scope);
     const key = sessionKey(scope);
     const previous = this.queues.get(key) ?? Promise.resolve();
@@ -92,15 +96,17 @@ export class ProviderSessionManager {
 
     await previous;
     try {
+      throwIfRuntimeCancelled(signal);
       // Authorization-sensitive callers use this after queueing so revocation
       // cannot take effect while a turn waits and still permit execution.
       await beforeExecution?.();
+      throwIfRuntimeCancelled(signal);
       try {
         onExecutionStarted?.();
       } catch {
         // Realtime coordination is best-effort and cannot fail a provider turn.
       }
-      return await this.runExclusive<T>(scope, request, onProgress);
+      return await this.runExclusive<T>(scope, request, onProgress, signal);
     } finally {
       release();
       if (this.queues.get(key) === queued) this.queues.delete(key);
@@ -136,35 +142,39 @@ export class ProviderSessionManager {
     scope: ProviderSessionScope,
     request: ManagedAgentTurnRequest,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<ManagedAgentTurnResult<T>> {
     const requestedMode = request.sessionMode ?? "continue";
     if (requestedMode === "ephemeral") {
       const result = (await this.runtime.run(
         this.runtimeRequest(scope, request, "ephemeral"),
         onProgress,
+        signal,
       )) as NormalizedRunResult<T>;
       return publicResult(result);
     }
 
     if (requestedMode === "fresh") {
       await this.sessions.delete(scope);
-      return await this.startFresh<T>(scope, request, onProgress, false);
+      return await this.startFresh<T>(scope, request, onProgress, false, signal);
     }
 
     const existing = await this.sessions.get(scope);
     if (!existing) {
-      return await this.startFresh<T>(scope, request, onProgress, true);
+      return await this.startFresh<T>(scope, request, onProgress, true, signal);
     }
     if (!validSessionId.test(existing.sessionId)) {
       await this.sessions.delete(scope);
-      return await this.startFresh<T>(scope, request, onProgress, true);
+      return await this.startFresh<T>(scope, request, onProgress, true, signal);
     }
 
     try {
       const result = (await this.runtime.run(
         this.runtimeRequest(scope, request, "continue", existing.sessionId),
         onProgress,
+        signal,
       )) as NormalizedRunResult<T>;
+      throwIfRuntimeCancelled(signal);
       await this.rememberResult(scope, result, existing.sessionId);
       return publicResult(result);
     } catch (error) {
@@ -175,7 +185,7 @@ export class ProviderSessionManager {
         throw error;
       }
       await this.sessions.delete(scope);
-      return await this.startFresh<T>(scope, request, onProgress, true);
+      return await this.startFresh<T>(scope, request, onProgress, true, signal);
     }
   }
 
@@ -184,14 +194,18 @@ export class ProviderSessionManager {
     request: ManagedAgentTurnRequest,
     onProgress: RuntimeProgressSink | undefined,
     needsHydration: boolean,
+    signal?: AbortSignal,
   ): Promise<ManagedAgentTurnResult<T>> {
     const hydrated = needsHydration
       ? await this.rehydrate(scope, request)
       : request;
+    throwIfRuntimeCancelled(signal);
     const result = (await this.runtime.run(
       this.runtimeRequest(scope, hydrated, "fresh"),
       onProgress,
+      signal,
     )) as NormalizedRunResult<T>;
+    throwIfRuntimeCancelled(signal);
     await this.rememberResult(scope, result);
     return publicResult(result);
   }

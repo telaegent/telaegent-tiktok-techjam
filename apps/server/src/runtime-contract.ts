@@ -156,6 +156,7 @@ export interface MiddlewareProviderRunner {
     request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<NormalizedRunResult>;
   cancel(agentId: string): Promise<boolean>;
   capability(): Promise<RuntimeProviderCapability>;

@@ -12,11 +12,16 @@ import {
 } from "./codex-runner.js";
 import { containerName } from "./container-codex-runner.js";
 import { RunCancelledError } from "./errors.js";
+import {
+  onRuntimeCancellation,
+  throwIfRuntimeCancelled,
+} from "./runtime-cancellation.js";
 import type {
   JsonSchemaDocument,
   MiddlewareProviderRunner,
   LocalMiddlewareRunRequest,
   NormalizedRunResult,
+  RuntimeProgressSink,
   RuntimeProviderCapability,
 } from "./runtime-contract.js";
 import {
@@ -141,7 +146,10 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
   async runStructured(
     request: LocalMiddlewareRunRequest,
     outputSchema: JsonSchemaDocument,
+    _onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ): Promise<NormalizedRunResult> {
+    throwIfRuntimeCancelled(signal);
     if (!isArkConfigured(this.config)) {
       throw new RuntimeProviderError(
         "RUNTIME_UNAVAILABLE",
@@ -153,133 +161,143 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
     }
     const startedAt = Date.now();
     const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
-    const hostSchemaPath = path.join(schemaDirectory, "output.schema.json");
-    await writeFile(hostSchemaPath, JSON.stringify(outputSchema), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-
-    const child = spawn(
-      this.config.containerEngine,
-      buildContainerMiddlewareRunArgs(request, this.config, hostSchemaPath),
-      {
-        cwd: request.workspacePath,
-        env: this.childEnvironment(),
-        stdio: ["pipe", "pipe", "pipe"],
-        shell: false,
-      },
-    );
-    child.stdin?.on("error", () => undefined);
-    child.stdin?.end(request.runtimePrompt);
-    const settled = new Promise<void>((resolve) => {
-      child.once("close", () => resolve());
-      child.once("error", () => resolve());
-    });
-    const active: ActiveContainer = {
-      child,
-      containerName: containerName(
-        request.agentId + "-middleware",
-        this.config.runtimeInstanceId,
-      ),
-      cancelled: false,
-      timedOut: false,
-      outputExceeded: false,
-      settled,
-      termination: null,
-    };
-    this.active.set(request.agentId, active);
-
-    const parsed: ParsedEvents = {
-      messages: [],
-      threadId:
-        request.sessionMode === "continue" ? request.sessionId ?? null : null,
-      usage: null,
-      errors: [],
-    };
-    let stdout = "";
-    let stderr = "";
-    let totalBytes = 0;
-    const consume = (chunk: Buffer, target: "stdout" | "stderr") => {
-      totalBytes += chunk.byteLength;
-      if (totalBytes > this.config.codexMaxOutputBytes) {
-        active.outputExceeded = true;
-        void this.removeContainer(active);
-        return;
-      }
-      if (target === "stdout") {
-        stdout += chunk.toString("utf8");
-        const lines = stdout.split(/\r?\n/);
-        stdout = lines.pop() ?? "";
-        for (const line of lines) parseCodexEventLine(line, parsed);
-      } else {
-        stderr += chunk.toString("utf8");
-        if (stderr.length > 16_384) stderr = stderr.slice(-16_384);
-      }
-    };
-    child.stdout?.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
-    child.stderr?.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
-    const timeout = setTimeout(() => {
-      active.timedOut = true;
-      void this.removeContainer(active);
-    }, this.config.codexTimeoutMs);
-    timeout.unref();
-
     try {
-      let exitCode: number;
-      try {
-        exitCode = await new Promise<number>((resolve, reject) => {
-          child.once("error", reject);
-          child.once("close", (code) => resolve(code ?? 1));
-        });
-      } catch (error) {
-        throw classifyProviderFailure("codex", error);
-      }
-      if (stdout.trim()) parseCodexEventLine(stdout.trim(), parsed);
-      if (active.cancelled) throw new RunCancelledError();
-      if (active.timedOut) {
-        throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Codex runtime timed out");
-      }
-      if (active.outputExceeded) {
-        throw new RuntimeProviderError(
-          "RUNTIME_OUTPUT_LIMIT",
-          "Codex output exceeded the configured limit",
-        );
-      }
-      if (exitCode !== 0) {
-        throw classifyProviderFailure(
-          "codex",
-          parsed.errors.at(-1) ?? stderr ?? "provider failure",
-        );
-      }
-      const output = parsed.messages.at(-1)?.trim();
-      if (!output) {
-        throw new RuntimeProviderError(
-          "INVALID_AGENT_OUTPUT",
-          "Codex completed without an agent message",
-        );
-      }
-      let final: unknown;
-      try {
-        final = JSON.parse(output) as unknown;
-      } catch {
-        throw new RuntimeProviderError(
-          "INVALID_AGENT_OUTPUT",
-          "Codex completed without structured output",
-        );
-      }
-      return {
-        provider: "codex",
-        ...(request.sessionMode === "continue" && parsed.threadId
-          ? { sessionId: parsed.threadId }
-          : {}),
-        final,
-        changedFiles: [],
-        exitCode,
-        durationMs: Date.now() - startedAt,
+      throwIfRuntimeCancelled(signal);
+      const hostSchemaPath = path.join(schemaDirectory, "output.schema.json");
+      await writeFile(hostSchemaPath, JSON.stringify(outputSchema), {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      throwIfRuntimeCancelled(signal);
+
+      const child = spawn(
+        this.config.containerEngine,
+        buildContainerMiddlewareRunArgs(request, this.config, hostSchemaPath),
+        {
+          cwd: request.workspacePath,
+          env: this.childEnvironment(),
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: false,
+        },
+      );
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(request.runtimePrompt);
+      const settled = new Promise<void>((resolve) => {
+        child.once("close", () => resolve());
+        child.once("error", () => resolve());
+      });
+      const active: ActiveContainer = {
+        child,
+        containerName: containerName(
+          request.agentId + "-middleware",
+          this.config.runtimeInstanceId,
+        ),
+        cancelled: false,
+        timedOut: false,
+        outputExceeded: false,
+        settled,
+        termination: null,
       };
+      this.active.set(request.agentId, active);
+      const removeCancellationListener = onRuntimeCancellation(signal, () => {
+        active.cancelled = true;
+        void this.removeContainer(active);
+      });
+
+      const parsed: ParsedEvents = {
+        messages: [],
+        threadId:
+          request.sessionMode === "continue" ? request.sessionId ?? null : null,
+        usage: null,
+        errors: [],
+      };
+      let stdout = "";
+      let stderr = "";
+      let totalBytes = 0;
+      const consume = (chunk: Buffer, target: "stdout" | "stderr") => {
+        totalBytes += chunk.byteLength;
+        if (totalBytes > this.config.codexMaxOutputBytes) {
+          active.outputExceeded = true;
+          void this.removeContainer(active);
+          return;
+        }
+        if (target === "stdout") {
+          stdout += chunk.toString("utf8");
+          const lines = stdout.split(/\r?\n/);
+          stdout = lines.pop() ?? "";
+          for (const line of lines) parseCodexEventLine(line, parsed);
+        } else {
+          stderr += chunk.toString("utf8");
+          if (stderr.length > 16_384) stderr = stderr.slice(-16_384);
+        }
+      };
+      child.stdout?.on("data", (chunk: Buffer) => consume(chunk, "stdout"));
+      child.stderr?.on("data", (chunk: Buffer) => consume(chunk, "stderr"));
+      const timeout = setTimeout(() => {
+        active.timedOut = true;
+        void this.removeContainer(active);
+      }, this.config.codexTimeoutMs);
+      timeout.unref();
+
+      try {
+        let exitCode: number;
+        try {
+          exitCode = await new Promise<number>((resolve, reject) => {
+            child.once("error", reject);
+            child.once("close", (code) => resolve(code ?? 1));
+          });
+        } catch (error) {
+          throw classifyProviderFailure("codex", error);
+        }
+        if (stdout.trim()) parseCodexEventLine(stdout.trim(), parsed);
+        if (active.cancelled) throw new RunCancelledError();
+        if (active.timedOut) {
+          throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Codex runtime timed out");
+        }
+        if (active.outputExceeded) {
+          throw new RuntimeProviderError(
+            "RUNTIME_OUTPUT_LIMIT",
+            "Codex output exceeded the configured limit",
+          );
+        }
+        if (exitCode !== 0) {
+          throw classifyProviderFailure(
+            "codex",
+            parsed.errors.at(-1) ?? stderr ?? "provider failure",
+          );
+        }
+        const output = parsed.messages.at(-1)?.trim();
+        if (!output) {
+          throw new RuntimeProviderError(
+            "INVALID_AGENT_OUTPUT",
+            "Codex completed without an agent message",
+          );
+        }
+        let final: unknown;
+        try {
+          final = JSON.parse(output) as unknown;
+        } catch {
+          throw new RuntimeProviderError(
+            "INVALID_AGENT_OUTPUT",
+            "Codex completed without structured output",
+          );
+        }
+        return {
+          provider: "codex",
+          ...(request.sessionMode === "continue" && parsed.threadId
+            ? { sessionId: parsed.threadId }
+            : {}),
+          final,
+          changedFiles: [],
+          exitCode,
+          durationMs: Date.now() - startedAt,
+        };
+      } finally {
+        removeCancellationListener();
+        clearTimeout(timeout);
+        this.active.delete(request.agentId);
+      }
     } finally {
-      clearTimeout(timeout);
-      this.active.delete(request.agentId);
       await rm(schemaDirectory, { recursive: true, force: true });
     }
   }
