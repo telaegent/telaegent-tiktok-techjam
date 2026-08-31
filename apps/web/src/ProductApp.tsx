@@ -12,9 +12,16 @@ import {
   type ConnectorCredential,
   type ConversationMessage,
   type PrivateDraftView,
+  type ProjectCollaborator,
+  type ProjectConversation,
   type ProjectSummary,
   type TelaegentWebUser,
 } from "./api";
+import {
+  assertConversationScope,
+  connectedCollaborators,
+  selectConnectedPeer,
+} from "./project-conversation";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -22,7 +29,7 @@ type ProductRoute = "onboarding" | "projects" | "connections" | "settings" | "wo
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
 type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
 type WorkspaceTab = "chat" | "people" | "settings";
-type MessageLoadState = "unconfigured" | "loading" | "ready" | "error";
+type AsyncLoadState = "idle" | "loading" | "ready" | "error";
 
 type Collaborator = {
   id: string;
@@ -43,21 +50,9 @@ type SharedMessage = {
   meta: string;
 };
 
-const conversationConfig = {
-  conversationId: import.meta.env.VITE_TELAEGENT_CONVERSATION_ID?.trim() ?? "",
-};
-
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const repositoryIdPattern = /^[1-9][0-9]*$/;
 
-function conversationConfigurationError(githubRepositoryId: string): string | null {
-  if (
-    !uuidPattern.test(conversationConfig.conversationId) ||
-    /^0{8}-0{4}-[1-5]0{3}-[89ab]0{3}-0{12}$/i.test(conversationConfig.conversationId)
-  ) {
-    return "No real conversation is available yet. The backend still needs participant-scoped conversation discovery.";
-  }
+function projectConfigurationError(githubRepositoryId: string): string | null {
   if (!repositoryIdPattern.test(githubRepositoryId)) {
     return "The selected project does not have a valid stable GitHub repository ID.";
   }
@@ -134,15 +129,22 @@ function draftFailureGuidance(draft: PrivateDraftView): string {
   }
 }
 
-const configuredConversationPeer: Collaborator = {
-  id: "configured-conversation",
-  initial: "P",
-  name: "Project collaborator",
-  topic: "Approved project conversation",
-  provider: "Local agent",
-  branch: "Repository scoped",
-  status: "connected",
-};
+function collaboratorView(collaborator: ProjectCollaborator): Collaborator {
+  return {
+    id: collaborator.userId,
+    initial: collaborator.githubLogin.slice(0, 2).toUpperCase(),
+    name: `@${collaborator.githubLogin}`,
+    topic: "Approved project conversation",
+    provider: "Local agent",
+    branch: "Repository scoped",
+    status:
+      collaborator.connectionStatus === "connected"
+        ? "connected"
+        : collaborator.connectionStatus.startsWith("pending")
+          ? "pending"
+          : "available",
+  };
+}
 
 function repositoryParts(fullName: string): { owner: string; name: string } {
   const separator = fullName.indexOf("/");
@@ -643,15 +645,23 @@ function LiveToolsSettings({ projects }: { projects: ProjectSummary[] }) {
 
 function WorkspaceSidebar({
   project,
-  selectedId,
+  collaborators,
+  collaboratorsState,
+  collaboratorsError,
+  selectedPeerUserId,
   onSelect,
+  onRetryCollaborators,
   tab,
   onTabChange,
   onBack,
 }: {
   project: ProjectSummary;
-  selectedId: string;
+  collaborators: ProjectCollaborator[];
+  collaboratorsState: AsyncLoadState;
+  collaboratorsError: ApiError | null;
+  selectedPeerUserId: string | null;
   onSelect: (id: string) => void;
+  onRetryCollaborators: () => void;
   tab: WorkspaceTab;
   onTabChange: (tab: WorkspaceTab) => void;
   onBack: () => void;
@@ -672,8 +682,22 @@ function WorkspaceSidebar({
       {tab === "chat" && (
         <div className="workspace-conversations">
           <span>Conversation</span>
-          {[configuredConversationPeer].map((person) => (
-            <button className={selectedId === person.id ? "selected" : ""} type="button" key={person.id} onClick={() => onSelect(person.id)}>
+          {collaboratorsState === "loading" && (
+            <div className="workspace-conversation-state"><TypingDots label="Loading collaborators" /></div>
+          )}
+          {collaboratorsState === "error" && collaboratorsError && (
+            <div className="workspace-conversation-state error">
+              <small>{apiErrorGuidance(collaboratorsError)}</small>
+              {collaboratorsError.retryable && <button type="button" onClick={onRetryCollaborators}>Retry</button>}
+            </div>
+          )}
+          {collaboratorsState === "ready" && collaborators.length === 0 && (
+            <div className="workspace-conversation-state">
+              <small>No connected collaborator yet. Open Collaborators to establish project trust.</small>
+            </div>
+          )}
+          {collaborators.map((collaborator) => collaboratorView(collaborator)).map((person) => (
+            <button className={selectedPeerUserId === person.id ? "selected" : ""} type="button" key={person.id} onClick={() => onSelect(person.id)}>
               <span className="app-avatar">{person.initial}</span>
               <span><strong>{person.name}</strong><small>{person.topic}</small></span>
             </button>
@@ -874,21 +898,27 @@ function PrivateAgentRoom({
 
 function ProjectChat({
   project,
-  selectedId,
+  peer,
+  conversation,
+  conversationState,
+  conversationError,
+  onRetryConversation,
   currentUserId,
 }: {
   project: ProjectSummary;
-  selectedId: string;
+  peer: ProjectCollaborator | null;
+  conversation: ProjectConversation | null;
+  conversationState: AsyncLoadState;
+  conversationError: ApiError | null;
+  onRetryConversation: () => void;
   currentUserId: string | null;
 }) {
-  const selected = selectedId === configuredConversationPeer.id
-    ? configuredConversationPeer
-    : configuredConversationPeer;
+  const selected = peer ? collaboratorView(peer) : null;
   const [composer, setComposer] = useState("");
   const [provider, setProvider] = useState<AgentProvider>("claude");
   const [roughMessage, setRoughMessage] = useState("");
   const [messages, setMessages] = useState<SharedMessage[]>([]);
-  const [messageLoadState, setMessageLoadState] = useState<MessageLoadState>("loading");
+  const [messageLoadState, setMessageLoadState] = useState<AsyncLoadState>("idle");
   const [messageError, setMessageError] = useState<ApiError | null>(null);
   const [draft, setDraft] = useState<PrivateDraftView | null>(null);
   // Set only while a reply draft is open, so the private room can show what is
@@ -904,20 +934,20 @@ function ProjectChat({
   // A network retry or double click reuses the same backend creation key. A
   // deliberate runtime retry clears it and opens a new private attempt.
   const replyCreationKeys = useRef(new Map<string, string>());
-  const configurationError = conversationConfigurationError(project.githubRepositoryId);
-  const isBoundConversation = selected.id === configuredConversationPeer.id;
+  const configurationError = projectConfigurationError(project.githubRepositoryId);
+  const conversationId = conversation?.conversationId ?? null;
 
   async function loadMessages() {
-    if (configurationError || !isBoundConversation) {
+    if (configurationError || !conversationId) {
       setMessages([]);
-      setMessageLoadState("unconfigured");
+      setMessageLoadState("idle");
       return;
     }
     setMessageLoadState("loading");
     setMessageError(null);
     try {
       const result = await api.conversationMessages(
-        conversationConfig.conversationId,
+        conversationId,
         project.githubRepositoryId,
       );
       setMessages(result.messages.map((message) =>
@@ -932,19 +962,23 @@ function ProjectChat({
 
   useEffect(() => {
     let active = true;
+    ownMessageIds.current.clear();
+    replyCreationKeys.current.clear();
+    setComposer("");
+    setRoughMessage("");
     setPrivateRoomOpen(false);
     setDraft(null);
     setAnswering(null);
     setActionError(null);
-    if (configurationError || !isBoundConversation) {
+    if (configurationError || !conversationId) {
       setMessages([]);
-      setMessageLoadState("unconfigured");
+      setMessageLoadState("idle");
       return () => { active = false; };
     }
     setMessageLoadState("loading");
     setMessageError(null);
     void api.conversationMessages(
-      conversationConfig.conversationId,
+      conversationId,
       project.githubRepositoryId,
     ).then((result) => {
       if (!active) return;
@@ -958,14 +992,14 @@ function ProjectChat({
       setMessageLoadState("error");
     });
     return () => { active = false; };
-  }, [selectedId, configurationError, isBoundConversation, currentUserId, project.githubRepositoryId]);
+  }, [conversationId, configurationError, currentUserId, project.githubRepositoryId]);
 
   useEffect(() => {
-    if (configurationError || !isBoundConversation || messageLoadState !== "ready") return;
+    if (configurationError || !conversationId || messageLoadState !== "ready") return;
     let active = true;
     const timer = window.setInterval(() => {
       void api.conversationMessages(
-        conversationConfig.conversationId,
+        conversationId,
         project.githubRepositoryId,
       ).then((result) => {
         if (!active) return;
@@ -980,7 +1014,7 @@ function ProjectChat({
       active = false;
       window.clearInterval(timer);
     };
-  }, [configurationError, isBoundConversation, messageLoadState, project.githubRepositoryId]);
+  }, [configurationError, conversationId, messageLoadState, project.githubRepositoryId]);
 
   useEffect(() => {
     if (!privateRoomOpen || draft?.state !== "agent_working") return;
@@ -1015,11 +1049,12 @@ function ProjectChat({
   }
 
   async function createAndRunDraft(message: string) {
+    if (!conversationId) return;
     setBusy(true);
     setDraft(null);
     setActionError(null);
     try {
-      const created = await api.createConversationDraft(conversationConfig.conversationId, {
+      const created = await api.createConversationDraft(conversationId, {
         githubRepositoryId: project.githubRepositoryId,
         provider,
         roughMessage: message,
@@ -1043,6 +1078,7 @@ function ProjectChat({
    * as starting a message.
    */
   async function createAndRunReply(message: SharedMessage, forceNew = false) {
+    if (!conversationId) return;
     setBusy(true);
     setDraft(null);
     setActionError(null);
@@ -1058,7 +1094,7 @@ function ProjectChat({
         idempotencyKey = `reply:${message.id}:${crypto.randomUUID()}`;
         replyCreationKeys.current.set(message.id, idempotencyKey);
       }
-      const created = await api.createConversationReply(conversationConfig.conversationId, {
+      const created = await api.createConversationReply(conversationId, {
         githubRepositoryId: project.githubRepositoryId,
         provider,
         incomingMessageId: message.id,
@@ -1078,7 +1114,7 @@ function ProjectChat({
   function submitRoughMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextMessage = composer.trim();
-    if (!nextMessage || configurationError || !isBoundConversation) return;
+    if (!nextMessage || configurationError || !conversationId) return;
     setRoughMessage(nextMessage);
     setAnswering(null);
     setClarification("");
@@ -1168,10 +1204,10 @@ function ProjectChat({
     <section className={`project-chat${privateRoomOpen ? " private-open" : ""}`}>
       <header className="project-chat-header">
         <div>
-          <span className="app-avatar">{selected.initial}</span>
-          <span><strong>{selected.name}</strong><small>Approved project conversation</small></span>
+          <span className="app-avatar">{selected?.initial ?? "--"}</span>
+          <span><strong>{selected?.name ?? "Select a collaborator"}</strong><small>Approved project conversation</small></span>
         </div>
-        <div className="chat-header-meta"><span>{formatProvider(provider)} ↔ {selected.provider}</span></div>
+        <div className="chat-header-meta"><span>{formatProvider(provider)} ↔ {selected?.provider ?? "local agent"}</span></div>
       </header>
 
       <div className="chat-project-strip">
@@ -1183,10 +1219,20 @@ function ProjectChat({
         {messageLoadState === "loading" && (
           <div className="turn-status"><TypingDots label="Loading approved messages" /><span>Loading approved messages</span></div>
         )}
-        {messageLoadState === "unconfigured" && (
+        {conversationState === "loading" && (
+          <div className="turn-status"><TypingDots label="Opening conversation" /><span>Opening the project-scoped conversation</span></div>
+        )}
+        {conversationState === "error" && conversationError && (
+          <div className="api-state error" role="alert">
+            <strong>{conversationError.code || `Conversation unavailable (${conversationError.status || "offline"})`}</strong>
+            <p>{apiErrorGuidance(conversationError)}</p>
+            {conversationError.retryable && <button type="button" onClick={onRetryConversation}>Retry</button>}
+          </div>
+        )}
+        {conversationState === "idle" && (
           <div className="api-state">
-            <strong>{isBoundConversation ? "Connect this workspace to a conversation" : "No conversation is bound to this collaborator"}</strong>
-            <p>{isBoundConversation ? configurationError : "The backend does not yet provide conversation discovery, so this screen can only open the configured conversation."}</p>
+            <strong>{configurationError ? "This project cannot open a conversation" : "Choose a connected collaborator"}</strong>
+            <p>{configurationError ?? "A shared conversation opens only for a peer who accepted this project connection."}</p>
           </div>
         )}
         {messageLoadState === "error" && messageError && (
@@ -1198,9 +1244,9 @@ function ProjectChat({
         )}
         {messageLoadState === "ready" && messages.length === 0 && (
           <div className="empty-conversation">
-            <span className="app-avatar">{selected.initial}</span>
-            <h2>Start a project conversation with {selected.name}.</h2>
-            <p>Your rough message goes to your agent privately before {selected.name} can see it.</p>
+            <span className="app-avatar">{selected?.initial ?? "--"}</span>
+            <h2>Start a project conversation with {selected?.name ?? "this collaborator"}.</h2>
+            <p>Your rough message goes to your agent privately before {selected?.name ?? "the collaborator"} can see it.</p>
           </div>
         )}
         {messages.map((message) => (
@@ -1237,37 +1283,51 @@ function ProjectChat({
             rows={2}
             value={composer}
             onChange={(event) => setComposer(event.target.value)}
-            placeholder={`Ask ${selected.name} about this project…`}
-            disabled={!!configurationError || !isBoundConversation}
+            placeholder={`Ask ${selected?.name ?? "a connected collaborator"} about this project…`}
+            disabled={!!configurationError || !conversationId || conversationState !== "ready"}
           />
-          <button type="submit" disabled={busy || !composer.trim() || !!configurationError || !isBoundConversation}>Prepare privately</button>
+          <button type="submit" disabled={busy || !composer.trim() || !!configurationError || !conversationId || conversationState !== "ready"}>Prepare privately</button>
         </div>
-        <small>Enter prepares a private draft. Only Send shares the approved result with {selected.name}.</small>
+        <small>Enter prepares a private draft. Only Send shares the approved result with {selected?.name ?? "the collaborator"}.</small>
       </form>
 
-      <PrivateAgentRoom
-        open={privateRoomOpen}
-        draft={draft}
-        answering={answering}
-        recipient={selected}
-        clarification={clarification}
-        approvedContent={approvedContent}
-        editingCandidate={editingCandidate}
-        busy={busy}
-        error={actionError}
-        onClarificationChange={setClarification}
-        onApprovedContentChange={setApprovedContent}
-        onClarify={clarifyDraft}
-        onNo={() => void rejectDraft()}
-        onEdit={() => setEditingCandidate(true)}
-        onSend={() => void sendDraft()}
-        onRetry={() => void retryDraft()}
-      />
+      {selected && (
+        <PrivateAgentRoom
+          open={privateRoomOpen}
+          draft={draft}
+          answering={answering}
+          recipient={selected}
+          clarification={clarification}
+          approvedContent={approvedContent}
+          editingCandidate={editingCandidate}
+          busy={busy}
+          error={actionError}
+          onClarificationChange={setClarification}
+          onApprovedContentChange={setApprovedContent}
+          onClarify={clarifyDraft}
+          onNo={() => void rejectDraft()}
+          onEdit={() => setEditingCandidate(true)}
+          onSend={() => void sendDraft()}
+          onRetry={() => void retryDraft()}
+        />
+      )}
     </section>
   );
 }
 
-function ProjectPeople({ project }: { project: ProjectSummary }) {
+function ProjectPeople({
+  project,
+  collaborators,
+  state,
+  error,
+  onRetry,
+}: {
+  project: ProjectSummary;
+  collaborators: ProjectCollaborator[];
+  state: AsyncLoadState;
+  error: ApiError | null;
+  onRetry: () => void;
+}) {
   return (
     <div className="workspace-page">
       <header className="workspace-page-heading">
@@ -1275,9 +1335,28 @@ function ProjectPeople({ project }: { project: ProjectSummary }) {
         <h1>Project collaborators</h1>
         <p>A connection allows project-scoped messages. It never grants direct repository access.</p>
       </header>
-      <div className="collaborator-list api-state">
-        <strong>{project.connectedCollaboratorCount} connected collaborator{project.connectedCollaboratorCount === 1 ? "" : "s"}</strong>
-        <p>Participant identities and connection actions are not exposed by the backend yet.</p>
+      <div className="collaborator-list">
+        {state === "loading" && <div className="api-state"><TypingDots label="Loading collaborators" /><p>Loading independently verified project members.</p></div>}
+        {state === "error" && error && (
+          <div className="api-state error" role="alert">
+            <strong>{error.code || "Collaborators unavailable"}</strong>
+            <p>{apiErrorGuidance(error)}</p>
+            {error.retryable && <button type="button" onClick={onRetry}>Retry</button>}
+          </div>
+        )}
+        {state === "ready" && collaborators.length === 0 && (
+          <div className="api-state"><strong>No other verified member yet</strong><p>Another Telaegent user must independently connect this same GitHub repository before either side can request project trust.</p></div>
+        )}
+        {collaborators.map((collaborator) => (
+          <article key={collaborator.userId}>
+            <span className="app-avatar">{collaborator.githubLogin.slice(0, 2).toUpperCase()}</span>
+            <div>
+              <strong>@{collaborator.githubLogin}</strong>
+              <small>{collaborator.connectionStatus.replaceAll("_", " ")}</small>
+            </div>
+            <span className="connection-state"><StatusMark tone={collaborator.connectionStatus === "connected" ? "ok" : "quiet"} /> {collaborator.connectionStatus.replaceAll("_", " ")}</span>
+          </article>
+        ))}
       </div>
     </div>
   );
@@ -1297,7 +1376,7 @@ function ProjectSettings({ project }: { project: ProjectSummary }) {
       </section>
       <section className="settings-section">
         <header><h2>Active connections</h2></header>
-        <p className="empty-line">Connection identities and revocation controls require the pending backend connection-management contract.</p>
+        <p className="empty-line">Use the Collaborators workflow to manage project-scoped trust. Dedicated connection controls are not available on this settings screen yet.</p>
       </section>
       <section className="settings-section danger-zone">
         <header><h2>Repository connection</h2></header>
@@ -1319,14 +1398,144 @@ function Workspace({
   currentUserId: string | null;
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("chat");
-  const [selectedId, setSelectedId] = useState(configuredConversationPeer.id);
+  const [collaborators, setCollaborators] = useState<ProjectCollaborator[]>([]);
+  const [collaboratorsState, setCollaboratorsState] = useState<AsyncLoadState>("loading");
+  const [collaboratorsError, setCollaboratorsError] = useState<ApiError | null>(null);
+  const [selectedPeerUserId, setSelectedPeerUserId] = useState<string | null>(null);
+  const [conversation, setConversation] = useState<ProjectConversation | null>(null);
+  const [conversationPeerUserId, setConversationPeerUserId] = useState<string | null>(null);
+  const [conversationState, setConversationState] = useState<AsyncLoadState>("idle");
+  const [conversationError, setConversationError] = useState<ApiError | null>(null);
+  const [conversationAttempt, setConversationAttempt] = useState(0);
+  const collaboratorRequest = useRef(0);
+
+  async function loadCollaborators() {
+    const requestId = ++collaboratorRequest.current;
+    setCollaboratorsState("loading");
+    setCollaboratorsError(null);
+    setCollaborators([]);
+    setSelectedPeerUserId(null);
+    setConversation(null);
+    setConversationPeerUserId(null);
+    setConversationState("idle");
+    setConversationError(null);
+    try {
+      const result = await api.projectCollaborators(project.projectId, { limit: 50 });
+      if (requestId !== collaboratorRequest.current) return;
+      setCollaborators(result.collaborators);
+      setSelectedPeerUserId((current) =>
+        selectConnectedPeer(result.collaborators, current),
+      );
+      setCollaboratorsState("ready");
+    } catch (error) {
+      if (requestId !== collaboratorRequest.current) return;
+      setCollaborators([]);
+      setSelectedPeerUserId(null);
+      setCollaboratorsError(normalizeApiError(error));
+      setCollaboratorsState("error");
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    const requestId = ++collaboratorRequest.current;
+    setCollaboratorsState("loading");
+    setCollaboratorsError(null);
+    setCollaborators([]);
+    setSelectedPeerUserId(null);
+    setConversation(null);
+    setConversationPeerUserId(null);
+    setConversationState("idle");
+    setConversationError(null);
+    void api.projectCollaborators(project.projectId, { limit: 50 }).then((result) => {
+      if (!active || requestId !== collaboratorRequest.current) return;
+      setCollaborators(result.collaborators);
+      setSelectedPeerUserId(selectConnectedPeer(result.collaborators, null));
+      setCollaboratorsState("ready");
+    }).catch((error: unknown) => {
+      if (!active || requestId !== collaboratorRequest.current) return;
+      setCollaboratorsError(normalizeApiError(error));
+      setCollaboratorsState("error");
+    });
+    return () => { active = false; };
+  }, [project.projectId]);
+
+  useEffect(() => {
+    let active = true;
+    setConversation(null);
+    setConversationPeerUserId(null);
+    setConversationError(null);
+    if (!selectedPeerUserId || !currentUserId) {
+      setConversationState("idle");
+      return () => { active = false; };
+    }
+    const projectError = projectConfigurationError(project.githubRepositoryId);
+    if (projectError) {
+      setConversationError(
+        new ApiError(projectError, 400, "INVALID_PROJECT_SCOPE", false),
+      );
+      setConversationState("error");
+      return () => { active = false; };
+    }
+    const selectedPeer = collaborators.find(
+      (candidate) =>
+        candidate.userId === selectedPeerUserId &&
+        candidate.connectionStatus === "connected",
+    );
+    if (!selectedPeer) {
+      setSelectedPeerUserId(selectConnectedPeer(collaborators, null));
+      setConversationState("idle");
+      return () => { active = false; };
+    }
+    setConversationState("loading");
+    void api.createProjectConversation(project.projectId, selectedPeerUserId)
+      .then((result) => {
+        if (!active) return;
+        const scoped = assertConversationScope({
+          conversation: result.conversation,
+          projectId: project.projectId,
+          githubRepositoryId: project.githubRepositoryId,
+          currentUserId,
+          peerUserId: selectedPeerUserId,
+        });
+        setConversation(scoped);
+        setConversationPeerUserId(selectedPeerUserId);
+        setConversationState("ready");
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setConversationError(normalizeApiError(error));
+        setConversationState("error");
+      });
+    return () => { active = false; };
+  }, [
+    collaborators,
+    conversationAttempt,
+    currentUserId,
+    project.githubRepositoryId,
+    project.projectId,
+    selectedPeerUserId,
+  ]);
+
+  const connected = connectedCollaborators(collaborators);
+  const selectedPeer = connected.find(
+    (candidate) => candidate.userId === selectedPeerUserId,
+  ) ?? null;
+  const selectedConversation =
+    selectedPeer && conversationPeerUserId === selectedPeer.userId
+      ? conversation
+      : null;
 
   return (
     <div className="workspace-shell">
       <WorkspaceSidebar
         project={project}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
+        collaborators={connected}
+        collaboratorsState={collaboratorsState}
+        collaboratorsError={collaboratorsError}
+        selectedPeerUserId={selectedPeerUserId}
+        onSelect={setSelectedPeerUserId}
+        onRetryCollaborators={() => void loadCollaborators()}
         tab={tab}
         onTabChange={setTab}
         onBack={onBack}
@@ -1337,8 +1546,26 @@ function Workspace({
           <button className={tab === item ? "selected" : ""} type="button" key={item} onClick={() => setTab(item)}>{item}</button>
         ))}
       </div>
-      {tab === "chat" && <ProjectChat project={project} selectedId={selectedId} currentUserId={currentUserId} />}
-      {tab === "people" && <ProjectPeople project={project} />}
+      {tab === "chat" && (
+        <ProjectChat
+          project={project}
+          peer={selectedPeer}
+          conversation={selectedConversation}
+          conversationState={selectedPeer ? conversationState : "idle"}
+          conversationError={conversationError}
+          onRetryConversation={() => setConversationAttempt((attempt) => attempt + 1)}
+          currentUserId={currentUserId}
+        />
+      )}
+      {tab === "people" && (
+        <ProjectPeople
+          project={project}
+          collaborators={collaborators}
+          state={collaboratorsState}
+          error={collaboratorsError}
+          onRetry={() => void loadCollaborators()}
+        />
+      )}
       {tab === "settings" && <ProjectSettings project={project} />}
     </div>
   );
