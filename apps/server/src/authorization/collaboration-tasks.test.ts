@@ -8,6 +8,7 @@ import { SupabaseAuthorizationRpcClient } from "./supabase-authorization-client.
 const taskId = "20000000-0000-4000-8000-000000000001";
 const messageId = "80000000-0000-4000-8000-000000000001";
 const responderId = "10000000-0000-4000-8000-000000000002";
+const requesterId = "10000000-0000-4000-8000-000000000003";
 
 function client(
   overrides: Partial<SupabaseCollaborationTaskClient>,
@@ -28,6 +29,8 @@ describe("collaboration task repository", () => {
           taskId,
           conversationId: "30000000-0000-4000-8000-000000000001",
           githubRepositoryId: "1345851084",
+          requesterUserId: requesterId,
+          responderUserId: responderId,
           expiresAt: "2026-08-31T10:40:00.000Z",
         }),
       }),
@@ -39,7 +42,15 @@ describe("collaboration task repository", () => {
         originSharedMessageId: messageId,
         responderUserId: responderId,
       }),
-    ).resolves.toMatchObject({ outcome: "opened", taskId });
+    ).resolves.toMatchObject({
+      outcome: "opened",
+      taskId,
+      // Both peers come back from the record. The caller has to know which of
+      // them owns the repository a follow-up would read, and deriving it here
+      // means nobody has to assert it.
+      requesterUserId: requesterId,
+      responderUserId: responderId,
+    });
   });
 
   it("reports a message it may not open a task for without saying why", async () => {

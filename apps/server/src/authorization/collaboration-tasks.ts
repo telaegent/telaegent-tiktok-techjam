@@ -22,6 +22,10 @@ const openOutcomeSchema = z.discriminatedUnion("outcome", [
     taskId: uuidSchema,
     conversationId: uuidSchema,
     githubRepositoryId: githubRepositoryIdSchema,
+    /** Whoever sent the message; the peer whose repository is asked about. */
+    requesterUserId: uuidSchema,
+    /** Whoever is answering it; the peer whose agent does the asking. */
+    responderUserId: uuidSchema,
     expiresAt: isoTimestampSchema,
   }),
   // One answer for a message that does not exist, a conversation that is

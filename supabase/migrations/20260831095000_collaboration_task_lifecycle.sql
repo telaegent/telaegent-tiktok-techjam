@@ -95,6 +95,11 @@ begin
       'taskId', v_existing.task_id,
       'conversationId', v_existing.conversation_id,
       'githubRepositoryId', v_existing.github_repository_id::text,
+      -- Both peers are returned because the caller has to know which of them
+      -- owns the repository a follow-up would read. Deriving it here means no
+      -- caller has to assert it.
+      'requesterUserId', v_existing.requester_user_id,
+      'responderUserId', v_existing.responder_user_id,
       'expiresAt', to_char(
         v_existing.expires_at at time zone 'UTC',
         'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
@@ -122,6 +127,8 @@ begin
     'taskId', p_task_id,
     'conversationId', v_message.conversation_id,
     'githubRepositoryId', v_message.github_repository_id::text,
+    'requesterUserId', v_message.sender_user_id,
+    'responderUserId', p_responder_user_id,
     'expiresAt', to_char(
       v_expires at time zone 'UTC',
       'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
