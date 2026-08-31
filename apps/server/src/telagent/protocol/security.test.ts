@@ -16,8 +16,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { checkAlwaysDenied, normalizeCandidatePath } from "../context-policy.js";
+import { nodeFileSystemPort } from "../ports.node.js";
 import { createMemoryFileSystem } from "../testing/memory-fs.js";
 import { findCase } from "./corpus/index.js";
 import { scanField, scanOutput } from "./evaluators/leakage.js";
@@ -35,6 +38,27 @@ import { recipientSystemPrompt } from "./prompts/recipient.js";
 import { senderSystemPrompt } from "./prompts/sender.js";
 import { allFormats } from "./formats.js";
 import { parseRecipientOutput } from "./schemas.js";
+
+describe("fixture materialisation", () => {
+  it("writes fixtures through a native OS temporary path", async () => {
+    const root = await nodeFileSystemPort.mkdtemp(
+      path.join(tmpdir(), "telaegent-materialize-test-"),
+    );
+
+    try {
+      const result = await materializeFixture(
+        nodeFileSystemPort,
+        root,
+        getFixtureRepo("simple-auth"),
+      );
+
+      expect(result.written).toContain("README.md");
+      expect(await nodeFileSystemPort.exists(path.join(root, "README.md"))).toBe(true);
+    } finally {
+      await nodeFileSystemPort.removeTree(root);
+    }
+  });
+});
 
 /* ========================================================================== *
  * 1. The .env denial, proved from a call log

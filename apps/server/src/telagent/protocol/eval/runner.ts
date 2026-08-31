@@ -1,11 +1,12 @@
 /**
  * EVALUATION RUNNERS.
  *
- * Three implementations behind one interface:
+ * Four implementations behind one interface:
  *
  *   FakeProtocolRunner   deterministic, offline, free. What CI uses.
  *   ClaudeCliRunner      `claude -p`, live.
  *   CodexCliRunner       `codex exec`, live.
+ *   DeepSeekCodexRunner  `codex exec` backed by DeepSeek V4 Flash, live.
  *
  * hien.md §12 is unambiguous that normal CI must not require hundreds of paid
  * live CLI calls, and §19 that live evaluation must not become mandatory. The
@@ -20,6 +21,9 @@
  */
 
 import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import type { AgentProvider } from "../../../runtime-contract.js";
@@ -262,6 +266,99 @@ export class CodexCliRunner implements ProtocolRunner {
 }
 
 /* ========================================================================== *
+ * DeepSeek V4 Flash through Codex CLI
+ * ========================================================================== */
+
+/**
+ * Runs the same repository-aware Codex harness against DeepSeek V4 Flash.
+ *
+ * Using Codex as the agent shell preserves the important part of the live
+ * corpus: the model can inspect the materialised repository through a
+ * read-only tool boundary. Calling the OpenAI-compatible HTTP endpoint
+ * directly would turn every grounding case into a closed-book question.
+ *
+ * Provider configuration is supplied only for this child process. The API key
+ * is read from `AI_KEY`; it is never written to config, command arguments,
+ * reports, or the repository. `--ignore-user-config` also keeps the user's
+ * normal Codex/ChatGPT setup out of the measurement.
+ */
+export class DeepSeekCodexRunner implements ProtocolRunner {
+  readonly id = "deepseek-v4-flash";
+  readonly provider = "codex" as const;
+
+  constructor(
+    private readonly binary: string = "codex",
+    private readonly env: NodeJS.ProcessEnv = process.env,
+  ) {
+    requireLiveEval("DeepSeekCodexRunner", env);
+    if (env.AI_KEY?.trim() === "") {
+      throw new Error("DeepSeekCodexRunner requires AI_KEY in the process environment.");
+    }
+    if (env.AI_KEY === undefined) {
+      throw new Error("DeepSeekCodexRunner requires AI_KEY in the process environment.");
+    }
+  }
+
+  async run(request: RunnerRequest): Promise<RunnerResult> {
+    const started = Date.now();
+    const runRoot = await mkdtemp(path.join(tmpdir(), "telaegent-deepseek-run-"));
+    const schemaPath = path.join(runRoot, "output-schema.json");
+    const outputPath = path.join(runRoot, "last-message.json");
+    const combined = request.prompt.system + "\n\n---\n\n" + request.prompt.user;
+
+    await writeFile(schemaPath, JSON.stringify(request.outputSchema), "utf8");
+
+    const args = [
+      "exec",
+      "--ignore-user-config",
+      "--ephemeral",
+      "--sandbox",
+      "read-only",
+      "--skip-git-repo-check",
+      "--model",
+      "deepseek-v4-flash",
+      "--config",
+      "model_provider=deepseek",
+      "--config",
+      "model_reasoning_effort=low",
+      "--config",
+      "model_providers.deepseek.name=deepseek",
+      "--config",
+      "model_providers.deepseek.base_url=https://api.deepseek.com/",
+      "--config",
+      "model_providers.deepseek.wire_api=responses",
+      "--config",
+      "model_providers.deepseek.env_key=AI_KEY",
+      "--output-schema",
+      schemaPath,
+      "--output-last-message",
+      outputPath,
+      combined,
+    ];
+
+    try {
+      await execFileNoStdin(this.binary, args, {
+        cwd: request.workspacePath,
+        timeout: request.timeoutMs,
+        maxBuffer: 8 * 1024 * 1024,
+        env: {
+          PATH: this.env.PATH ?? "",
+          AI_KEY: this.env.AI_KEY ?? "",
+        },
+      });
+      const raw = await readFile(outputPath, "utf8");
+      return { raw, durationMs: Date.now() - started, exitCode: 0 };
+    } catch (error) {
+      return toFailure(error, started);
+    } finally {
+      // `runRoot` is the exact directory returned by mkdtemp above. Nothing
+      // caller-controlled is ever used as a recursive deletion target.
+      await rm(runRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+/* ========================================================================== *
  * Failure handling
  * ========================================================================== */
 
@@ -299,7 +396,7 @@ function toFailure(error: unknown, started: number): RunnerResult {
  * Selection
  * ========================================================================== */
 
-export type RunnerId = "fake" | "claude" | "codex";
+export type RunnerId = "fake" | "claude" | "codex" | "deepseek";
 
 /**
  * Builds a runner by id. Never falls back to a different provider.
@@ -326,5 +423,7 @@ export function createRunner(
       return new ClaudeCliRunner("claude", env);
     case "codex":
       return new CodexCliRunner("codex", env);
+    case "deepseek":
+      return new DeepSeekCodexRunner("codex", env);
   }
 }

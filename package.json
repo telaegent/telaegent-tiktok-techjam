@@ -24,9 +24,10 @@
     "poc": "./scripts/start-local-poc.sh",
     "start": "npm run start -w @launchpad/server",
     "test:protocol": "npm run test -w @launchpad/server -- src/telagent/protocol",
-    "eval:fake": "npm run eval:fake -w @launchpad/server",
-    "eval:claude": "npm run eval:claude -w @launchpad/server",
-    "eval:codex": "npm run eval:codex -w @launchpad/server"
+    "eval:fake": "npm run eval:fake -w @launchpad/server --",
+    "eval:claude": "npm run eval:claude -w @launchpad/server --",
+    "eval:codex": "npm run eval:codex -w @launchpad/server --",
+    "eval:deepseek": "npm run eval:deepseek -w @launchpad/server --"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
