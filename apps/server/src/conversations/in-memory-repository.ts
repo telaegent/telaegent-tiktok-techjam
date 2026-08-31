@@ -27,6 +27,24 @@ export class InMemoryConversationRepository implements ConversationRepository {
     return cloneDraft(draft);
   }
 
+  async createRecipientDraft(draft: PrivateDraft): Promise<PrivateDraft | null> {
+    if (this.drafts.has(draft.draftId)) throw new Error("Duplicate private draft ID");
+    if (draft.incomingMessageId === null) return null;
+    const incoming = this.messages.get(draft.incomingMessageId);
+    // Mirrors the scope guard in create_recipient_draft: an owner answers a
+    // collaborator's message in this conversation and repository, never their own.
+    if (
+      !incoming ||
+      incoming.conversationId !== draft.conversationId ||
+      incoming.githubRepositoryId !== draft.githubRepositoryId ||
+      incoming.senderUserId === draft.ownerUserId
+    ) {
+      return null;
+    }
+    this.drafts.set(draft.draftId, cloneDraft(draft));
+    return cloneDraft(draft);
+  }
+
   async getDraft(draftId: string): Promise<PrivateDraft | null> {
     const draft = this.drafts.get(draftId);
     return draft ? cloneDraft(draft) : null;

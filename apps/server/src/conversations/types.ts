@@ -1,7 +1,7 @@
 import type { GitHubRepositoryId } from "../authorization/types.js";
 import type { AgentProvider } from "../runtime-contract.js";
 import type { PublicRuntimeErrorCode } from "../runtime-errors.js";
-import type { RiskFlag } from "../telagent/protocol/contract.js";
+import type { ProtocolRole, RiskFlag } from "../telagent/protocol/contract.js";
 import type { GuardFinding } from "../telagent/protocol/guards.js";
 
 export type PrivateDraftState =
@@ -26,7 +26,11 @@ export interface PrivateDraft {
   githubRepositoryId: GitHubRepositoryId;
   ownerUserId: string;
   provider: AgentProvider;
-  roughMessage: string;
+  role: ProtocolRole;
+  /** The owner's rough input on a sender draft; optional guidance on a recipient draft. */
+  roughMessage: string | null;
+  /** The approved collaborator message this draft answers. Recipient drafts only. */
+  incomingMessageId: string | null;
   privateTurns: Array<{ speaker: "owner" | "agent"; text: string }>;
   state: PrivateDraftState;
   turnId: string | null;
@@ -72,7 +76,9 @@ export interface PrivateDraftView {
   conversationId: string;
   githubRepositoryId: GitHubRepositoryId;
   provider: AgentProvider;
-  roughMessage: string;
+  role: ProtocolRole;
+  roughMessage: string | null;
+  incomingMessageId: string | null;
   privateTurns: Array<{ speaker: "owner" | "agent"; text: string }>;
   state: PrivateDraftState;
   turnId: string | null;
@@ -92,7 +98,9 @@ export function toPrivateDraftView(draft: Readonly<PrivateDraft>): PrivateDraftV
     conversationId: draft.conversationId,
     githubRepositoryId: draft.githubRepositoryId,
     provider: draft.provider,
+    role: draft.role,
     roughMessage: draft.roughMessage,
+    incomingMessageId: draft.incomingMessageId,
     privateTurns: structuredClone(draft.privateTurns),
     state: draft.state,
     turnId: draft.turnId,

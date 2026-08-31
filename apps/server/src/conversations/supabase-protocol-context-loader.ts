@@ -8,8 +8,7 @@ import type {
   DurableConversationContext,
 } from "../telagent/protocol/runtime-adapter.js";
 
-const contextSchema = z.strictObject({
-  role: z.literal("sender"),
+const sharedContextFields = {
   facts: z.strictObject({
     repositoryFullName: z.string().min(3).max(140),
     githubRepositoryId: z.string().regex(/^[1-9][0-9]{0,18}$/),
@@ -30,10 +29,35 @@ const contextSchema = z.strictObject({
     speaker: z.enum(["owner", "agent"]),
     text: z.string().min(1).max(PROTOCOL_LIMITS.maxPrivateMessageChars),
   })).max(32),
-  ownerInput: z.string().min(1).max(PROTOCOL_LIMITS.maxPrivateMessageChars),
+} as const;
+
+/**
+ * Discriminated on `role`, so a recipient row can never satisfy the sender shape.
+ * `ownerInput` and `incomingMessage` are mutually exclusive by construction: the
+ * strict objects reject the other role's input field outright.
+ */
+const contextSchema = z.discriminatedUnion("role", [
+  z.strictObject({
+    role: z.literal("sender"),
+    ...sharedContextFields,
+    ownerInput: z.string().min(1).max(PROTOCOL_LIMITS.maxPrivateMessageChars),
+  }),
+  z.strictObject({
+    role: z.literal("recipient"),
+    ...sharedContextFields,
+    // Authored by another person's agent and already across the trust boundary.
+    // Bounded by the approved-message limit, not the private-message limit.
+    incomingMessage: z.string().min(1).max(50_000),
+  }),
+]);
+
+/** The RPC that reconstructs each role's turn from durable rows alone. */
+const CONTEXT_RPCS: Readonly<Record<string, string>> = Object.freeze({
+  sender_draft: "load_sender_protocol_context",
+  recipient_answer: "load_recipient_protocol_context",
 });
 
-/** Loads only Telaegent-owned durable rows needed to rebuild a sender turn. */
+/** Loads only Telaegent-owned durable rows needed to rebuild one private turn. */
 export class SupabaseProtocolContextLoader {
   private readonly transport: SupabaseRpcTransport;
 
@@ -54,8 +78,9 @@ export class SupabaseProtocolContextLoader {
     scope: ProviderSessionScope,
     request: Readonly<{ purpose: RunPurpose; correlationId: string }>,
   ): Promise<DurableConversationContext | null> => {
-    if (request.purpose !== "sender_draft") return null;
-    const value = await this.transport.call("load_sender_protocol_context", {
+    const rpc = CONTEXT_RPCS[request.purpose];
+    if (rpc === undefined) return null;
+    const value = await this.transport.call(rpc, {
       p_user_id: scope.userId,
       p_github_repository_id: scope.githubRepositoryId,
       p_conversation_id: scope.conversationId,

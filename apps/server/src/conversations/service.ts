@@ -7,10 +7,14 @@ import { normalizeRuntimeFailure, RuntimeProviderError } from "../runtime-errors
 import { redactText } from "../telagent/redaction.js";
 import {
   PROTOCOL_LIMITS,
-  type SenderTurnOutput,
+  type ProtocolRole,
+  type ProtocolTurnOutput,
 } from "../telagent/protocol/contract.js";
 import { guardTurn, inspectCandidate, type GuardFinding } from "../telagent/protocol/guards.js";
-import { senderOutputSchema } from "../telagent/protocol/schemas.js";
+import {
+  recipientOutputSchema,
+  senderOutputSchema,
+} from "../telagent/protocol/schemas.js";
 import type { StartAuthorizedProtocolTurnInput } from "../telagent/protocol/authorized-turn-service.js";
 import type { ConversationRepository } from "./repository.js";
 import {
@@ -24,6 +28,7 @@ import {
 export type ConversationAction =
   | "read"
   | "create_draft"
+  | "create_reply"
   | "clarify_draft"
   | "run_draft"
   | "send"
@@ -86,7 +91,9 @@ export class ConversationService {
       githubRepositoryId: input.githubRepositoryId,
       ownerUserId: input.authenticatedUserId,
       provider: input.provider,
+      role: "sender",
       roughMessage: input.roughMessage,
+      incomingMessageId: null,
       privateTurns: [],
       state: "created",
       turnId: null,
@@ -102,6 +109,50 @@ export class ConversationService {
     return toPrivateDraftView(await this.repository.createDraft(draft));
   }
 
+  /**
+   * Opens a private draft that answers an approved collaborator message.
+   *
+   * This is the recipient half of the signature interaction. It is deliberately
+   * a normal draft: the reply it produces is still owner-private until the owner
+   * approves it, and still leaves through `sendDraft`, so a reply crosses the
+   * trust boundary under exactly the same human gate as any other message.
+   */
+  async createRecipientDraft(input: Readonly<{
+    authenticatedUserId: string;
+    githubRepositoryId: string;
+    conversationId: string;
+    provider: AgentProvider;
+    incomingMessageId: string;
+    ownerGuidance?: string | undefined;
+  }>): Promise<PrivateDraftView> {
+    await this.authorize(input, "create_reply");
+    const timestamp = this.now().toISOString();
+    const draft: PrivateDraft = {
+      draftId: this.createId(),
+      conversationId: input.conversationId,
+      githubRepositoryId: input.githubRepositoryId,
+      ownerUserId: input.authenticatedUserId,
+      provider: input.provider,
+      role: "recipient",
+      roughMessage: input.ownerGuidance ?? null,
+      incomingMessageId: input.incomingMessageId,
+      privateTurns: [],
+      state: "created",
+      turnId: null,
+      privateMessage: null,
+      sendCandidate: null,
+      riskFlags: [],
+      guardFindings: [],
+      failure: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      sentMessageId: null,
+    };
+    const created = await this.repository.createRecipientDraft(draft);
+    if (!created) throw new HttpError(409, "Message cannot be replied to");
+    return toPrivateDraftView(created);
+  }
+
   async getDraft(authenticatedUserId: string, draftId: string): Promise<PrivateDraftView> {
     const draft = await this.ownedDraft(authenticatedUserId, draftId);
     await this.authorizeDraft(draft, "read");
@@ -113,10 +164,10 @@ export class ConversationService {
     if (draft.state !== "created") throw new HttpError(409, "Private draft cannot be run");
     await this.authorizeDraft(draft, "run_draft");
 
-    const started = await this.runtime.start<SenderTurnOutput>({
+    const started = await this.runtime.start<ProtocolTurnOutput>({
       authorization: this.authorizationInput(draft),
       provider: draft.provider,
-      role: "sender",
+      role: draft.role,
       correlationId: draft.draftId,
     });
     const running = await this.repository.markDraftRunning({
@@ -127,7 +178,7 @@ export class ConversationService {
     });
     if (!running) throw new HttpError(409, "Private draft cannot be run");
 
-    void this.settleTurn(draft.draftId, started.turnId, started.completion);
+    void this.settleTurn(draft.draftId, draft.role, started.turnId, started.completion);
     return toPrivateDraftView(running);
   }
 
@@ -238,8 +289,16 @@ export class ConversationService {
     return this.repository.listMessages(input.conversationId);
   }
 
-  private async completeTurn(draftId: string, turnId: string, rawOutput: unknown): Promise<void> {
-    const parsed = senderOutputSchema.safeParse(rawOutput);
+  private async completeTurn(
+    draftId: string,
+    role: ProtocolRole,
+    turnId: string,
+    rawOutput: unknown,
+  ): Promise<void> {
+    const parsed =
+      role === "sender"
+        ? senderOutputSchema.safeParse(rawOutput)
+        : recipientOutputSchema.safeParse(rawOutput);
     if (!parsed.success) {
       return this.failTurn(
         draftId,
@@ -249,7 +308,11 @@ export class ConversationService {
     }
     const output = parsed.data;
     const guarded = guardTurn(output);
-    const privateMessage = redactText(output.assistantMessage).value;
+    // Both roles carry one owner-visible private message; only the field name
+    // differs. Neither is ever transmitted to the collaborator.
+    const privateMessage = redactText(
+      "assistantMessage" in output ? output.assistantMessage : output.privateSummary,
+    ).value;
     await this.repository.completeDraft({
       draftId,
       expectedTurnId: turnId,
@@ -265,12 +328,13 @@ export class ConversationService {
 
   private async settleTurn(
     draftId: string,
+    role: ProtocolRole,
     turnId: string,
-    completion: StartedPrivateRuntimeTurn<SenderTurnOutput>["completion"],
+    completion: StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"],
   ): Promise<void> {
     try {
       const result = await completion;
-      await this.completeTurn(draftId, turnId, result.final);
+      await this.completeTurn(draftId, role, turnId, result.final);
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe
       // owner-facing state. Raw provider/database errors never enter the draft.
