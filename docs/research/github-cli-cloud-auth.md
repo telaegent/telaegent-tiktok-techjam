@@ -28,9 +28,10 @@ selected.
 
 The NUS Azure account available to Khoa authenticated successfully but was
 denied resource access by tenant Conditional Access. That policy must not be
-bypassed. Thai can use Thai's separately authorized Azure account and
-subscription to own the deployment; no Azure token, CLI cache, or credential
-is shared between teammates.
+bypassed. The Azure reproduction is no longer planned: the canonical
+architecture keeps GitHub CLI authentication on the developer's own machine, so
+there is nothing left for a cloud run to prove. Telaegent's control plane is
+deployed on AWS EC2, which hosts no GitHub CLI identity.
 
 The reproducible proof package is documented at
 [`deploy/azure/github-auth-proof/README.md`](../../deploy/azure/github-auth-proof/README.md).
@@ -191,9 +192,9 @@ stable numeric repository ID instead of treating `owner/name` as immutable.
 
 ## Remaining gates
 
-1. Run and clean up the prepared Azure VM proof using Thai's authorized
-   subscription; record provisioning, reboot, persistence, and deletion
-   evidence.
+1. ~~Run and clean up the prepared Azure VM proof.~~ Dropped. GitHub CLI
+   authentication is local under the connector architecture, so no cloud
+   reproduction is required.
 2. Implement a protected secret-store/credential-injection prototype; do not
    persist plaintext `hosts.yml` on an ordinary shared runtime volume.
 3. Test private, organization, collaborator-not-owner, and SSO-controlled
