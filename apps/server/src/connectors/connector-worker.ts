@@ -56,6 +56,14 @@ export interface ConnectorWorkerTransport {
 
 export interface ConnectorWorkerOptions {
   cancel: (connectorBindingId: string) => Promise<boolean>;
+  pollRetryDelayMs?: number;
+}
+
+export class ConnectorCredentialRejectedError extends Error {
+  constructor() {
+    super("Connector credential was rejected");
+    this.name = "ConnectorCredentialRejectedError";
+  }
 }
 
 /** Connector-side reference monitor for one user x repository binding. */
@@ -81,6 +89,7 @@ export class ConnectorWorker {
 
     const cancellationController = new AbortController();
     let cancelled = false;
+    let credentialRejection: ConnectorCredentialRejectedError | undefined;
     const execution = this.sessions.run(
       this.scope(job),
       this.request(job),
@@ -96,20 +105,31 @@ export class ConnectorWorker {
       () => {
         cancelled = true;
       },
+      (error) => {
+        credentialRejection = error;
+      },
+    );
+    const cancellationFailure = cancellation.then(
+      () => new Promise<never>(() => undefined),
+      (error: unknown) => Promise.reject(error),
     );
     try {
-      const result = await execution;
+      const result = await Promise.race([execution, cancellationFailure]);
       if (cancelled) return "cancelled";
       await this.transport.result(job.jobId, result);
       return "completed";
     } catch (error) {
+      if (credentialRejection) throw credentialRejection;
+      if (error instanceof ConnectorCredentialRejectedError) throw error;
       const failure = normalizeRuntimeFailure(error);
       if (failure.code === "RUNTIME_CANCELLED" || cancelled) return "cancelled";
       await this.transport.failure(job.jobId, failure.code);
       return "completed";
     } finally {
       cancellationController.abort();
-      await cancellation;
+      await cancellation.catch((error: unknown) => {
+        if (!(error instanceof ConnectorCredentialRejectedError)) throw error;
+      });
     }
   }
 
@@ -117,6 +137,7 @@ export class ConnectorWorker {
     jobId: string,
     signal: AbortSignal,
     onCancelled: () => void,
+    onCredentialRejected: (error: ConnectorCredentialRejectedError) => void,
   ): Promise<void> {
     while (!signal.aborted) {
       let delivery: ConnectorDelivery | null;
@@ -125,8 +146,15 @@ export class ConnectorWorker {
         delivery = untrustedDelivery === null
           ? null
           : deliverySchema.parse(untrustedDelivery);
-      } catch {
+      } catch (error) {
         if (signal.aborted) return;
+        if (error instanceof ConnectorCredentialRejectedError) {
+          onCredentialRejected(error);
+          onCancelled();
+          await this.options.cancel(this.binding.connectorBindingId).catch(() => false);
+          throw error;
+        }
+        await waitForRetry(signal, this.options.pollRetryDelayMs ?? 1_000);
         continue;
       }
       if (delivery?.kind !== "cancel" || delivery.jobId !== jobId) continue;
@@ -213,6 +241,7 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
       ...(signal ? { signal } : {}),
     });
     if (response.status === 204) return null;
+    assertCredentialAccepted(response);
     if (!response.ok) throw new Error("Connector job poll failed");
     return deliverySchema.parse(await response.json());
   }
@@ -236,6 +265,7 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+    assertCredentialAccepted(response);
     if (!response.ok && response.status !== 409) {
       throw new Error("Connector job update failed");
     }
@@ -254,4 +284,23 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
       redirect: "error",
     });
   }
+}
+
+function assertCredentialAccepted(response: Readonly<Response>): void {
+  if (response.status === 401 || response.status === 403) {
+    throw new ConnectorCredentialRejectedError();
+  }
+}
+
+async function waitForRetry(signal: AbortSignal, delayMs: number): Promise<void> {
+  if (delayMs <= 0 || signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delayMs);
+    signal.addEventListener("abort", finish, { once: true });
+  });
 }
