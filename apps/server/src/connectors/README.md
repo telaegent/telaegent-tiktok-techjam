@@ -42,8 +42,9 @@ legacy shared API token is not connector authentication.
 2. `POST /api/connectors/credentials` with a stable, random installation ID.
    Save the returned credential locally; the backend stores only its hash. The
    response is explicitly non-cacheable and the browser must not persist it.
-3. Set `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
-   `TELAEGENT_CONNECTOR_CREDENTIAL` in the local shell.
+3. Put `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
+   `TELAEGENT_CONNECTOR_CREDENTIAL` in the ignored, connector-only `connector.env`.
+   Do not put the bearer in the root `.env`, which application processes load.
 4. Run `npm.cmd run connector:connect -- connect .` from the Telaegent source
    root in PowerShell. The script builds the connector before starting it, so
    it does not depend on the development-time TypeScript loader.
@@ -52,6 +53,9 @@ Use `--provider codex` or `--provider claude` to allow only one locally chosen
 provider for this connector process. The default, `--provider auto`, allows all
 locally authenticated providers; a cloud job still names its provider
 explicitly and the connector never silently substitutes another one.
+Add `--probe-only` to exercise the real repository/provider/relay path and exit
+after `TELAEGENT LIVE READINESS VERIFIED`; unlike the static `npm run doctor`,
+this may spend a provider call.
 
 The connector canonicalizes the Git root, collects an allowlisted `gh`/`git`
 repository proof, receives an opaque binding, detects locally authenticated

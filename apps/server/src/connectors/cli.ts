@@ -50,7 +50,7 @@ const probeResponseSchema = z.strictObject({
 });
 
 async function main(): Promise<void> {
-  const { workspaceCandidate, provider: providerSelection } =
+  const { workspaceCandidate, provider: providerSelection, probeOnly } =
     parseConnectorCliOptions(process.argv.slice(2));
   const serverOrigin = validateServerOrigin(requiredEnvironment("TELAEGENT_URL"));
   const credential = requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL");
@@ -171,6 +171,11 @@ async function main(): Promise<void> {
   }
   if (successfulProbes === 0) {
     throw new Error("No local coding provider passed the Telaegent live probe");
+  }
+
+  if (probeOnly) {
+    process.stdout.write("TELAEGENT LIVE READINESS VERIFIED\n");
+    return;
   }
 
   for (;;) await worker.runOnce();
