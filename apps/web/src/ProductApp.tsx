@@ -28,6 +28,10 @@ import {
 import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
 import { buildConnectorCommand } from "./connector-command";
 import { partitionProjects, projectAvailability } from "./project-list";
+import {
+  initialProductEntryRoute,
+  productEntryRouteAfterDiscovery,
+} from "./product-entry";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -2643,23 +2647,32 @@ export default function ProductApp({
     const previewRoute = new URLSearchParams(window.location.search).get(
       "route",
     );
-    return preview && previewRoute === "onboarding"
-      ? "onboarding"
-      : preview
-        ? "projects"
-        : "onboarding";
+    return initialProductEntryRoute({
+      authenticated: user !== null,
+      preview,
+      requestedPreviewRoute: previewRoute,
+    });
   });
   const [discoveredProjects, setDiscoveredProjects] = useState<
     ProjectSummary[]
   >([]);
-  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsLoading, setProjectsLoading] = useState(
+    () => !preview && user !== null,
+  );
   const [projectsError, setProjectsError] = useState<ApiError | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(
     null,
   );
+  const projectsRequestInFlightRef = useRef(false);
+  const entryProjectDiscoveryRef = useRef<"pending" | "loading" | "resolved">(
+    !preview && user ? "pending" : "resolved",
+  );
 
   async function loadProjects() {
-    if (!user || projectsLoading) return;
+    if (!user || projectsRequestInFlightRef.current) return;
+    const resolvesProductEntry = entryProjectDiscoveryRef.current === "pending";
+    projectsRequestInFlightRef.current = true;
+    if (resolvesProductEntry) entryProjectDiscoveryRef.current = "loading";
     setProjectsLoading(true);
     setProjectsError(null);
     try {
@@ -2672,9 +2685,14 @@ export default function ProductApp({
             ) ?? null)
           : null,
       );
+      if (resolvesProductEntry) {
+        setRoute(productEntryRouteAfterDiscovery(result.projects.length));
+      }
     } catch (error) {
       setProjectsError(normalizeApiError(error));
     } finally {
+      projectsRequestInFlightRef.current = false;
+      if (resolvesProductEntry) entryProjectDiscoveryRef.current = "resolved";
       setProjectsLoading(false);
     }
   }
