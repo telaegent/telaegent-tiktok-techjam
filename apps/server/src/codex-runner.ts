@@ -138,6 +138,22 @@ const defaultDependencies: CodexRunnerDependencies = {
  *
  * Containment is unchanged and is enforced where it always was: `--sandbox`,
  * `approval_policy="never"`, the network setting, and the `-C` workspace pin.
+ *
+ * Note what is *not* here: `request.maxTurns`. `codex exec` has no turn-limit
+ * flag, so the `INVESTIGATION_MAX_TURNS` budget that bounds a Claude research
+ * pass does not bind Codex at all — only the investigation deadline and the
+ * process timeout do. The two runners are therefore bounded by different
+ * things, which is safe (the sandbox is read-only and the workspace is pinned,
+ * so extra turns reach nothing new) but is not the symmetry the call site
+ * reads as. Enforcing it would mean counting turns out of the JSON stream and
+ * killing the process; do not assume the cap applies here until that exists.
+ *
+ * Resist closing the remaining surface with `--disable <feature>`. Dropping the
+ * tools we can never use on a read-only turn (browser, computer use, image
+ * generation, plugins) measures at ~3.5k fewer tokens, but an unrecognised
+ * feature name is a hard startup error, and that list churns between Codex
+ * releases. Pinning ~20 of them trades a small saving for a runner that dies on
+ * the next upgrade — the same shape of failure as `--ignore-user-config` above.
  */
 const CLOSED_TOOL_SURFACE = ["-c", "mcp_servers={}", "-c", "notify=[]"] as const;
 
