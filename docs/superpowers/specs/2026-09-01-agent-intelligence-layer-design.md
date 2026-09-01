@@ -68,7 +68,7 @@ Three changes. None alters a security invariant.
 One logical turn becomes two provider invocations inside a single connector job:
 
     one connector job (owner's machine)
-      pass 1  investigate   no --json-schema, --max-turns 12,
+      pass 1  investigate   investigation-note schema, --max-turns 12,
                             Read/Glob/Grep, read-only, network none
                             -> free-text research note, process memory only
       pass 2  draft         --json-schema, --max-turns 3, note in prompt
@@ -80,16 +80,19 @@ a preference. The canonical build plan lists "raw agent working context" and
 "hidden reasoning" as private/local. The research note may quote any file the agent
 read, secrets included. If the cloud orchestrated two jobs, that note would have to
 enter cloud custody to reach pass 2. Keeping both passes in one
-`connector-turn-executor` job means the note never leaves the machine, and the
+`connector-worker` job means the note never leaves the machine, and the
 cloud still receives exactly what it receives today: one schema-valid turn object.
 
-**The turn cap becomes purpose-dependent.** A new `RunPurpose`,
-`private_investigation`, joins `sender_draft` and `recipient_answer`. The policy
-validator caps investigation at 12 and leaves the draft purposes at 3.
+**The turn cap stays where it is.** No new `RunPurpose` is added and
+`authorized-private-runtime-turn.ts` is unchanged. The investigation request is
+built locally by the connector from a job that already passed `jobSchema`, so
+the cloud has no way to ask for one: `purpose` still admits only the two
+drafting purposes and `maxTurns` is still capped at 3 in transport. A local
+constant sets the investigation budget to 12.
 
-The security argument for opening the ceiling only there: the investigation pass
-carries no output schema, so it cannot produce a `sendCandidate`. Its output is
-structurally not a message. It has no ability to send, and everything it feeds
+The security argument for opening the budget only there: the investigation pass
+is bound to a one-field output schema, so it cannot produce a `sendCandidate`.
+Its output is structurally not a message. It has no ability to send, and everything it feeds
 remains capped, guarded, and human-approved. The tight ceiling stays exactly where
 outbound content is produced.
 
@@ -152,11 +155,10 @@ codebase before it speaks.
 
 | File | Change |
 | --- | --- |
-| `runtime-contract.ts` | `RunPurpose` gains `private_investigation`; `activity_started` gains optional `target` |
-| `authorization/authorized-private-runtime-turn.ts` | Turn cap becomes purpose-dependent (investigation 12, draft 3) |
+| `runtime-contract.ts` | `activity_started` gains optional `target` |
+| `authorization/authorized-private-runtime-turn.ts` | Unchanged — the investigation never crosses the cloud boundary |
 | `connectors/routes.ts` | `progressSchema` accepts `target` via `resourceDisplayLabelSchema` |
-| `connectors/connector-worker.ts` | Emits `target` via `projectRelativeDisplayLabel()`; keeps dropping `text_delta` |
-| `connectors/connector-turn-executor.ts` | Runs pass 1 then pass 2 in one job; the note never leaves the process |
+| `connectors/connector-worker.ts` | Emits `target` via `projectRelativeDisplayLabel()`; keeps dropping `text_delta`; runs pass 1 then pass 2 inside one execution promise; the note never leaves the process |
 | `telagent/protocol/contract.ts` | `learnedFacts` on both turn outputs; investigation prompt type; note char budget in `PROTOCOL_LIMITS` |
 | `telagent/protocol/schemas.ts` | Zod parsers for `learnedFacts` |
 | `telagent/output-schemas/*.json` | Regenerated — `protocol.test.ts` fails on drift |
@@ -199,9 +201,10 @@ to be widened.
 
 All offline. No live eval gate before the deadline.
 
-- Turn cap is purpose-dependent; investigation cannot exceed 12; draft cannot
-  exceed 3.
-- An investigation request carrying an output schema is rejected at construction.
+- The investigation budget is a local connector constant of 12; the drafting
+  pass still runs at the job's cloud-capped `maxTurns`.
+- The cloud cannot request an investigation: `jobSchema` rejects any purpose but
+  the two drafting purposes and any `maxTurns` above 3.
 - The research note never appears in any cloud-bound payload — asserted on the
   connector job result, the progress stream, and the persisted draft.
 - `target` is emitted for in-workspace paths and absent for escapes, traversals,
