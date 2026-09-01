@@ -86,6 +86,20 @@ begin
   if v_context::text ~* '(workspace|credential|sessionId|providerHome)' then
     raise exception 'T2 FAILED: private infrastructure leaked into context';
   end if;
+
+  -- POST /api/drafts/:id/run atomically claims the draft before hydrating it.
+  -- The durable loader must remain available in that claimed state.
+  perform public.mark_private_draft_running(
+    v_draft, v_owner, '70000000-0000-4000-8000-000000000007',
+    statement_timestamp()
+  );
+  v_context := public.load_sender_protocol_context(
+    v_owner, v_repo, v_conversation, v_draft, 200
+  );
+  if v_context is null or v_context->>'role' <> 'sender' then
+    raise exception 'T2 FAILED: sender context disappeared after draft claim';
+  end if;
+
   if public.load_sender_protocol_context(
     v_peer, v_repo, v_conversation, v_draft, 200
   ) is not null then
@@ -136,6 +150,11 @@ begin
     raise exception 'T6 FAILED: conflicting recipient creation replay was accepted';
   end if;
 
+  perform public.mark_private_draft_running(
+    v_reply, v_owner, '80000000-0000-4000-8000-000000000008',
+    statement_timestamp()
+  );
+
   v_context := public.load_recipient_protocol_context(
     v_owner, v_repo, v_conversation, v_reply, 200
   );
@@ -147,7 +166,7 @@ begin
      v_context#>>'{facts,collaboratorName}' <> 'justin' or
      jsonb_array_length(v_context->'sharedHistory') <> 1 or
      v_context#>>'{sharedHistory,0,id}' <> v_earlier::text then
-    raise exception 'T7 FAILED: recipient context was wrong %', v_context;
+    raise exception 'T7 FAILED: claimed recipient context was wrong %', v_context;
   end if;
 
   -- load_sender_protocol_context hardcodes 'role', 'sender' in its own result,
