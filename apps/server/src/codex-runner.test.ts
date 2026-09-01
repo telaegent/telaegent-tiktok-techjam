@@ -3,6 +3,7 @@ import {
   CodexRunner,
   buildCodexArgs,
   buildCodexMiddlewareArgs,
+  codexProcessFailed,
   parseCodexEventLine,
   type CodexRunnerDependencies,
 } from "./codex-runner.js";
@@ -134,6 +135,29 @@ describe("Codex runner protocol", () => {
     expect(() => parseCodexEventLine("not-json", parsed)).toThrow(
       "invalid event stream",
     );
+  });
+
+  it("treats a parsed turn failure as authoritative even when Codex exits zero", () => {
+    const parsed = {
+      messages: ["Partial response must not be accepted"],
+      threadId: "thread-123" as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    parseCodexEventLine(
+      JSON.stringify({
+        type: "turn.failed",
+        error: { message: "provider rejected the turn" },
+      }),
+      parsed,
+    );
+
+    expect(parsed.errors).toEqual(["provider rejected the turn"]);
+    expect(codexProcessFailed(0, parsed)).toBe(true);
+  });
+
+  it("accepts a clean zero-exit Codex process", () => {
+    expect(codexProcessFailed(0, { errors: [] })).toBe(false);
   });
 
   it("builds a structured read-only middleware invocation", () => {

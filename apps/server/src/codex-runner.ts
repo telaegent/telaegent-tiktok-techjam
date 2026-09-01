@@ -40,6 +40,14 @@ export interface ParsedEvents {
   errors: string[];
 }
 
+/** A provider failure event is authoritative even when the CLI exits zero. */
+export function codexProcessFailed(
+  exitCode: number,
+  parsed: Readonly<Pick<ParsedEvents, "errors">>,
+): boolean {
+  return exitCode !== 0 || parsed.errors.length > 0;
+}
+
 function emitProgress(
   onProgress: RuntimeProgressSink | undefined,
   event: RuntimeProgressEvent,
@@ -509,7 +517,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
           exitCode,
         });
       }
-      if (exitCode !== 0) {
+      if (codexProcessFailed(exitCode, parsed)) {
         throw classifyProviderFailure(
           "codex",
           parsed.errors.at(-1) ?? stderr ?? "provider failure",
