@@ -6,7 +6,7 @@ export type ProjectAvailability =
   | "Needs verification"
   | "Connector offline";
 
-export type ProjectAction = "Open" | "Connect";
+export type ProjectAction = "Open" | "Connect" | null;
 
 export function projectAvailability(project: ProjectSummary): ProjectAvailability {
   if (
@@ -18,6 +18,9 @@ export function projectAvailability(project: ProjectSummary): ProjectAvailabilit
   if (project.repositoryAccessStatus !== "verified") {
     return "Needs verification";
   }
+  if (project.githubConnectionStatus !== "connected") {
+    return "Needs verification";
+  }
   if (project.binding.status !== "ready" || !project.connectorLive) {
     return "Connector offline";
   }
@@ -25,7 +28,16 @@ export function projectAvailability(project: ProjectSummary): ProjectAvailabilit
 }
 
 export function projectAction(project: ProjectSummary): ProjectAction {
-  return projectAvailability(project) === "Open" ? "Open" : "Connect";
+  if (projectAvailability(project) === "Open") return "Open";
+  if (
+    project.projectStatus !== "active" ||
+    project.membershipStatus === "revoked" ||
+    project.repositoryAccessStatus === "revoked" ||
+    project.githubConnectionStatus === "revoked"
+  ) {
+    return null;
+  }
+  return "Connect";
 }
 
 export function partitionProjects(projects: readonly ProjectSummary[]): {
