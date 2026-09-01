@@ -4,6 +4,7 @@ import {
   buildCodexArgs,
   buildCodexChildEnvironment,
   buildCodexMiddlewareArgs,
+  closedToolSurface,
   codexProcessFailed,
   parseCodexEventLine,
   type CodexRunnerDependencies,
@@ -26,10 +27,18 @@ describe("Codex runner protocol", () => {
     expect(args).toEqual([
       "exec",
       "--json",
+      "--ignore-user-config",
+      ...(process.platform === "win32"
+        ? ["-c", "windows.sandbox=unelevated"]
+        : []),
       "-c",
       "mcp_servers={}",
       "-c",
       "notify=[]",
+      "-c",
+      'web_search="disabled"',
+      "-c",
+      'model_reasoning_effort="medium"',
       "--sandbox",
       "workspace-write",
       "--skip-git-repo-check",
@@ -236,10 +245,14 @@ describe("Codex runner protocol", () => {
     expect(args).toContain("gpt-5.5");
   });
 
-  it("reads the user's Codex config so the platform sandbox stays selectable", () => {
-    // `--ignore-user-config` discards `[windows] sandbox`, and Codex then
-    // refuses to spawn the shell that is its only way to read a file. A run
-    // that cannot read does not fail loudly; it answers from nothing.
+  it("keeps the owner's personal config out of a Telaegent run", () => {
+    // Dropping `--ignore-user-config` does fix reading, and that is how this
+    // was first "solved". It is not sound: with the config loaded, a turn
+    // billed to the user as read-only reached the network and returned a live
+    // GitHub API value. `--sandbox` binds the shell, not the model's own
+    // tools, and `mcp_servers={}` leaves built-ins, plugins, marketplaces and
+    // `shell_environment_policy` untouched. Ignore the file; grant back only
+    // what the run needs, by name.
     const args = buildCodexMiddlewareArgs(
       {
         agentId: "agent",
@@ -258,7 +271,35 @@ describe("Codex runner protocol", () => {
       "/tmp/status.schema.json",
     );
 
-    expect(args).not.toContain("--ignore-user-config");
+    expect(args).toContain("--ignore-user-config");
+    // Codex has no native read tool; its only file access is spawning a shell.
+    // `--ignore-user-config` discards `[windows] sandbox`, and without a
+    // replacement every command returns `rejected: blocked by policy`, so the
+    // model answers from nothing. Granting the key back is what keeps it able
+    // to read at all.
+    expect(closedToolSurface("win32")).toContain("windows.sandbox=unelevated");
+    expect(closedToolSurface("darwin")).not.toContain(
+      "windows.sandbox=unelevated",
+    );
+  });
+
+  it("closes the model's own network egress, not just the shell's", () => {
+    // Verified by behaviour: with the config loaded, or with only
+    // `tools.web_search=false` set, a read-only turn still fetched a live
+    // value from api.github.com. `-c` accepts unknown keys silently, so
+    // `tools.web_search=false` is taken and does nothing. This is the key that
+    // actually closes it -- do not swap it for one that merely parses.
+    expect(closedToolSurface("win32")).toContain('web_search="disabled"');
+    expect(closedToolSurface("win32")).not.toContain("tools.web_search=false");
+  });
+
+  it("pins reasoning effort that ignoring the config would otherwise drop", () => {
+    // Without the user's config the effort defaults to `none`. Nothing fails;
+    // every turn just gets shallower, which is the failure this whole runner
+    // exists to prevent.
+    expect(closedToolSurface("win32")).toContain(
+      'model_reasoning_effort="medium"',
+    );
   });
 
   it("closes the tool surface the user's config would otherwise carry in", () => {
