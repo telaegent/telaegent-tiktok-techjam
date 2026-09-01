@@ -243,6 +243,19 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     return this.bindings.get(connectorBindingId)!.githubRepositoryId;
   }
 
+  /** Safe browser-facing presence check: no principal, path, or job data leaves. */
+  isBindingOnline(authenticatedUserId: string, connectorBindingId: string): boolean {
+    const registration = this.bindings.get(connectorBindingId);
+    return Boolean(
+      registration &&
+      registration.principal.authenticatedUserId === authenticatedUserId &&
+      (
+        this.now() - registration.lastSeenAt <= this.presenceTimeoutMs ||
+        this.jobIdByBinding.has(connectorBindingId)
+      ),
+    );
+  }
+
   async cancel(connectorBindingId: string): Promise<boolean> {
     const jobId = this.jobIdByBinding.get(connectorBindingId);
     const pending = jobId ? this.jobs.get(jobId) : undefined;

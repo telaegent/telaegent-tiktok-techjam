@@ -647,6 +647,33 @@ html[data-theme="dark"] .app-rail button > img {
   border-top: 1px solid var(--line-strong);
 }
 
+.project-group-heading {
+  min-height: 58px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  background: var(--surface);
+}
+
+.project-group-heading.historical {
+  margin-top: 24px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.project-group-heading strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.project-group-heading small {
+  color: var(--quiet);
+  font-size: 10px;
+  text-align: right;
+}
+
 .project-list > button {
   width: 100%;
   min-height: 108px;

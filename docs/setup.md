@@ -103,11 +103,18 @@ only once. The connector exchanges it directly for the longer-lived connector
 credential; that bearer never appears in browser state, the clipboard, shell
 history, or process arguments.
 
-The same command syntax works on Windows, macOS, and Linux. `.` is resolved and
-canonicalized as the selected Git root. The connector verifies local GitHub
-access, registers safe repository metadata, runs a real provider probe, and
-begins outbound long polling. No local path, credential, repository checkout,
-or provider session is uploaded.
+The same command syntax works on Windows, macOS, and Linux. Run it from the
+actual Git repository root: the connector rejects a nested folder that would
+silently resolve to an ancestor checkout. It prints the canonical local root
+and exact GitHub `owner/name`, then requires `y` before consuming the pairing
+code. After confirmation it verifies local GitHub access, registers safe
+repository metadata, runs a real provider probe, and begins outbound long
+polling. No local path, credential, repository checkout, or provider session is
+uploaded.
+
+The Projects page separates repositories whose connectors are present in the
+live relay from previous offline, stopped, or unverified connections. Durable
+`ready` state alone is never presented as current connector presence.
 
 The package is built with `npm run connector:package` and must be published
 before a production frontend displays this command.

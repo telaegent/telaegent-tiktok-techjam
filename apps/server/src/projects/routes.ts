@@ -23,6 +23,10 @@ const createConversationBody = z.strictObject({ peerUserId: uuid });
 export interface ProjectRouteDependencies {
   service: ProjectService;
   authenticatedUserId: AuthenticatedUserResolver;
+  isBindingOnline?: (
+    authenticatedUserId: string,
+    connectorBindingId: string,
+  ) => boolean;
   onRepositoryDisconnected?: (
     authenticatedUserId: string,
     githubRepositoryId: string,
@@ -52,10 +56,20 @@ export function registerProjectRoutes(
     setPrivateNoStore(reply);
     const authenticatedUserId = await user(request, dependencies.authenticatedUserId);
     const query = querySchema.parse(request.query);
-    return dependencies.service.listProjects({
+    const page = await dependencies.service.listProjects({
       authenticatedUserId,
       ...query,
     });
+    return {
+      ...page,
+      projects: page.projects.map((project) => ({
+        ...project,
+        connectorLive: dependencies.isBindingOnline?.(
+          authenticatedUserId,
+          project.binding.connectorBindingId,
+        ) ?? false,
+      })),
+    };
   });
 
   // Who on this project could be asked to connect, and where each pair stands.

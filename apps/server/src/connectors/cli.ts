@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -25,6 +24,10 @@ import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worke
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
 import { createConnectorResourceRegistry } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
+import {
+  confirmRepositorySelection,
+  resolveExactRepositoryRoot,
+} from "./connector-repository-selection.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -69,6 +72,15 @@ async function main(): Promise<void> {
   const serverOrigin = validateServerOrigin(
     options.serverOrigin ?? requiredEnvironment("TELAEGENT_URL"),
   );
+  const workspacePath = await resolveExactRepositoryRoot(workspaceCandidate);
+  const proof = await collectRepositoryProof(workspacePath);
+  await confirmRepositorySelection(
+    `${proof.repository.owner}/${proof.repository.name}`,
+    workspacePath,
+  );
+  // Pairing is deliberately exchanged only after the human confirms the exact
+  // GitHub repository. A wrong folder, origin, or declined prompt therefore
+  // cannot consume the single-use browser code or mint a connector bearer.
   const bootstrap = options.pairingCode
     ? await exchangePairing(serverOrigin, options.pairingCode)
     : {
@@ -83,7 +95,6 @@ async function main(): Promise<void> {
     throw new Error("TELAEGENT_CONNECTOR_INSTANCE_ID is invalid");
   }
 
-  const workspacePath = await resolveRepositoryRoot(workspaceCandidate);
   const principalResponse = await connectorGet(
     serverOrigin,
     credential,
@@ -95,7 +106,6 @@ async function main(): Promise<void> {
   if (principal.connectorInstanceId !== connectorInstanceId) {
     throw new Error("Connector credential belongs to another installation");
   }
-  const proof = await collectRepositoryProof(workspacePath);
   const response = await connectorRequest(
     serverOrigin,
     credential,
@@ -248,12 +258,6 @@ async function exchangePairing(
     throw new Error("Telaegent connector pairing failed; create a new command in the website");
   }
   return pairingResponseSchema.parse(await response.json()).connector;
-}
-
-async function resolveRepositoryRoot(candidate: string): Promise<string> {
-  const selected = await realpath(path.resolve(candidate));
-  const root = (await run("git", ["-C", selected, "rev-parse", "--show-toplevel"])).trim();
-  return await realpath(root);
 }
 
 async function collectRepositoryProof(workspacePath: string) {
