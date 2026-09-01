@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
@@ -51,11 +53,20 @@ const probeResponseSchema = z.strictObject({
 });
 
 async function main(): Promise<void> {
-  const { workspaceCandidate, provider: providerSelection, probeOnly } =
-    parseConnectorCliOptions(process.argv.slice(2));
-  const serverOrigin = validateServerOrigin(requiredEnvironment("TELAEGENT_URL"));
-  const credential = requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL");
-  const connectorInstanceId = requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID");
+  const options = parseConnectorCliOptions(process.argv.slice(2));
+  const {
+    workspaceCandidate,
+    provider: providerSelection,
+    probeOnly,
+  } = options;
+  const serverOrigin = validateServerOrigin(
+    options.serverOrigin ?? requiredEnvironment("TELAEGENT_URL"),
+  );
+  const credential =
+    options.credential ?? requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL");
+  const connectorInstanceId =
+    options.connectorInstanceId ??
+    requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID");
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(connectorInstanceId)) {
     throw new Error("TELAEGENT_CONNECTOR_INSTANCE_ID is invalid");
   }
