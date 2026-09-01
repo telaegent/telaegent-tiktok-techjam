@@ -48,15 +48,24 @@ import {
 import "./product-app.css";
 
 type Theme = "light" | "dark";
-type OnboardingStep = "identity" | "github" | "agent" | "ready";
+type OnboardingStep =
+  | "requirements"
+  | "identity"
+  | "github"
+  | "agent"
+  | "ready";
 type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
 
 function connectorSetupIsReady(connector: ConnectorSetupStatus): boolean {
-  return connector.liveReady && connector.credential?.status === "active" && connector.bindings.some(
-    (binding) =>
-      binding.bindingStatus === "ready" &&
-      binding.membershipStatus === "active" &&
-      binding.repositoryAccessStatus === "verified",
+  return (
+    connector.liveReady &&
+    connector.credential?.status === "active" &&
+    connector.bindings.some(
+      (binding) =>
+        binding.bindingStatus === "ready" &&
+        binding.membershipStatus === "active" &&
+        binding.repositoryAccessStatus === "verified",
+    )
   );
 }
 type WorkspaceTab = "chat" | "people" | "settings";
@@ -120,7 +129,10 @@ function normalizeApiError(error: unknown): ApiError {
     : new ApiError("Unexpected conversation error", 500, null, true);
 }
 
-function startVisiblePolling(poller: AdaptivePoller, immediate = true): () => void {
+function startVisiblePolling(
+  poller: AdaptivePoller,
+  immediate = true,
+): () => void {
   const syncVisibility = () => poller.setPaused(document.hidden);
   const refreshOnFocus = () => {
     if (!document.hidden) poller.refresh();
@@ -242,7 +254,7 @@ function Onboarding({
   onExit: () => void;
   user: TelaegentWebUser | null;
 }) {
-  const [step, setStep] = useState<OnboardingStep>("identity");
+  const [step, setStep] = useState<OnboardingStep>("requirements");
   const [githubStage, setGithubStage] = useState<GithubStage>("idle");
   const [connectorPairing, setConnectorPairing] =
     useState<ConnectorPairing | null>(null);
@@ -252,7 +264,13 @@ function Onboarding({
   const [connectorCommandCopied, setConnectorCommandCopied] = useState(false);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
-  const steps: OnboardingStep[] = ["identity", "github", "agent", "ready"];
+  const steps: OnboardingStep[] = [
+    "requirements",
+    "identity",
+    "github",
+    "agent",
+    "ready",
+  ];
   const stepIndex = steps.indexOf(step);
 
   function toggleAgent(agent: string) {
@@ -391,6 +409,56 @@ function Onboarding({
         </aside>
 
         <section className="onboarding-card" aria-live="polite">
+          {step === "requirements" && (
+            <>
+              <span className="app-eyebrow">Setup requirements</span>
+              <h1>Get your local tools ready.</h1>
+              <p>
+                Telaegent connects to the tools already installed and signed in
+                on your computer. Complete this checklist before continuing.
+              </p>
+              <div
+                className="onboarding-requirements"
+                aria-label="Setup requirements"
+              >
+                <div>
+                  <span className="app-eyebrow">Install locally</span>
+                  <strong>Three things you need</strong>
+                </div>
+                <ol>
+                  <li>
+                    <strong>GitHub CLI</strong>
+                    <small>
+                      Install <code>gh</code>, then sign in with{" "}
+                      <code>gh auth login</code>.
+                    </small>
+                  </li>
+                  <li>
+                    <strong>Claude Code or Codex CLI</strong>
+                    <small>
+                      Install at least one coding agent and sign in locally.
+                    </small>
+                  </li>
+                  <li>
+                    <strong>Telaegent connector</strong>
+                    <small>
+                      From the repository folder, run{" "}
+                      <code>npx telaegent connect .</code>.
+                    </small>
+                  </li>
+                </ol>
+                <p>Repositories, credentials, and agent sessions stay on your machine.</p>
+              </div>
+              <button
+                className="app-primary-action"
+                type="button"
+                onClick={() => setStep("identity")}
+              >
+                Continue to sign in
+              </button>
+            </>
+          )}
+
           {step === "identity" && (
             <>
               <span className="app-eyebrow">Your Telaegent account</span>
@@ -490,7 +558,9 @@ function Onboarding({
                       type="button"
                       onClick={() => void copyConnectorCommand()}
                     >
-                      {connectorCommandCopied ? "Command copied" : "Copy command"}
+                      {connectorCommandCopied
+                        ? "Command copied"
+                        : "Copy command"}
                     </button>
                     <button
                       className="app-primary-action"
@@ -807,7 +877,9 @@ type ProjectConnectionGroup = {
   error: ApiError | null;
 };
 
-function connectionStatusLabel(status: ProjectCollaborator["connectionStatus"]): string {
+function connectionStatusLabel(
+  status: ProjectCollaborator["connectionStatus"],
+): string {
   switch (status) {
     case "none":
       return "Available";
@@ -822,7 +894,9 @@ function connectionStatusLabel(status: ProjectCollaborator["connectionStatus"]):
   }
 }
 
-function connectionStatusDetail(status: ProjectCollaborator["connectionStatus"]): string {
+function connectionStatusDetail(
+  status: ProjectCollaborator["connectionStatus"],
+): string {
   switch (status) {
     case "none":
       return "Both of you independently proved access to this repository.";
@@ -853,7 +927,9 @@ function LiveConnectionsScreen({
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [mutatingKey, setMutatingKey] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<ApiError | null>(null);
-  const projectScopeKey = projects.map((project) => project.projectId).join(":");
+  const projectScopeKey = projects
+    .map((project) => project.projectId)
+    .join(":");
 
   useEffect(() => {
     if (projectsLoading || projectsError) return;
@@ -906,7 +982,10 @@ function LiveConnectionsScreen({
     setMutationError(null);
     try {
       if (mutation === "request") {
-        await api.requestProjectConnection(project.projectId, collaborator.userId);
+        await api.requestProjectConnection(
+          project.projectId,
+          collaborator.userId,
+        );
       } else {
         if (!collaborator.projectConnectionId) {
           throw new ApiError(
@@ -964,7 +1043,9 @@ function LiveConnectionsScreen({
         <div className="api-state error connections-state" role="alert">
           <strong>{projectsError.code ?? "Projects unavailable"}</strong>
           <p>{apiErrorGuidance(projectsError)}</p>
-          <button type="button" onClick={onRetryProjects}>Retry</button>
+          <button type="button" onClick={onRetryProjects}>
+            Retry
+          </button>
         </div>
       )}
       {!projectsLoading && !projectsError && state === "loading" && (
@@ -973,126 +1054,162 @@ function LiveConnectionsScreen({
           <p>Checking project-scoped relationships.</p>
         </div>
       )}
-      {!projectsLoading && !projectsError && state === "ready" && groups.length === 0 && (
-        <div className="api-state connections-state">
-          <strong>No verified repositories yet</strong>
-          <p>Connect a local repository before requesting project trust.</p>
-        </div>
-      )}
+      {!projectsLoading &&
+        !projectsError &&
+        state === "ready" &&
+        groups.length === 0 && (
+          <div className="api-state connections-state">
+            <strong>No verified repositories yet</strong>
+            <p>Connect a local repository before requesting project trust.</p>
+          </div>
+        )}
       {mutationError && (
         <div className="api-state error connection-mutation-error" role="alert">
           <strong>{mutationError.code ?? "Connection update failed"}</strong>
           <p>{apiErrorGuidance(mutationError)}</p>
         </div>
       )}
-      {!projectsLoading && !projectsError && state === "ready" && groups.map(({ project, collaborators, error }) => (
-        <section className="settings-section connection-project" key={project.projectId}>
-          <header>
-            <div>
-              <span>Repository</span>
-              <h2>{project.repositoryFullName}</h2>
-            </div>
-            <span>{collaborators.length} eligible</span>
-          </header>
-          {error && (
-            <div className="api-state error" role="alert">
-              <strong>{error.code ?? "Collaborators unavailable"}</strong>
-              <p>{apiErrorGuidance(error)}</p>
-              <button
-                type="button"
-                onClick={() => setLoadAttempt((value) => value + 1)}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-          {!error && collaborators.length === 0 && (
-            <p className="empty-line">
-              No other Telaegent user has independently proved this repository yet.
-            </p>
-          )}
-          {collaborators.map((collaborator) => {
-            const key = `${project.projectId}:${collaborator.userId}`;
-            const busy = mutatingKey === key;
-            return (
-              <article className="connection-row" key={collaborator.userId}>
-                <span className="app-avatar" aria-hidden="true">
-                  {collaborator.githubLogin.slice(0, 2).toUpperCase()}
-                </span>
-                <div>
-                  <strong>@{collaborator.githubLogin}</strong>
-                  <small>{connectionStatusDetail(collaborator.connectionStatus)}</small>
-                </div>
-                <span className={`connection-state ${collaborator.connectionStatus}`}>
-                  <StatusMark
-                    tone={
-                      collaborator.connectionStatus === "connected"
-                        ? "ok"
-                        : collaborator.connectionStatus === "pending_incoming"
-                          ? "warn"
-                          : "quiet"
-                    }
-                  />
-                  {connectionStatusLabel(collaborator.connectionStatus)}
-                </span>
-                <div className="connection-actions">
-                  {(collaborator.connectionStatus === "none" ||
-                    collaborator.connectionStatus === "revoked") && (
-                    <button
-                      className="app-primary-action"
-                      type="button"
-                      disabled={mutatingKey !== null}
-                      onClick={() => void mutateConnection(project, collaborator, "request")}
-                    >
-                      {busy ? "Requesting…" : "Request connection"}
-                    </button>
-                  )}
-                  {collaborator.connectionStatus === "pending_incoming" && (
-                    <>
-                      <button
-                        className="app-secondary-action"
-                        type="button"
-                        disabled={mutatingKey !== null}
-                        onClick={() => void mutateConnection(project, collaborator, "decline")}
-                      >
-                        Decline
-                      </button>
+      {!projectsLoading &&
+        !projectsError &&
+        state === "ready" &&
+        groups.map(({ project, collaborators, error }) => (
+          <section
+            className="settings-section connection-project"
+            key={project.projectId}
+          >
+            <header>
+              <div>
+                <span>Repository</span>
+                <h2>{project.repositoryFullName}</h2>
+              </div>
+              <span>{collaborators.length} eligible</span>
+            </header>
+            {error && (
+              <div className="api-state error" role="alert">
+                <strong>{error.code ?? "Collaborators unavailable"}</strong>
+                <p>{apiErrorGuidance(error)}</p>
+                <button
+                  type="button"
+                  onClick={() => setLoadAttempt((value) => value + 1)}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!error && collaborators.length === 0 && (
+              <p className="empty-line">
+                No other Telaegent user has independently proved this repository
+                yet.
+              </p>
+            )}
+            {collaborators.map((collaborator) => {
+              const key = `${project.projectId}:${collaborator.userId}`;
+              const busy = mutatingKey === key;
+              return (
+                <article className="connection-row" key={collaborator.userId}>
+                  <span className="app-avatar" aria-hidden="true">
+                    {collaborator.githubLogin.slice(0, 2).toUpperCase()}
+                  </span>
+                  <div>
+                    <strong>@{collaborator.githubLogin}</strong>
+                    <small>
+                      {connectionStatusDetail(collaborator.connectionStatus)}
+                    </small>
+                  </div>
+                  <span
+                    className={`connection-state ${collaborator.connectionStatus}`}
+                  >
+                    <StatusMark
+                      tone={
+                        collaborator.connectionStatus === "connected"
+                          ? "ok"
+                          : collaborator.connectionStatus === "pending_incoming"
+                            ? "warn"
+                            : "quiet"
+                      }
+                    />
+                    {connectionStatusLabel(collaborator.connectionStatus)}
+                  </span>
+                  <div className="connection-actions">
+                    {(collaborator.connectionStatus === "none" ||
+                      collaborator.connectionStatus === "revoked") && (
                       <button
                         className="app-primary-action"
                         type="button"
                         disabled={mutatingKey !== null}
-                        onClick={() => void mutateConnection(project, collaborator, "accept")}
+                        onClick={() =>
+                          void mutateConnection(
+                            project,
+                            collaborator,
+                            "request",
+                          )
+                        }
                       >
-                        {busy ? "Accepting…" : "Accept"}
+                        {busy ? "Requesting…" : "Request connection"}
                       </button>
-                    </>
-                  )}
-                  {collaborator.connectionStatus === "pending_outgoing" && (
-                    <button
-                      className="app-secondary-action"
-                      type="button"
-                      disabled={mutatingKey !== null}
-                      onClick={() => void mutateConnection(project, collaborator, "revoke")}
-                    >
-                      {busy ? "Withdrawing…" : "Withdraw"}
-                    </button>
-                  )}
-                  {collaborator.connectionStatus === "connected" && (
-                    <button
-                      className="app-secondary-action danger"
-                      type="button"
-                      disabled={mutatingKey !== null}
-                      onClick={() => void mutateConnection(project, collaborator, "revoke")}
-                    >
-                      {busy ? "Revoking…" : "Revoke"}
-                    </button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </section>
-      ))}
+                    )}
+                    {collaborator.connectionStatus === "pending_incoming" && (
+                      <>
+                        <button
+                          className="app-secondary-action"
+                          type="button"
+                          disabled={mutatingKey !== null}
+                          onClick={() =>
+                            void mutateConnection(
+                              project,
+                              collaborator,
+                              "decline",
+                            )
+                          }
+                        >
+                          Decline
+                        </button>
+                        <button
+                          className="app-primary-action"
+                          type="button"
+                          disabled={mutatingKey !== null}
+                          onClick={() =>
+                            void mutateConnection(
+                              project,
+                              collaborator,
+                              "accept",
+                            )
+                          }
+                        >
+                          {busy ? "Accepting…" : "Accept"}
+                        </button>
+                      </>
+                    )}
+                    {collaborator.connectionStatus === "pending_outgoing" && (
+                      <button
+                        className="app-secondary-action"
+                        type="button"
+                        disabled={mutatingKey !== null}
+                        onClick={() =>
+                          void mutateConnection(project, collaborator, "revoke")
+                        }
+                      >
+                        {busy ? "Withdrawing…" : "Withdraw"}
+                      </button>
+                    )}
+                    {collaborator.connectionStatus === "connected" && (
+                      <button
+                        className="app-secondary-action danger"
+                        type="button"
+                        disabled={mutatingKey !== null}
+                        onClick={() =>
+                          void mutateConnection(project, collaborator, "revoke")
+                        }
+                      >
+                        {busy ? "Revoking…" : "Revoke"}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        ))}
     </div>
   );
 }
@@ -1574,8 +1691,12 @@ function ProjectChat({
   // A network retry or double click reuses the same backend creation key. A
   // deliberate runtime retry clears it and opens a new private attempt.
   const replyCreationKeys = useRef(new Map<string, string>());
-  const messageRequests = useRef(new SingleFlightByKey<ConversationMessage[]>());
-  const scopeRequestsInFlight = useRef(new SingleFlightByKey<CapabilityScopeRequest[]>());
+  const messageRequests = useRef(
+    new SingleFlightByKey<ConversationMessage[]>(),
+  );
+  const scopeRequestsInFlight = useRef(
+    new SingleFlightByKey<CapabilityScopeRequest[]>(),
+  );
   const scopeMutationEpoch = useRef(0);
   const configurationError = projectConfigurationError(
     project.githubRepositoryId,
@@ -1588,7 +1709,8 @@ function ProjectChat({
   activeRepositoryScope.current = project.githubRepositoryId;
 
   function requestScopeRequests(repositoryId: string, fresh = false) {
-    const request = async () => (await api.capabilityScopeRequests(repositoryId)).requests;
+    const request = async () =>
+      (await api.capabilityScopeRequests(repositoryId)).requests;
     return fresh
       ? scopeRequestsInFlight.current.runFresh(repositoryId, request)
       : scopeRequestsInFlight.current.run(repositoryId, request);
@@ -1601,7 +1723,8 @@ function ProjectChat({
     fresh = false,
   ) {
     const request = async () =>
-      (await api.conversationMessages(selectedConversationId, repositoryId)).messages;
+      (await api.conversationMessages(selectedConversationId, repositoryId))
+        .messages;
     return fresh
       ? messageRequests.current.runFresh(scopeKey, request)
       : messageRequests.current.run(scopeKey, request);
@@ -1746,9 +1869,15 @@ function ProjectChat({
           project.githubRepositoryId,
         );
         if (!active || activeMessageScope.current !== scopeKey) return false;
-        setMessages(nextMessages.map((message) =>
-          mapConversationMessage(message, currentUserId, ownMessageIds.current.has(message.messageId)),
-        ));
+        setMessages(
+          nextMessages.map((message) =>
+            mapConversationMessage(
+              message,
+              currentUserId,
+              ownMessageIds.current.has(message.messageId),
+            ),
+          ),
+        );
         return nextMessages.length > 0;
       },
       onError: () => {
@@ -1760,7 +1889,13 @@ function ProjectChat({
       active = false;
       stop();
     };
-  }, [configurationError, conversationId, currentUserId, messageLoadState, project.githubRepositoryId]);
+  }, [
+    configurationError,
+    conversationId,
+    currentUserId,
+    messageLoadState,
+    project.githubRepositoryId,
+  ]);
 
   useEffect(() => {
     if (configurationError) {
@@ -1780,7 +1915,8 @@ function ProjectChat({
           !active ||
           activeRepositoryScope.current !== repositoryId ||
           scopeMutationEpoch.current !== requestEpoch
-        ) return false;
+        )
+          return false;
         setScopeRequests(requests);
         setScopeRequestError(null);
         return requests.length > 0;
@@ -1906,7 +2042,8 @@ function ProjectChat({
       configurationError ||
       !conversationId ||
       conversationState !== "ready"
-    ) return;
+    )
+      return;
     setRoughMessage(nextMessage);
     setAnswering(null);
     setClarification("");
@@ -1915,12 +2052,17 @@ function ProjectChat({
     void createAndRunDraft(nextMessage);
   }
 
-  function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if (!shouldSubmitComposerOnKeyDown({
-      key: event.key,
-      shiftKey: event.shiftKey,
-      isComposing: event.nativeEvent.isComposing,
-    })) return;
+  function handleComposerKeyDown(
+    event: ReactKeyboardEvent<HTMLTextAreaElement>,
+  ) {
+    if (
+      !shouldSubmitComposerOnKeyDown({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing,
+      })
+    )
+      return;
     event.preventDefault();
     if (busy || privateRoomOpen || !composer.trim()) return;
     event.currentTarget.form?.requestSubmit();
@@ -2066,7 +2208,9 @@ function ProjectChat({
                 >
                   <header>
                     <div>
-                      <span className="scope-approval-kicker">Your decision is needed</span>
+                      <span className="scope-approval-kicker">
+                        Your decision is needed
+                      </span>
                       <h2>{request.resourceDisplayLabel}</h2>
                       <small className="scope-resource-id">
                         Resource {request.candidateResourceId}
@@ -2677,9 +2821,9 @@ export default function ProductApp({
   const isDefaultProductEntry =
     window.location.pathname === APP_PATH ||
     !window.location.pathname.startsWith(`${APP_PATH}/`);
-  const requestedPreviewRoute = new URLSearchParams(
-    window.location.search,
-  ).get("route");
+  const requestedPreviewRoute = new URLSearchParams(window.location.search).get(
+    "route",
+  );
   const initialRoute = isDefaultProductEntry
     ? initialProductEntryRoute({
         authenticated: user !== null,
@@ -2891,10 +3035,7 @@ export default function ProductApp({
           {route === "workspace" && !selectedProject && (
             <div className="app-page api-state">
               <strong>This verified project is unavailable</strong>
-              <button
-                type="button"
-                onClick={() => navigateProduct("projects")}
-              >
+              <button type="button" onClick={() => navigateProduct("projects")}>
                 Back to projects
               </button>
             </div>
