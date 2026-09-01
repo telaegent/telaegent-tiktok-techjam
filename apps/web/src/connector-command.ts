@@ -1,4 +1,4 @@
-import type { ConnectorCredential } from "./api";
+import type { ConnectorPairing } from "./api";
 
 export const connectorPackageSpec = "@telaegent/connector@0.1.0";
 
@@ -6,17 +6,17 @@ const urlSafeTokenPattern = /^[A-Za-z0-9_-]{16,128}$/;
 
 export function buildConnectorCommand(
   origin: string,
-  credential: ConnectorCredential,
+  pairing: ConnectorPairing,
 ): string {
   const serverOrigin = new URL(origin).origin;
   if (serverOrigin !== origin) {
     throw new Error("Connector URL must be an origin");
   }
-  if (!urlSafeTokenPattern.test(credential.connectorInstanceId)) {
+  if (!urlSafeTokenPattern.test(pairing.connectorInstanceId)) {
     throw new Error("Connector installation ID is invalid");
   }
-  if (!urlSafeTokenPattern.test(credential.credential)) {
-    throw new Error("Connector credential is invalid");
+  if (!urlSafeTokenPattern.test(pairing.pairingCode)) {
+    throw new Error("Connector pairing code is invalid");
   }
   return [
     "npx",
@@ -26,9 +26,7 @@ export function buildConnectorCommand(
     ".",
     "--url",
     serverOrigin,
-    "--instance-id",
-    credential.connectorInstanceId,
-    "--credential",
-    credential.credential,
+    "--pair",
+    pairing.pairingCode,
   ].join(" ");
 }

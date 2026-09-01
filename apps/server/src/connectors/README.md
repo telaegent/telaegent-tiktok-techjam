@@ -39,14 +39,13 @@ legacy shared API token is not connector authentication.
 ## Current proof workflow
 
 1. Sign in through the website.
-2. `POST /api/connectors/credentials` with a stable, random installation ID.
-   Save the returned credential locally; the backend stores only its hash. The
-   response is explicitly non-cacheable and the browser must not persist it.
+2. `POST /api/connectors/pairings` from the authenticated browser. It returns a
+   high-entropy, five-minute, single-use pairing code, never a connector bearer.
 3. Open a terminal in the deliberately selected repository.
 4. Run the cross-platform command rendered by the browser:
 
    ```text
-   npx --yes @telaegent/connector@0.1.0 connect . --url ORIGIN --instance-id ID --credential BEARER
+   npx --yes @telaegent/connector@0.1.0 connect . --url ORIGIN --pair ONE_TIME_CODE
    ```
 
 The npm artifact is built from the canonical compiled connector with
@@ -76,8 +75,11 @@ derives the user from the HttpOnly Telaegent session and returns only that
 owner's credential lifecycle plus bounded, safe repository/binding metadata.
 It returns no bearer, token hash, local path, remote URL, GitHub/provider
 credential, or provider session. The response is non-cacheable. A `ready`
-binding proves durable repository registration; `lastSeenAt` is telemetry, not
-a promise that the process will remain online.
+binding proves durable repository registration; `liveReady` becomes true only
+after a local provider passes its relay probe. The connector refreshes this
+process-local marker after long-poll cycles so a control-plane restart recovers
+without another setup command. `lastSeenAt` is telemetry, not a promise that
+the process will remain online.
 
 Transient network errors and HTTP 408/425/429/5xx responses reconnect with
 jittered exponential backoff capped at 30 seconds. Authentication rejection is
@@ -91,9 +93,10 @@ binding recovery, not one database call per poll.
 
 The `@telaegent/connector` artifact and cross-platform `npx` command are
 implemented, but registry publication and a two-machine packaged live proof
-remain release work. Version 0.1 passes the one-time connector bearer as a
-local command argument, matching the browser's existing one-time command
-handoff; browser/device pairing, OS credential-vault integration,
+remain release work. Version 0.1 passes only a short-lived, single-use pairing
+code as a local command argument. The connector exchanges it directly for its
+longer-lived bearer, which never enters browser state, the clipboard, shell
+history, or process arguments. OS credential-vault integration,
 installer/update signing, and durable presence telemetry remain follow-up work.
 Credential issuance already rotates the server-side hash and unregisters the
 old process-local principal, but local replacement remains a deliberate user

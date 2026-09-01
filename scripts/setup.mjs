@@ -51,7 +51,6 @@ const misplacedConnectorValues = connectorValuesInApplicationEnvironment(
 const external = skipExternal ? { problems: [], notes: [] } : inspectExternalTools();
 const e2eProblems = [
   ...envProblems,
-  ...connectorProblems,
   ...misplacedConnectorValues,
   ...external.problems,
 ];
@@ -66,9 +65,15 @@ if (e2eProblems.length === 0) {
   if (strictEndToEnd) process.exitCode = 2;
 }
 for (const note of external.notes) process.stdout.write(`[setup] ${note}\n`);
+if (connectorProblems.length > 0) {
+  process.stdout.write(
+    "[setup] Source-checkout connector.env is not configured; this is optional when using the browser-generated npx pairing command.\n",
+  );
+}
 process.stdout.write(
   "[setup] Live repository/provider/relay readiness is NOT verified by this command.\n" +
-  "[setup] Run npm run doctor:live -- [workspace] for the real connector-mediated probe.\n",
+  "[setup] Normal users get the real live probe in the browser-generated npx connector command.\n" +
+  "[setup] Source-checkout developers may use npm run doctor:live with connector.env.\n",
 );
 
 if (startAfterSetup && process.exitCode === undefined) {

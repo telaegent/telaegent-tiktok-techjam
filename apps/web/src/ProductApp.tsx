@@ -11,7 +11,8 @@ import {
   type AgentProvider,
   type CapabilityScopeDecision,
   type CapabilityScopeRequest,
-  type ConnectorCredential,
+  type ConnectorPairing,
+  type ConnectorSetupStatus,
   type ConversationMessage,
   type PrivateDraftView,
   type ProjectCollaborator,
@@ -37,6 +38,15 @@ type ProductRoute =
   | "workspace";
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
 type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
+
+function connectorSetupIsReady(connector: ConnectorSetupStatus): boolean {
+  return connector.liveReady && connector.credential?.status === "active" && connector.bindings.some(
+    (binding) =>
+      binding.bindingStatus === "ready" &&
+      binding.membershipStatus === "active" &&
+      binding.repositoryAccessStatus === "verified",
+  );
+}
 type WorkspaceTab = "chat" | "people" | "settings";
 type AsyncLoadState = "idle" | "loading" | "ready" | "error";
 
@@ -235,12 +245,14 @@ function Onboarding({
 }) {
   const [step, setStep] = useState<OnboardingStep>("identity");
   const [githubStage, setGithubStage] = useState<GithubStage>("idle");
-  const [connectorCredential, setConnectorCredential] =
-    useState<ConnectorCredential | null>(null);
+  const [connectorPairing, setConnectorPairing] =
+    useState<ConnectorPairing | null>(null);
   const [connectorError, setConnectorError] = useState<ApiError | null>(null);
   const [checkingConnector, setCheckingConnector] = useState(false);
   const [connectedAgents, setConnectedAgents] = useState<string[]>([]);
   const [connectorCommandCopied, setConnectorCommandCopied] = useState(false);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
   const steps: OnboardingStep[] = ["identity", "github", "agent", "ready"];
   const stepIndex = steps.indexOf(step);
 
@@ -252,13 +264,12 @@ function Onboarding({
     );
   }
 
-  async function createConnectorCredential() {
-    const connectorInstanceId = crypto.randomUUID().replaceAll("-", "");
+  async function createConnectorPairing() {
     setGithubStage("issuing");
     setConnectorError(null);
     try {
-      const result = await api.issueConnectorCredential(connectorInstanceId);
-      setConnectorCredential(result.connector);
+      const result = await api.createConnectorPairing();
+      setConnectorPairing(result.pairing);
       setConnectorCommandCopied(false);
       setGithubStage("connector");
     } catch (error) {
@@ -268,20 +279,20 @@ function Onboarding({
   }
 
   async function copyConnectorCommand() {
-    if (!connectorCredential) return;
+    if (!connectorPairing) return;
     await navigator.clipboard.writeText(
-      buildConnectorCommand(window.location.origin, connectorCredential),
+      buildConnectorCommand(window.location.origin, connectorPairing),
     );
     setConnectorCommandCopied(true);
   }
 
   async function verifyConnectorSetup() {
-    if (!connectorCredential || checkingConnector) return;
+    if (!connectorPairing || checkingConnector) return;
     setCheckingConnector(true);
     setConnectorError(null);
     try {
       const { connector } = await api.connectorSetupStatus(
-        connectorCredential.connectorInstanceId,
+        connectorPairing.connectorInstanceId,
       );
       if (connector.credential?.status !== "active") {
         throw new ApiError(
@@ -290,12 +301,7 @@ function Onboarding({
           "CONNECTOR_CREDENTIAL_INACTIVE",
         );
       }
-      const verifiedBinding = connector.bindings.some(
-        (binding) =>
-          binding.bindingStatus === "ready" &&
-          binding.membershipStatus === "active" &&
-          binding.repositoryAccessStatus === "verified",
-      );
+      const verifiedBinding = connectorSetupIsReady(connector);
       if (!verifiedBinding) {
         throw new ApiError(
           "The connector has not finished verifying this repository yet. Keep it running and check again.",
@@ -304,21 +310,52 @@ function Onboarding({
           true,
         );
       }
-      // Remove the one-time bearer from React state as soon as onboarding no
-      // longer needs to render or copy it.
-      setConnectorCredential(null);
+      // Remove the already-consumed pairing code from React state as soon as
+      // onboarding no longer needs to render it.
+      setConnectorPairing(null);
       setGithubStage("connected");
+      onCompleteRef.current();
     } catch (error) {
       const normalized = normalizeApiError(error);
       setConnectorError(normalized);
       if (normalized.code === "CONNECTOR_CREDENTIAL_INACTIVE") {
-        setConnectorCredential(null);
+        setConnectorPairing(null);
         setGithubStage("error");
       }
     } finally {
       setCheckingConnector(false);
     }
   }
+
+  useEffect(() => {
+    if (githubStage !== "connector" || !connectorPairing) return;
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const { connector } = await api.connectorSetupStatus(
+          connectorPairing.connectorInstanceId,
+        );
+        if (!active) return;
+        if (connectorSetupIsReady(connector)) {
+          setConnectorError(null);
+          setConnectorPairing(null);
+          setGithubStage("connected");
+          onCompleteRef.current();
+          return;
+        }
+      } catch {
+        // Before the CLI exchanges the code there is intentionally no durable
+        // credential/status row. Keep waiting without showing a false error.
+      }
+      if (active) timer = window.setTimeout(() => void poll(), 1_500);
+    };
+    void poll();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [githubStage, connectorPairing]);
 
   return (
     <main className="onboarding-shell">
@@ -397,7 +434,7 @@ function Onboarding({
                   </div>
                   <button
                     type="button"
-                    onClick={() => void createConnectorCredential()}
+                    onClick={() => void createConnectorPairing()}
                   >
                     Connect
                   </button>
@@ -407,16 +444,16 @@ function Onboarding({
               {githubStage === "issuing" && (
                 <div className="setup-row">
                   <div>
-                    <strong>Preparing a connector credential</strong>
+                    <strong>Preparing a secure one-time command</strong>
                     <small>
                       Bound to this Telaegent account and installation only
                     </small>
                   </div>
-                  <TypingDots label="Preparing connector credential" />
+                  <TypingDots label="Preparing secure connector command" />
                 </div>
               )}
 
-              {githubStage === "connector" && connectorCredential && (
+              {githubStage === "connector" && connectorPairing && (
                 <div className="device-flow">
                   <div>
                     <span>Run from your repository</span>
@@ -434,17 +471,17 @@ function Onboarding({
                     <code className="connector-command">
                       {buildConnectorCommand(
                         window.location.origin,
-                        connectorCredential,
+                        connectorPairing,
                       )}
                     </code>
                     <p>
                       The connector uses the current Git repository. Its local
                       path, checkout, GitHub login, and coding-agent sessions
-                      stay on this device. This credential expires{" "}
+                      stay on this device. This one-time command expires{" "}
                       {new Intl.DateTimeFormat(undefined, {
                         hour: "numeric",
                         minute: "2-digit",
-                      }).format(new Date(connectorCredential.expiresAt))}
+                      }).format(new Date(connectorPairing.expiresAt))}
                       .
                     </p>
                   </div>
@@ -463,6 +500,14 @@ function Onboarding({
                       onClick={() => void verifyConnectorSetup()}
                     >
                       {checkingConnector ? "Checking…" : "Check connection"}
+                    </button>
+                    <button
+                      className="app-text-button"
+                      type="button"
+                      disabled={checkingConnector}
+                      onClick={() => void createConnectorPairing()}
+                    >
+                      New command
                     </button>
                   </div>
                   {connectorError && (
@@ -485,7 +530,7 @@ function Onboarding({
                   <button
                     className="app-secondary-action"
                     type="button"
-                    onClick={() => void createConnectorCredential()}
+                    onClick={() => void createConnectorPairing()}
                   >
                     Try again
                   </button>

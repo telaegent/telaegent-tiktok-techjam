@@ -23,6 +23,7 @@ import {
   SupabaseConnectorCredentialRepository,
   createConnectorPrincipalResolver,
 } from "./connectors/connector-credentials.js";
+import { ConnectorPairingService } from "./connectors/connector-pairing.js";
 import { LongPollConnectorJobRelay } from "./connectors/long-poll-job-relay.js";
 import type { ConnectorTransportRouteDependencies } from "./connectors/routes.js";
 import type { RepositoryProofRouteDependencies } from "./repository-proof/routes.js";
@@ -133,6 +134,7 @@ if (config.telaegentIdentityProvider === "github") {
     relay,
     resolveConnectorPrincipal,
     credentials: credentialService,
+    pairings: new ConnectorPairingService(),
     authenticatedUserId,
   };
   repositoryProofApi = {

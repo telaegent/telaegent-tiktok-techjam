@@ -51,6 +51,13 @@ const probeResponseSchema = z.strictObject({
   provider: z.enum(["codex", "claude"]),
   durationMs: z.number().nonnegative(),
 });
+const pairingResponseSchema = z.strictObject({
+  connector: z.strictObject({
+    credential: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    connectorInstanceId: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/),
+    expiresAt: z.string().datetime({ offset: true }),
+  }),
+});
 
 async function main(): Promise<void> {
   const options = parseConnectorCliOptions(process.argv.slice(2));
@@ -62,11 +69,16 @@ async function main(): Promise<void> {
   const serverOrigin = validateServerOrigin(
     options.serverOrigin ?? requiredEnvironment("TELAEGENT_URL"),
   );
-  const credential =
-    options.credential ?? requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL");
-  const connectorInstanceId =
-    options.connectorInstanceId ??
-    requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID");
+  const bootstrap = options.pairingCode
+    ? await exchangePairing(serverOrigin, options.pairingCode)
+    : {
+        credential:
+          options.credential ?? requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL"),
+        connectorInstanceId:
+          options.connectorInstanceId ??
+          requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID"),
+      };
+  const { credential, connectorInstanceId } = bootstrap;
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(connectorInstanceId)) {
     throw new Error("TELAEGENT_CONNECTOR_INSTANCE_ID is invalid");
   }
@@ -187,15 +199,55 @@ async function main(): Promise<void> {
     throw new Error("No local coding provider passed the Telaegent live probe");
   }
 
+  await connectorRequest(
+    serverOrigin,
+    credential,
+    `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
+    {},
+  );
+
   if (probeOnly) {
     process.stdout.write("TELAEGENT LIVE READINESS VERIFIED\n");
     return;
   }
 
-    for (;;) await worker.runOnce();
+    for (;;) {
+      await worker.runOnce();
+      // Re-announce after every long-poll cycle. This restores the process-local
+      // live marker automatically if the demo control plane restarts.
+      await connectorRequest(
+        serverOrigin,
+        credential,
+        `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
+        {},
+      );
+    }
   } finally {
     await processLock.release();
   }
+}
+
+async function exchangePairing(
+  serverOrigin: string,
+  pairingCode: string,
+): Promise<{ credential: string; connectorInstanceId: string }> {
+  const origin = new URL(serverOrigin);
+  const response = await fetch(origin.origin + "/api/connectors/pairings/exchange", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ pairingCode }),
+    cache: "no-store",
+    credentials: "omit",
+    redirect: "error",
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error("Telaegent connector pairing failed; create a new command in the website");
+  }
+  return pairingResponseSchema.parse(await response.json()).connector;
 }
 
 async function resolveRepositoryRoot(candidate: string): Promise<string> {
