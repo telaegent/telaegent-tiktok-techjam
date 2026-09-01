@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import telaegentLogo from "../../../ui/logo/telaegent-logo-transparent-dark.png";
 import telaegentLogoBright from "../../../ui/logo/telaegent-logo-transparent-bright.png";
 import telaegentMark from "../../../ui/logo/telaegent-logo-symbol-transparent.png";
@@ -26,6 +32,7 @@ import {
   selectConnectedPeer,
 } from "./project-conversation";
 import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
+import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import { partitionProjects, projectAvailability } from "./project-list";
 import {
@@ -1892,13 +1899,31 @@ function ProjectChat({
   function submitRoughMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextMessage = composer.trim();
-    if (!nextMessage || configurationError || !conversationId) return;
+    if (
+      !nextMessage ||
+      busy ||
+      privateRoomOpen ||
+      configurationError ||
+      !conversationId ||
+      conversationState !== "ready"
+    ) return;
     setRoughMessage(nextMessage);
     setAnswering(null);
     setClarification("");
     setApprovedContent("");
     setEditingCandidate(false);
     void createAndRunDraft(nextMessage);
+  }
+
+  function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (!shouldSubmitComposerOnKeyDown({
+      key: event.key,
+      shiftKey: event.shiftKey,
+      isComposing: event.nativeEvent.isComposing,
+    })) return;
+    event.preventDefault();
+    if (busy || privateRoomOpen || !composer.trim()) return;
+    event.currentTarget.form?.requestSubmit();
   }
 
   async function clarifyDraft(event: FormEvent<HTMLFormElement>) {
@@ -2239,6 +2264,7 @@ function ProjectChat({
             rows={2}
             value={composer}
             onChange={(event) => setComposer(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
             placeholder={`Ask ${selected?.name ?? "a connected collaborator"} about this project…`}
             disabled={
               !!configurationError ||
