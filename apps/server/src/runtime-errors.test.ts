@@ -71,6 +71,12 @@ describe("classifyProviderFailure", () => {
       "--json-schema is not a valid JSON Schema: no schema with key or ref private-uri",
       "INVALID_AGENT_OUTPUT",
     ],
+    [
+      "Invalid schema for response_format: 'const' is not permitted",
+      "INVALID_AGENT_OUTPUT",
+    ],
+    ["You have hit your usage limit", "RUNTIME_UNAVAILABLE"],
+    ["The configured model is deprecated", "RUNTIME_UNAVAILABLE"],
     ["unrecognized provider explosion", "RUNTIME_FAILED"],
   ] as const)("classifies %s as %s", (detail, code) => {
     const error = classifyProviderFailure("codex", detail);

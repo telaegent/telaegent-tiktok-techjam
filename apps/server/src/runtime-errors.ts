@@ -100,7 +100,7 @@ const missingSessionPattern =
 const timeoutPattern = /(?:ETIMEDOUT|timed?\s*out|timeout)/i;
 
 const unavailablePattern =
-  /(?:ENOENT|command not found|not recognized as an internal or external command|ECONNREFUSED|ECONNRESET|ENOTFOUND|service unavailable|temporarily unavailable|provider overloaded|rate limit|too many requests|\b429\b)/i;
+  /(?:ENOENT|command not found|not recognized as an internal or external command|ECONNREFUSED|ECONNRESET|ENOTFOUND|service unavailable|temporarily unavailable|provider overloaded|rate limit|usage limit|quota exceeded|too many requests|model (?:is )?(?:unavailable|unsupported|retired|deprecated)|does not have access to (?:the )?model|\b429\b)/i;
 
 /**
  * Transport-layer failures raised before the CLI ever reaches the model.
@@ -111,7 +111,7 @@ const transportFailurePattern =
   /(?:invalid peer certificate|unknown\s*issuer|self[\s-]?signed certificate|certificate (?:has expired|verify failed|is not trusted|chain)|certificate authority|unable to (?:get local issuer certificate|verify the first certificate)|SELF_SIGNED_CERT_IN_CHAIN|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|CERT_HAS_EXPIRED|CERT_UNTRUSTED|ERR_TLS_CERT_ALTNAME_INVALID|\btls\b|\bssl\b|handshake (?:failed|failure|eof)|\bEPROTO\b|error sending request|connection (?:failure|failed|error)|failed to connect|tcp connect error|network (?:is )?unreachable|ENETUNREACH|EHOSTUNREACH|EAI_AGAIN)/i;
 
 const invalidOutputPattern =
-  /(?:invalid|malformed|unexpected)\s+(?:json|output|response|event|stream)|failed to (?:parse|decode)|not a valid json schema|json schema[^\r\n]*(?:invalid|unsupported)|no schema with key or ref/i;
+  /(?:invalid|malformed|unexpected)\s+(?:json|output|response|event|stream|schema)|failed to (?:parse|decode)|not a valid json schema|(?:json )?schema[^\r\n]*(?:invalid|unsupported|not permitted)|no schema with key or ref/i;
 
 export function classifyProviderFailure(
   provider: AgentProvider,

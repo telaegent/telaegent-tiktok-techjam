@@ -157,6 +157,25 @@ describe("Codex runner protocol", () => {
     expect(codexProcessFailed(0, parsed)).toBe(true);
   });
 
+  it("captures terminal error items emitted by current Codex JSONL", () => {
+    const parsed = {
+      messages: [] as string[],
+      threadId: "thread-123" as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    parseCodexEventLine(
+      JSON.stringify({
+        type: "item.completed",
+        item: { type: "error", message: "model is unavailable" },
+      }),
+      parsed,
+    );
+
+    expect(parsed.errors).toEqual(["model is unavailable"]);
+    expect(codexProcessFailed(1, parsed)).toBe(true);
+  });
+
   it("accepts a clean zero-exit Codex process", () => {
     expect(codexProcessFailed(0, { errors: [] })).toBe(false);
   });
@@ -321,5 +340,22 @@ describe("Codex child environment", () => {
     expect(environment.HTTPS_PROXY).toBe("http://proxy.corp:8080");
     expect(environment.NODE_EXTRA_CA_CERTS).toBe("/etc/corp/ca.pem");
     expect(environment.SSL_CERT_FILE).toBe("/etc/corp/bundle.pem");
+  });
+
+  it("preserves Windows profile locations required by the native CLI", () => {
+    const environment = buildCodexChildEnvironment(config, {
+      USERPROFILE: "C:\\Users\\developer",
+      HOMEDRIVE: "C:",
+      HOMEPATH: "\\Users\\developer",
+      APPDATA: "C:\\Users\\developer\\AppData\\Roaming",
+      LOCALAPPDATA: "C:\\Users\\developer\\AppData\\Local",
+    });
+    expect(environment.USERPROFILE).toBe("C:\\Users\\developer");
+    expect(environment.HOMEDRIVE).toBe("C:");
+    expect(environment.HOMEPATH).toBe("\\Users\\developer");
+    expect(environment.APPDATA).toBe("C:\\Users\\developer\\AppData\\Roaming");
+    expect(environment.LOCALAPPDATA).toBe(
+      "C:\\Users\\developer\\AppData\\Local",
+    );
   });
 });

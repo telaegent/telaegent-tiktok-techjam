@@ -214,6 +214,11 @@ export function parseCodexEventLine(
         provider: "codex",
         text: item.text,
       });
+    } else if (item.type === "error" && typeof item.message === "string") {
+      // Recent Codex CLIs can report the terminal cause only as an error item,
+      // without a top-level `error` or `turn.failed` event. Keep it local for
+      // classification; safeRuntimeError prevents raw text leaving the device.
+      parsed.errors.push(item.message);
     } else {
       const activity = codexActivity(item.type);
       if (activity) {
@@ -270,6 +275,11 @@ const inheritedVariableNames = [
   "WINDIR",
   "ComSpec",
   "HOME",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "APPDATA",
+  "LOCALAPPDATA",
   "TMPDIR",
   "TEMP",
   "TMP",
