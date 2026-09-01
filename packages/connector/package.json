@@ -1,6 +1,6 @@
 {
   "name": "@telaegent/connector",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Local repository and coding-agent connector for Telaegent",
   "type": "module",
   "bin": {
