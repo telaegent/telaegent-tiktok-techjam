@@ -956,6 +956,12 @@ html[data-theme="dark"] .app-rail button > img {
   background: var(--accent);
 }
 
+.repo-unavailable {
+  color: var(--quiet);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
 .repo-mark,
 .repo-meta,
 .repo-open {
