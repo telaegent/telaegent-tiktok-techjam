@@ -142,7 +142,6 @@ Additional technical evidence and decision records:
 
 - [GitHub connection design](GITHUB_CONNECTION_DESIGN.md)
 - [Historical GitHub CLI cloud-auth experiment](docs/research/github-cli-cloud-auth.md)
-- [Superseded Azure GitHub-auth proof](deploy/azure/github-auth-proof/README.md)
 
 ## Working in this repository
 
