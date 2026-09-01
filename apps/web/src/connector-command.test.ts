@@ -11,7 +11,7 @@ const pairing = {
 describe("connector onboarding command", () => {
   it("runs the published connector against the terminal's current repository", () => {
     expect(buildConnectorCommand("https://telaegent.live", pairing)).toBe(
-      "npx --yes @telaegent/connector@0.1.7 connect . --url https://telaegent.live " +
+      "npx --yes @telaegent/connector@0.1.8 connect . --url https://telaegent.live " +
         `--pair ${pairing.pairingCode}`,
     );
   });
