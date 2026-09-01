@@ -261,6 +261,45 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
     expect(PERMISSION_BLOCK).toContain("send, deliver or transmit");
   });
 
+  it("both system prompts say the agent cannot change a file, not merely that it may not", () => {
+    // Told only that it lacks permission, a model reports having considered a
+    // deletion and declined it. The owner reads "no deletion was performed" as
+    // an action taken on their repository, and the answer they asked for is
+    // buried under it. Every path that renders this block pins the sandbox to
+    // read-only, so the stronger claim is available and worth making.
+    expect(PERMISSION_BLOCK).toContain("You cannot");
+    expect(PERMISSION_BLOCK).toContain("delete a file");
+    expect(PERMISSION_BLOCK).toContain(
+      "Do not\nreport that you refrained from an action you were never able to perform",
+    );
+    expect(senderSystemPrompt()).toContain("You cannot");
+    expect(recipientSystemPrompt()).toContain("You cannot");
+  });
+
+  it("both system prompts say a workspace folder name is not a security signal", () => {
+    // From a real turn: the owner's checkout was named `dashboard-operation`,
+    // the project was `telaegent/demo-repository`, and the agent treated the
+    // mismatch as evidence it might be acting on the wrong repository. A local
+    // directory name is the owner's own filing and carries no identity.
+    expect(PERMISSION_BLOCK).toContain("A mismatch is\nordinary");
+    expect(senderSystemPrompt()).toContain("A mismatch is\nordinary");
+    expect(recipientSystemPrompt()).toContain("A mismatch is\nordinary");
+  });
+
+  it("both system prompts define blocked as a property of the draft, not a refusal", () => {
+    // The bug this closes: an agent reasoned correctly about a delete request,
+    // wrote a clear explanation of why it would not comply, and filed it under
+    // "blocked". Invariant I2 nulled the candidate exactly as designed and the
+    // owner was shown "This message cannot be sent." in place of the text they
+    // most needed to read. Disagreement is an answer, and answers ship "ready".
+    for (const prompt of [senderSystemPrompt(), recipientSystemPrompt()]) {
+      expect(prompt).toContain("a statement about your draft, not about the");
+      expect(prompt).toContain("Declining is a normal thing to say");
+      expect(prompt).toContain("a\n  refusal filed as \"blocked\" is a refusal nobody hears");
+      expect(prompt).toContain("riskFlags travel with a \"ready\" turn too");
+    }
+  });
+
   it("only the answering role is told it may ask for a file", () => {
     // Asking opens a bounded collaboration on somebody else's machine, and
     // only a recipient holds one: it is answering a message a human already
