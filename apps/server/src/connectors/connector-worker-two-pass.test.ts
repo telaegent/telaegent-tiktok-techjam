@@ -161,3 +161,98 @@ describe("activity target containment", () => {
     );
   });
 });
+
+describe("two-pass private turn", () => {
+  function twoPassWorker(
+    run: (request: MiddlewareRunRequest) => Promise<NormalizedRunResult>,
+  ): { worker: ConnectorWorker; transport: FakeTransport; requests: MiddlewareRunRequest[] } {
+    const transport = new FakeTransport();
+    const requests: MiddlewareRunRequest[] = [];
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async (request) => {
+        requests.push(request);
+        return await run(request);
+      }),
+      transport,
+      { cancel: async () => true },
+    );
+    return { worker, transport, requests };
+  }
+
+  const byPass = async (request: MiddlewareRunRequest) =>
+    request.outputSchemaName === "investigation-note.schema.json"
+      ? ok({ note: "Refresh lives in src/auth/session.ts" })
+      : ok(draftFinal);
+
+  it("runs investigation first, then the draft, in one job", async () => {
+    const { worker, requests } = twoPassWorker(byPass);
+    await worker.runOnce();
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      outputSchemaName: "investigation-note.schema.json",
+      sessionMode: "ephemeral",
+      sandboxMode: "read-only",
+      networkMode: "none",
+      purpose: "recipient_answer",
+      maxTurns: 12,
+    });
+    expect(requests[1]).toMatchObject({
+      outputSchemaName: "recipient-turn.schema.json",
+      sandboxMode: "read-only",
+      networkMode: "none",
+      maxTurns: 2,
+    });
+    // The draft went through the session store; the investigation did not.
+    expect(requests[1]?.sessionMode).not.toBe("ephemeral");
+  });
+
+  it("feeds the note into the drafting prompt", async () => {
+    const { worker, requests } = twoPassWorker(byPass);
+    await worker.runOnce();
+
+    expect(requests[0]?.runtimePrompt).toContain("How does session refresh work?");
+    expect(requests[1]?.runtimePrompt).toContain("Refresh lives in src/auth/session.ts");
+    expect(requests[1]?.runtimePrompt).toContain("How does session refresh work?");
+  });
+
+  it("never lets the note reach the cloud", async () => {
+    const secret = "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI";
+    const { worker, transport } = twoPassWorker(async (request) =>
+      request.outputSchemaName === "investigation-note.schema.json"
+        ? ok({ note: secret })
+        : ok(draftFinal),
+    );
+    await worker.runOnce();
+
+    expect(transport.results).toHaveLength(1);
+    expect(JSON.stringify(transport.results)).not.toContain(secret);
+    expect(JSON.stringify(transport.progressEvents)).not.toContain(secret);
+  });
+
+  it("still drafts when investigation fails", async () => {
+    const { worker, transport, requests } = twoPassWorker(async (request) => {
+      if (request.outputSchemaName === "investigation-note.schema.json") {
+        throw new Error("provider exploded");
+      }
+      return ok(draftFinal);
+    });
+
+    expect(await worker.runOnce()).toBe("completed");
+    expect(transport.failures).toEqual([]);
+    expect(transport.results).toHaveLength(1);
+    expect(requests[1]?.runtimePrompt).toBe(job.runtimePrompt);
+  });
+
+  it("drafts with the original prompt when the note is not a usable string", async () => {
+    const { worker, requests } = twoPassWorker(async (request) =>
+      request.outputSchemaName === "investigation-note.schema.json"
+        ? ok({ note: 42 })
+        : ok(draftFinal),
+    );
+    await worker.runOnce();
+
+    expect(requests[1]?.runtimePrompt).toBe(job.runtimePrompt);
+  });
+});
