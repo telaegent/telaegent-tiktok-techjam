@@ -294,6 +294,11 @@ describe("connector worker serving resource requests", () => {
       transport,
       {
         cancel: async () => false,
+        // The registry is built on a frozen clock, so the worker must share it.
+        // On real time, pruneExpiredResources() retires entries without a
+        // taskExpiresAt after LEGACY_ENTRY_RETENTION_MS, which made this suite
+        // start failing permanently once 24h had passed since that fixed date.
+        now: () => now.getTime(),
         ...(withRegistry ? { resources: { registry } } : {}),
       },
     );
