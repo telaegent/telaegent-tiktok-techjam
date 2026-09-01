@@ -278,6 +278,7 @@ export class ConversationService {
       updatedAt: this.now().toISOString(),
     });
     if (!updated) throw new HttpError(409, "Private draft cannot be cancelled");
+    await this.endFollowUp(updated, "cancelled");
     return toPrivateDraftView(updated);
   }
 
@@ -326,6 +327,7 @@ export class ConversationService {
       updatedAt: timestamp,
     });
     if (!result) throw new HttpError(409, "Send request conflicts with existing state");
+    await this.endFollowUp(draft, "completed");
     return result;
   }
 
@@ -492,5 +494,21 @@ export class ConversationService {
       githubRepositoryId: draft.githubRepositoryId,
       conversationId: draft.conversationId,
     };
+  }
+
+  private async endFollowUp(
+    draft: Readonly<PrivateDraft>,
+    status: "completed" | "cancelled",
+  ): Promise<void> {
+    if (!this.followUp || draft.role !== "recipient") return;
+    await this.followUp.end(
+      {
+        incomingMessageId: draft.incomingMessageId,
+        conversationId: draft.conversationId,
+        githubRepositoryId: draft.githubRepositoryId,
+        ownerUserId: draft.ownerUserId,
+      },
+      status,
+    );
   }
 }

@@ -133,6 +133,7 @@ describe("a turn that asks for files it cannot see", () => {
       run: vi.fn(async () => [
         { resourceId: RESOURCE, content: "rotate();", truncated: false },
       ]),
+      end: async () => undefined,
     };
     const { service, repository, starts } = harness(
       [turn("I need the settings file", [ask]), turn("Rotation happens hourly")],
@@ -163,7 +164,10 @@ describe("a turn that asks for files it cannot see", () => {
   });
 
   it("answers with what it had when nothing came back", async () => {
-    const followUp: PrivateDraftFollowUp = { run: async () => [] };
+    const followUp: PrivateDraftFollowUp = {
+      run: async () => [],
+      end: async () => undefined,
+    };
     const { service, repository, starts } = harness(
       [turn("I asked and I am still waiting", [ask])],
       followUp,
@@ -197,6 +201,7 @@ describe("a turn that asks for files it cannot see", () => {
       run: vi.fn(async () => [
         { resourceId: RESOURCE, content: "rotate();", truncated: false },
       ]),
+      end: async () => undefined,
     };
     // Every turn asks again and every round delivers, which is the shape a
     // loop that cannot make progress has.
@@ -213,5 +218,39 @@ describe("a turn that asks for files it cannot see", () => {
     // reached it.
     expect(starts).toHaveLength(6);
     expect(followUp.run).toHaveBeenCalledTimes(5);
+  });
+
+  it("ends task-scoped authority after the recipient sends the final response", async () => {
+    const end = vi.fn<NonNullable<PrivateDraftFollowUp["end"]>>(async () => undefined);
+    const followUp: PrivateDraftFollowUp = { run: async () => [], end };
+    const { service, repository } = harness([turn("Rotation happens hourly")], followUp);
+
+    await seedDraft(repository);
+    await service.runDraft(OWNER, DRAFT);
+    await expect.poll(() => service.getDraft(OWNER, DRAFT)).toMatchObject({ state: "ready" });
+    await service.sendDraft({
+      authenticatedUserId: OWNER,
+      draftId: DRAFT,
+      idempotencyKey: "send-once",
+    });
+
+    expect(end).toHaveBeenCalledWith(
+      expect.objectContaining({ incomingMessageId: MESSAGE, ownerUserId: OWNER }),
+      "completed",
+    );
+  });
+
+  it("ends task-scoped authority when the recipient cancels", async () => {
+    const end = vi.fn<NonNullable<PrivateDraftFollowUp["end"]>>(async () => undefined);
+    const followUp: PrivateDraftFollowUp = { run: async () => [], end };
+    const { service, repository } = harness([turn("unused")], followUp);
+
+    await seedDraft(repository);
+    await service.cancelDraft(OWNER, DRAFT);
+
+    expect(end).toHaveBeenCalledWith(
+      expect.objectContaining({ incomingMessageId: MESSAGE, ownerUserId: OWNER }),
+      "cancelled",
+    );
   });
 });
