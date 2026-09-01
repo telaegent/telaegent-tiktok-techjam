@@ -1,6 +1,6 @@
 import type { ConnectorPairing } from "./api";
 
-export const connectorPackageSpec = "@telaegent/connector@0.1.4";
+export const connectorPackageSpec = "@telaegent/connector@0.1.5";
 
 const urlSafeTokenPattern = /^[A-Za-z0-9_-]{16,128}$/;
 
