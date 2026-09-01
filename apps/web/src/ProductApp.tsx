@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -44,7 +45,11 @@ import {
   connectorPresence,
   type ConnectorPresence,
 } from "./connector-presence";
-import { partitionProjects, projectAvailability } from "./project-list";
+import {
+  partitionProjects,
+  projectAction,
+  projectAvailability,
+} from "./project-list";
 import {
   initialProductEntryRoute,
   productEntryRouteAfterDiscovery,
@@ -746,6 +751,7 @@ function ProductNav({
 
 function ProjectsScreen({
   onOpenProject,
+  onConnectProject,
   onAddProject,
   onReconnect,
   connectionState,
@@ -755,6 +761,7 @@ function ProjectsScreen({
   onRetry,
 }: {
   onOpenProject: (project: ProjectSummary) => void;
+  onConnectProject: (project: ProjectSummary) => void;
   onAddProject: () => void;
   onReconnect: () => void;
   connectionState: ConnectorPresence;
@@ -768,13 +775,11 @@ function ProjectsScreen({
   function projectRow(project: ProjectSummary) {
     const repository = repositoryParts(project.repositoryFullName);
     const availability = projectAvailability(project);
-    const available = availability === "Open";
+    const action = projectAction(project);
     return (
-      <button
-        type="button"
+      <article
+        className="project-row"
         key={project.projectId}
-        disabled={!available}
-        onClick={() => onOpenProject(project)}
       >
         <span className="repo-mark" aria-hidden="true">
           {repository.name.slice(0, 2).toUpperCase()}
@@ -796,13 +801,22 @@ function ProjectsScreen({
             {project.binding.currentBranch ?? project.defaultBranch}
           </strong>
           <small>
-            {project.connectorLive
-              ? "Connector online"
-              : "Connector not currently online"}
+            {availability === "Open" ? "Connector online" : availability}
           </small>
         </span>
-        <span className="repo-open">{availability}</span>
-      </button>
+        <button
+          className={`repo-action ${action.toLowerCase()}`}
+          type="button"
+          aria-label={`${action} ${project.repositoryFullName}`}
+          onClick={() =>
+            action === "Open"
+              ? onOpenProject(project)
+              : onConnectProject(project)
+          }
+        >
+          {action}
+        </button>
+      </article>
     );
   }
 
@@ -918,20 +932,24 @@ function ProjectsScreen({
 function AddProjectScreen({
   onBack,
   onConnected,
+  project,
   autoGenerate = false,
 }: {
   onBack: () => void;
   onConnected: () => void;
+  project?: ProjectSummary | null;
   autoGenerate?: boolean;
 }) {
-  const [stage, setStage] = useState<GithubStage>("idle");
+  const [stage, setStage] = useState<GithubStage>(
+    autoGenerate ? "issuing" : "idle",
+  );
   const [pairing, setPairing] = useState<ConnectorPairing | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [checking, setChecking] = useState(false);
   const [copied, setCopied] = useState(false);
   const autoGenerateStartedRef = useRef(false);
 
-  async function createCommand() {
+  const createCommand = useCallback(async () => {
     setStage("issuing");
     setError(null);
     try {
@@ -943,7 +961,13 @@ function AddProjectScreen({
       setError(normalizeApiError(nextError));
       setStage("error");
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!autoGenerate || autoGenerateStartedRef.current) return;
+    autoGenerateStartedRef.current = true;
+    void createCommand();
+  }, [autoGenerate, createCommand]);
 
   async function copyCommand() {
     if (!pairing) return;
@@ -1025,8 +1049,10 @@ function AddProjectScreen({
         <span className="app-eyebrow">Repository connection</span>
         <h1>Add a project</h1>
         <p>
-          Run Telaegent from the local Git repository you want to add. The
-          repository path and credentials stay on your computer.
+          {project
+            ? `Run Telaegent from your local ${project.repositoryFullName} repository. `
+            : "Run Telaegent from the local Git repository you want to add. "}
+          The repository path and credentials stay on your computer.
         </p>
       </header>
 
@@ -1058,7 +1084,11 @@ function AddProjectScreen({
         <section className="device-flow add-project-card">
           <div>
             <span>Run from your repository</span>
-            <strong>Connect this repository</strong>
+            <strong>
+              {project
+                ? `Connect ${project.repositoryFullName}`
+                : "Connect this repository"}
+            </strong>
           </div>
           <p>
             Open a terminal in the repository you want to add, then run this
@@ -3128,6 +3158,8 @@ export default function ProductApp({
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(
     null,
   );
+  const [projectToConnect, setProjectToConnect] =
+    useState<ProjectSummary | null>(null);
   const projectsRequestInFlightRef = useRef(false);
   const entryProjectDiscoveryRef = useRef<"pending" | "loading" | "resolved">(
     !preview && user && isDefaultProductEntry && initialRoute === "projects"
@@ -3226,7 +3258,14 @@ export default function ProductApp({
     navigateProduct("workspace", project.projectId);
   }
 
+  function connectProject(project: ProjectSummary) {
+    setProjectToConnect(project);
+    setAutoGenerateConnectorCommand(true);
+    navigateProduct("add-project");
+  }
+
   function openConnectorSetup(autoGenerate: boolean) {
+    setProjectToConnect(null);
     setAutoGenerateConnectorCommand(autoGenerate);
     navigateProduct("add-project");
   }
@@ -3333,6 +3372,7 @@ export default function ProductApp({
           {route === "projects" && (
             <ProjectsScreen
               onOpenProject={openProject}
+              onConnectProject={connectProject}
               onAddProject={() => openConnectorSetup(false)}
               onReconnect={() => openConnectorSetup(true)}
               connectionState={connectionState}
@@ -3344,9 +3384,18 @@ export default function ProductApp({
           )}
           {route === "add-project" && (
             <AddProjectScreen
-              onBack={() => navigateProduct("projects")}
-              onConnected={() => navigateProduct("projects")}
+              project={projectToConnect}
               autoGenerate={autoGenerateConnectorCommand}
+              onBack={() => {
+                setProjectToConnect(null);
+                setAutoGenerateConnectorCommand(false);
+                navigateProduct("projects");
+              }}
+              onConnected={() => {
+                setProjectToConnect(null);
+                setAutoGenerateConnectorCommand(false);
+                navigateProduct("projects");
+              }}
             />
           )}
           {route === "connections" && (

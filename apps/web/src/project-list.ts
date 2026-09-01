@@ -6,6 +6,8 @@ export type ProjectAvailability =
   | "Needs verification"
   | "Connector offline";
 
+export type ProjectAction = "Open" | "Connect";
+
 export function projectAvailability(project: ProjectSummary): ProjectAvailability {
   if (
     project.projectStatus !== "active" ||
@@ -20,6 +22,10 @@ export function projectAvailability(project: ProjectSummary): ProjectAvailabilit
     return "Connector offline";
   }
   return "Open";
+}
+
+export function projectAction(project: ProjectSummary): ProjectAction {
+  return projectAvailability(project) === "Open" ? "Open" : "Connect";
 }
 
 export function partitionProjects(projects: readonly ProjectSummary[]): {

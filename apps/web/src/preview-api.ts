@@ -56,6 +56,25 @@ const project: ProjectSummary = {
   },
 };
 
+const offlineProject: ProjectSummary = {
+  ...project,
+  projectId: "77777777-7777-4777-8777-777777777777",
+  githubRepositoryId: "123456789",
+  repositoryFullName: "telaegent/design-system",
+  connectedCollaboratorCount: 0,
+  connectorLive: false,
+  binding: {
+    ...project.binding,
+    connectorBindingId: "88888888-8888-4888-8888-888888888888",
+    connectorInstanceId: null,
+    status: "stopped",
+    currentBranch: "main",
+    commitSha: "717f4ec717f4ec717f4ec717f4ec717f4ec717f4",
+    lastSeenAt: "2026-08-31T18:10:00.000Z",
+    unavailableReason: "Connector stopped",
+  },
+};
+
 let collaborator: ProjectCollaborator = {
   userId: peerUserId,
   githubLogin: "mark-preview",
@@ -261,7 +280,7 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
     };
   }
   if (url.startsWith("/api/projects?") && method === "GET") {
-    return { projects: [copy(project)], nextCursor: null };
+    return { projects: [copy(project), copy(offlineProject)], nextCursor: null };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/collaborators(?:\?|$)/) && method === "GET") {
     return { collaborators: [copy(collaborator)] };

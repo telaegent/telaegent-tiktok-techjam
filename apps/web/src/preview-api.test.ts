@@ -27,7 +27,11 @@ describe("local UI preview", () => {
     const projects = await previewRequest("/api/projects?limit=50") as {
       projects: ProjectSummary[];
     };
-    expect(projects.projects).toHaveLength(1);
+    expect(projects.projects).toHaveLength(2);
+    expect(projects.projects[1]).toMatchObject({
+      repositoryFullName: "telaegent/design-system",
+      connectorLive: false,
+    });
 
     const collaborators = await previewRequest(
       "/api/projects/33333333-3333-4333-8333-333333333333/collaborators?limit=50",

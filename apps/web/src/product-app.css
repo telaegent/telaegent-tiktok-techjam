@@ -899,7 +899,7 @@ html[data-theme="dark"] .app-rail button > img {
   text-align: right;
 }
 
-.project-list > button {
+.project-row {
   width: 100%;
   min-height: 108px;
   padding: 16px 14px;
@@ -913,28 +913,47 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--text);
   text-align: left;
   background: transparent;
-  cursor: pointer;
   transition:
     background 140ms ease,
     border-color 140ms ease;
 }
 
-.project-list > button:hover:not(:disabled) {
+.project-row:hover {
   border-left-color: var(--accent);
   background: var(--surface);
 }
 
-.project-list > button:hover .repo-title strong {
+.project-row:hover .repo-title strong {
   color: var(--accent);
 }
 
-.project-list > button:disabled {
-  opacity: 0.58;
-  cursor: default;
+.repo-action {
+  min-width: 72px;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.project-list > button:disabled:hover .repo-title strong {
-  color: var(--text);
+.repo-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.repo-action.connect {
+  border-color: var(--text);
+  color: var(--surface-raised);
+  background: var(--text);
+}
+
+.repo-action.connect:hover {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .repo-mark,
@@ -2780,7 +2799,7 @@ html[data-theme="dark"] .app-rail button > img {
     font-size: 35px;
   }
 
-  .project-list > button {
+  .project-row {
     padding-right: 8px;
     padding-left: 8px;
     grid-template-columns: 34px minmax(0, 1fr) auto;
@@ -2929,7 +2948,7 @@ html[data-theme="dark"] .app-rail button > img {
     display: none;
   }
 
-  .project-list > button {
+  .project-row {
     grid-template-columns: 34px minmax(0, 1fr);
   }
 
