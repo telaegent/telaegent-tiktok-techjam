@@ -173,7 +173,7 @@ function safeReturnTo(value: string | undefined): string {
   ) {
     return value;
   }
-  return "/?view=platform";
+  return "/app";
 }
 
 function failed(): UserAuthenticationError {

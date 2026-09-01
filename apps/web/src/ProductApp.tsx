@@ -32,6 +32,12 @@ import {
   selectConnectedPeer,
 } from "./project-conversation";
 import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
+import {
+  APP_PATH,
+  productLocationFromUrl,
+  productPath,
+  type ProductRoute,
+} from "./app-routing";
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import { partitionProjects, projectAvailability } from "./project-list";
@@ -42,12 +48,6 @@ import {
 import "./product-app.css";
 
 type Theme = "light" | "dark";
-type ProductRoute =
-  | "onboarding"
-  | "projects"
-  | "connections"
-  | "settings"
-  | "workspace";
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
 type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
 
@@ -2669,16 +2669,28 @@ export default function ProductApp({
   onLogout: () => void | Promise<void>;
   preview?: boolean;
 }) {
-  const [route, setRoute] = useState<ProductRoute>(() => {
-    const previewRoute = new URLSearchParams(window.location.search).get(
-      "route",
-    );
-    return initialProductEntryRoute({
-      authenticated: user !== null,
-      preview,
-      requestedPreviewRoute: previewRoute,
-    });
-  });
+  const initialLocation = productLocationFromUrl(
+    window.location.pathname,
+    window.location.search,
+    preview,
+  );
+  const isDefaultProductEntry =
+    window.location.pathname === APP_PATH ||
+    !window.location.pathname.startsWith(`${APP_PATH}/`);
+  const requestedPreviewRoute = new URLSearchParams(
+    window.location.search,
+  ).get("route");
+  const initialRoute = isDefaultProductEntry
+    ? initialProductEntryRoute({
+        authenticated: user !== null,
+        preview,
+        requestedPreviewRoute,
+      })
+    : initialLocation.route;
+  const [route, setRoute] = useState<ProductRoute>(initialRoute);
+  const [workspaceProjectId, setWorkspaceProjectId] = useState<string | null>(
+    initialLocation.projectId,
+  );
   const [discoveredProjects, setDiscoveredProjects] = useState<
     ProjectSummary[]
   >([]);
@@ -2691,7 +2703,9 @@ export default function ProductApp({
   );
   const projectsRequestInFlightRef = useRef(false);
   const entryProjectDiscoveryRef = useRef<"pending" | "loading" | "resolved">(
-    !preview && user ? "pending" : "resolved",
+    !preview && user && isDefaultProductEntry && initialRoute === "projects"
+      ? "pending"
+      : "resolved",
   );
 
   async function loadProjects() {
@@ -2711,8 +2725,15 @@ export default function ProductApp({
             ) ?? null)
           : null,
       );
-      if (resolvesProductEntry) {
-        setRoute(productEntryRouteAfterDiscovery(result.projects.length));
+      if (
+        resolvesProductEntry &&
+        entryProjectDiscoveryRef.current === "loading"
+      ) {
+        navigateProduct(
+          productEntryRouteAfterDiscovery(result.projects.length),
+          null,
+          true,
+        );
       }
     } catch (error) {
       setProjectsError(normalizeApiError(error));
@@ -2731,9 +2752,51 @@ export default function ProductApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, user?.userId]);
 
+  useEffect(() => {
+    const syncRoute = () => {
+      const nextLocation = productLocationFromUrl(
+        window.location.pathname,
+        window.location.search,
+        preview,
+      );
+      setRoute(nextLocation.route);
+      setWorkspaceProjectId(nextLocation.projectId);
+      if (nextLocation.route !== "workspace") setSelectedProject(null);
+    };
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, [preview]);
+
+  useEffect(() => {
+    if (route !== "workspace" || !workspaceProjectId) return;
+    const restoredProject = discoveredProjects.find(
+      (project) => project.projectId === workspaceProjectId,
+    );
+    if (restoredProject) setSelectedProject(restoredProject);
+  }, [discoveredProjects, route, workspaceProjectId]);
+
+  function navigateProduct(
+    nextRoute: ProductRoute,
+    projectId: string | null = null,
+    replace = false,
+  ) {
+    entryProjectDiscoveryRef.current = "resolved";
+    const nextPath = productPath(nextRoute, projectId, preview);
+    if (`${window.location.pathname}${window.location.search}` !== nextPath) {
+      window.history[replace ? "replaceState" : "pushState"](
+        null,
+        "",
+        nextPath,
+      );
+    }
+    setRoute(nextRoute);
+    setWorkspaceProjectId(projectId);
+    if (nextRoute !== "workspace") setSelectedProject(null);
+  }
+
   function openProject(project: ProjectSummary) {
     setSelectedProject(project);
-    setRoute("workspace");
+    navigateProduct("workspace", project.projectId);
   }
 
   if (route === "onboarding") {
@@ -2743,7 +2806,7 @@ export default function ProductApp({
         onToggleTheme={onToggleTheme}
         onExit={onExit}
         user={user}
-        onComplete={() => setRoute("projects")}
+        onComplete={() => navigateProduct("projects", null, true)}
       />
     );
   }
@@ -2794,7 +2857,7 @@ export default function ProductApp({
         </div>
       </header>
       <div className="app-body">
-        <ProductNav route={route} onNavigate={setRoute} />
+        <ProductNav route={route} onNavigate={navigateProduct} />
         <main className="app-content">
           {route === "projects" && (
             <ProjectsScreen
@@ -2819,14 +2882,17 @@ export default function ProductApp({
           {route === "workspace" && selectedProject && (
             <Workspace
               project={selectedProject}
-              onBack={() => setRoute("projects")}
+              onBack={() => navigateProduct("projects")}
               currentUserId={user?.userId ?? null}
             />
           )}
           {route === "workspace" && !selectedProject && (
             <div className="app-page api-state">
-              <strong>Select a verified project first</strong>
-              <button type="button" onClick={() => setRoute("projects")}>
+              <strong>This verified project is unavailable</strong>
+              <button
+                type="button"
+                onClick={() => navigateProduct("projects")}
+              >
                 Back to projects
               </button>
             </div>

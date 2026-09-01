@@ -7,10 +7,16 @@ import codexLogo from "../../../ui/logo/codex-color.svg";
 import ProductApp from "./ProductApp";
 import SandboxPreview from "./SandboxPreview";
 import { api, type TelaegentSession } from "./api";
+import {
+  APP_PATH,
+  ONBOARDING_PATH,
+  canonicalProductUrl,
+  surfaceFromUrl,
+  type AppSurface,
+} from "./app-routing";
 import { isUiPreviewEnabled } from "./preview-api";
 
 type Theme = "light" | "dark";
-type Surface = "landing" | "product";
 
 function applyDocumentTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
@@ -160,10 +166,8 @@ function HowItWorks() {
 export default function App() {
   const uiPreview = isUiPreviewEnabled();
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const [surface, setSurface] = useState<Surface>(() =>
-    new URLSearchParams(window.location.search).get("view") === "platform"
-      ? "product"
-      : "landing",
+  const [surface, setSurface] = useState<AppSurface>(() =>
+    surfaceFromUrl(window.location.pathname, window.location.search),
   );
   const [session, setSession] = useState<TelaegentSession | null>(null);
   const [sessionError, setSessionError] = useState(false);
@@ -172,6 +176,23 @@ export default function App() {
     applyDocumentTheme(theme);
     window.localStorage.setItem("telaegent-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const canonicalUrl = canonicalProductUrl(
+      window.location.pathname,
+      window.location.search,
+    );
+    if (canonicalUrl) {
+      window.history.replaceState(null, "", canonicalUrl);
+    }
+    const syncSurface = () => {
+      setSurface(
+        surfaceFromUrl(window.location.pathname, window.location.search),
+      );
+    };
+    window.addEventListener("popstate", syncSurface);
+    return () => window.removeEventListener("popstate", syncSurface);
+  }, []);
 
   useEffect(() => {
     if (surface !== "product") return;
@@ -194,6 +215,17 @@ export default function App() {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   }
 
+  function navigateSurface(nextSurface: AppSurface) {
+    const nextUrl = nextSurface === "product" ? APP_PATH : "/";
+    if (
+      `${window.location.pathname}${window.location.search}${window.location.hash}` !==
+      nextUrl
+    ) {
+      window.history.pushState(null, "", nextUrl);
+    }
+    setSurface(nextSurface);
+  }
+
   if (surface === "product") {
     if (sessionError) {
       return (
@@ -208,7 +240,7 @@ export default function App() {
             <button
               className="app-primary-action"
               type="button"
-              onClick={() => setSurface("landing")}
+              onClick={() => navigateSurface("landing")}
             >
               Back
             </button>
@@ -237,7 +269,7 @@ export default function App() {
             </p>
             <a
               className="app-primary-action"
-              href="/api/auth/github/start?returnTo=%2F%3Fview%3Dplatform"
+              href={`/api/auth/github/start?returnTo=${encodeURIComponent(ONBOARDING_PATH)}`}
             >
               Continue with GitHub
             </a>
@@ -249,7 +281,7 @@ export default function App() {
       <ProductApp
         theme={theme}
         onToggleTheme={toggleTheme}
-        onExit={() => setSurface("landing")}
+        onExit={() => navigateSurface("landing")}
         user={session.enabled && session.authenticated ? session.user : null}
         preview={uiPreview}
         onLogout={async () => {
@@ -257,7 +289,7 @@ export default function App() {
             await api.logout();
             setSession({ enabled: true, authenticated: false });
           } else {
-            setSurface("landing");
+            navigateSurface("landing");
           }
         }}
       />
@@ -292,7 +324,7 @@ export default function App() {
           <button
             className="header-cta"
             type="button"
-            onClick={() => setSurface("product")}
+            onClick={() => navigateSurface("product")}
           >
             Open Telægent
           </button>
@@ -313,7 +345,7 @@ export default function App() {
             <button
               className="button-primary"
               type="button"
-              onClick={() => setSurface("product")}
+              onClick={() => navigateSurface("product")}
             >
               Open Telægent
             </button>
@@ -334,7 +366,7 @@ export default function App() {
             <h2>See the handoff.</h2>
             <p>One request, two private agents, and two human decisions.</p>
           </header>
-          <SandboxPreview onTryOut={() => setSurface("product")} />
+          <SandboxPreview onTryOut={() => navigateSurface("product")} />
         </section>
 
         <HowItWorks />

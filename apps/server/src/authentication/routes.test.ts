@@ -26,7 +26,7 @@ describe("Telaegent identity HTTP routes", () => {
         user,
         sessionToken: "t".repeat(43),
         sessionMaxAgeSeconds: 86_400,
-        returnTo: "/?view=platform",
+        returnTo: "/app/onboarding",
       })),
       loadSession: vi.fn(async (token: string | null) =>
         token === "t".repeat(43) ? user : null,
@@ -47,7 +47,7 @@ describe("Telaegent identity HTTP routes", () => {
 
     const started = await app.inject({
       method: "GET",
-      url: "/api/auth/github/start?returnTo=%2F%3Fview%3Dplatform",
+      url: "/api/auth/github/start?returnTo=%2Fapp%2Fonboarding",
     });
     expect(started.statusCode).toBe(302);
     expect(started.headers.location).toMatch(/^https:\/\/github\.com\//);
@@ -64,7 +64,7 @@ describe("Telaegent identity HTTP routes", () => {
       headers: { cookie: "telaegent_oauth=signed-oauth-cookie" },
     });
     expect(callback.statusCode).toBe(302);
-    expect(callback.headers.location).toBe("/?view=platform");
+    expect(callback.headers.location).toBe("/app/onboarding");
     expect(callback.headers["set-cookie"]).toEqual(
       expect.arrayContaining([
         expect.stringContaining("telaegent_session=" + "t".repeat(43)),

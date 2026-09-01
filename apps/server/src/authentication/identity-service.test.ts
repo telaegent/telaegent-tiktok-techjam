@@ -82,7 +82,7 @@ function harness() {
 describe("Telaegent GitHub identity sessions", () => {
   it("uses state and PKCE, creates an opaque session, and never persists the OAuth token", async () => {
     const test = harness();
-    const started = await test.service.beginGitHubLogin("/?view=platform");
+    const started = await test.service.beginGitHubLogin("/app/onboarding");
     const authorization = new URL(started.authorizationUrl);
     const state = authorization.searchParams.get("state");
 
@@ -98,7 +98,7 @@ describe("Telaegent GitHub identity sessions", () => {
     });
 
     expect(completed.user).toEqual(user);
-    expect(completed.returnTo).toBe("/?view=platform");
+    expect(completed.returnTo).toBe("/app/onboarding");
     expect(completed.sessionToken).toMatch(/^[A-Za-z0-9_-]{40,}$/);
     expect(await test.service.loadSession(completed.sessionToken)).toEqual(user);
     expect(JSON.stringify(test.repository.completedInput)).not.toContain(
@@ -128,7 +128,7 @@ describe("Telaegent GitHub identity sessions", () => {
       state,
       oauthCookieValue: started.oauthCookieValue,
     });
-    expect(completed.returnTo).toBe("/?view=platform");
+    expect(completed.returnTo).toBe("/app");
     expect(await test.service.loadSession("not-a-session")).toBeNull();
 
     await expect(
