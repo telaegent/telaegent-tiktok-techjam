@@ -2,10 +2,12 @@ import path from "node:path";
 import { z } from "zod";
 import type {
   ManagedAgentTurnRequest,
+  ManagedAgentTurnResult,
   ProviderSessionManager,
   ProviderSessionScope,
 } from "../provider-session-manager.js";
 import type { RuntimeProgressEvent } from "../runtime-contract.js";
+import { buildInvestigationPrompt } from "../telagent/protocol/prompts/investigate.js";
 import {
   RuntimeProviderError,
   normalizeRuntimeFailure,
@@ -30,6 +32,7 @@ import {
   type ResourceExchangeRequest,
   type ResourceExchangeResponse,
 } from "./resource-exchange.js";
+import { projectRelativeDisplayLabel } from "./workspace-label.js";
 
 /**
  * The bound the connector result route enforces. Applied here too so an
@@ -37,6 +40,39 @@ import {
  * rejected in transport, which would lose the answer along with the questions.
  */
 const MAX_LIFTED_RESOURCE_REQUESTS = 16;
+
+/**
+ * The investigation pass's budget.
+ *
+ * It is larger than any drafting budget on purpose, and it is safe to be
+ * larger for a structural reason rather than a policy one: this pass is bound
+ * to a one-field output schema, so it has no shape in which to return a
+ * message, a state, or a resource request. It can read and it cannot send.
+ *
+ * The cloud never selects it. `jobSchema` still refuses any purpose other than
+ * the two drafting purposes and any `maxTurns` above 3; this request is built
+ * here, from a job that already passed that check.
+ */
+const INVESTIGATION_MAX_TURNS = 12;
+const INVESTIGATION_SCHEMA_NAME = "investigation-note.schema.json";
+
+/**
+ * The research pass's share of the cloud's job budget.
+ *
+ * `LongPollConnectorJobRelay` times a job out at `max(CLAUDE_TIMEOUT_MS,
+ * CODEX_TIMEOUT_MS)`, and that budget covers the whole job while the provider
+ * timeout of the same name bounds one run. Before two passes those two limits
+ * described the same interval. They no longer do: an investigation that runs
+ * long spends budget the drafting pass still needs, and the owner sees the job
+ * time out — indistinguishable, from the outside, from a dropped connector.
+ *
+ * A turn cap is not a time cap. Twelve turns of `Grep` over a large repository
+ * can outlast twelve turns of anything else, so the bound has to be wall clock.
+ * Crossing it aborts the research pass alone; the drafting pass then runs with
+ * the original prompt and the rest of the budget, exactly as it did before this
+ * existed.
+ */
+const INVESTIGATION_DEADLINE_MS = 90_000;
 
 const idPart = z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/);
 const jobSchema = z.strictObject({
@@ -170,19 +206,7 @@ export class ConnectorWorker {
     };
     signal?.addEventListener("abort", abortExecution, { once: true });
     if (externallyAborted) abortExecution();
-    const execution = this.sessions.run(
-      this.scope(job),
-      this.request(job),
-      // Raw provider text is private working state. The cloud receives only
-      // structural status; the bounded final result travels through `result`.
-      (event) => {
-        if (event.type === "text_delta") return;
-        void this.transport.progress(job.jobId, event).catch(() => undefined);
-      },
-      undefined,
-      undefined,
-      executionController.signal,
-    );
+    const execution = this.runTurn(job, executionController.signal);
     // ProviderSessionManager enters through a serialized queue. Let the owned
     // run acquire that queue before a synthetic/very-fast cancellation can be
     // observed by the concurrent long poll.
@@ -356,13 +380,109 @@ export class ConnectorWorker {
     };
   }
 
-  private request(job: Readonly<ConnectorJobRequest>): ManagedAgentTurnRequest {
+  /**
+   * One private turn: research, then draft.
+   *
+   * Both passes live inside this single promise so `runOnce`'s cancellation
+   * watcher, abort signal, and cleanup cover the investigation exactly as they
+   * cover the draft. Splitting them would leave the longer pass unwatched.
+   */
+  private async runTurn(
+    job: Readonly<ConnectorJobRequest>,
+    signal: AbortSignal,
+  ): Promise<ManagedAgentTurnResult> {
+    const investigationNote = await this.investigate(job, signal);
+    return await this.sessions.run(
+      this.scope(job),
+      this.request(job, investigationNote),
+      (event) => {
+        this.forwardProgress(job.jobId, event);
+      },
+      undefined,
+      undefined,
+      signal,
+    );
+  }
+
+  /**
+   * The research pass. Its note never leaves this process.
+   *
+   * Failure is not an error: a turn that could not investigate is still a turn
+   * the owner is waiting for, so a failed or overrunning research pass returns
+   * an empty note and lets the drafting pass run exactly as it did before two
+   * passes existed. Cancellation is the one exception — see the catch.
+   */
+  private async investigate(
+    job: Readonly<ConnectorJobRequest>,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const deadline = new AbortController();
+    const stopInvestigating = (): void => {
+      deadline.abort();
+    };
+    signal.addEventListener("abort", stopInvestigating, { once: true });
+    const timer = setTimeout(stopInvestigating, INVESTIGATION_DEADLINE_MS);
+    timer.unref?.();
+    try {
+      const result = await this.sessions.run(
+        this.scope(job),
+        {
+          agentId: this.binding.connectorBindingId,
+          connectorBindingId: this.binding.connectorBindingId,
+          workspacePath: this.binding.workspacePath,
+          purpose: job.purpose,
+          runtimePrompt: buildInvestigationPrompt(job.runtimePrompt),
+          persistedSummary: job.persistedSummary,
+          // A research pass must not consume, rotate, or pollute the
+          // conversation's provider session.
+          sessionMode: "ephemeral",
+          sandboxMode: job.sandboxMode,
+          networkMode: job.networkMode,
+          outputSchemaName: INVESTIGATION_SCHEMA_NAME,
+          correlationId: job.correlationId,
+          maxTurns: INVESTIGATION_MAX_TURNS,
+        },
+        (event) => {
+          this.forwardProgress(job.jobId, event);
+        },
+        undefined,
+        undefined,
+        deadline.signal,
+      );
+      const note = (result.final as { note?: unknown } | null)?.note;
+      return typeof note === "string" ? note : "";
+    } catch (error) {
+      // A cancelled job is not a failed investigation. The owner asked the whole
+      // turn to stop, so this must not be swallowed into a drafting pass nobody
+      // is waiting for.
+      if (signal.aborted) throw error;
+      // Anything else — the deadline included — is an enhancement that did not
+      // arrive. Degrade to the single-pass turn.
+      return "";
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", stopInvestigating);
+    }
+  }
+
+  private request(
+    job: Readonly<ConnectorJobRequest>,
+    investigationNote: string,
+  ): ManagedAgentTurnRequest {
     return {
       agentId: this.binding.connectorBindingId,
       connectorBindingId: this.binding.connectorBindingId,
       workspacePath: this.binding.workspacePath,
       purpose: job.purpose,
-      runtimePrompt: job.runtimePrompt,
+      runtimePrompt: investigationNote
+        ? [
+            job.runtimePrompt,
+            "Findings from your own research pass in this repository. They are"
+              + " yours, not a message from anyone: treat them as notes you took"
+              + " a moment ago, and verify anything you are about to assert.",
+            investigationNote,
+          ].join("\n\n")
+        : job.runtimePrompt,
       persistedSummary: job.persistedSummary,
       sessionMode: job.sessionMode,
       sandboxMode: job.sandboxMode,
@@ -371,6 +491,33 @@ export class ConnectorWorker {
       correlationId: job.correlationId,
       maxTurns: job.maxTurns,
     };
+  }
+
+  /**
+   * The single point where provider progress crosses into cloud custody.
+   *
+   * Raw provider text never crosses. An activity target does, but only after
+   * the same containment check that governs resource delivery reduces it to a
+   * workspace-relative label; anything resolving outside the workspace loses
+   * its target and travels as the bare activity it is today.
+   */
+  private forwardProgress(jobId: string, event: RuntimeProgressEvent): void {
+    if (event.type === "text_delta") return;
+    const contained = this.containActivityTarget(event);
+    void this.transport.progress(jobId, contained).catch(() => undefined);
+  }
+
+  private containActivityTarget(event: RuntimeProgressEvent): RuntimeProgressEvent {
+    if (event.type !== "activity_started" && event.type !== "activity_completed") {
+      return event;
+    }
+    if (event.target === undefined) return event;
+    const label = projectRelativeDisplayLabel(this.binding.workspacePath, event.target);
+    if (label === null) {
+      const { target: _dropped, ...rest } = event;
+      return rest;
+    }
+    return { ...event, target: label };
   }
 }
 

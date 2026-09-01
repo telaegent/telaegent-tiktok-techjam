@@ -148,7 +148,14 @@ describe("conversation -> cloud relay -> local connector pipeline", () => {
     });
     expect(sent.message.body).toBe("The connector pipeline is working.");
     expect(await repository.listMessages(conversationId)).toHaveLength(1);
-    expect(providerRun).toHaveBeenCalledOnce();
+    // One connector job, two local provider passes: research then draft.
+    expect(providerRun).toHaveBeenCalledTimes(2);
+    expect(providerRun.mock.calls[0]?.[0].outputSchemaName).toBe(
+      "investigation-note.schema.json",
+    );
+    expect(providerRun.mock.calls[1]?.[0].outputSchemaName).toBe(
+      "sender-turn.schema.json",
+    );
   });
 
   it("completes the recipient turn through its own connector and human Send gate", async () => {
@@ -343,8 +350,9 @@ describe("conversation -> cloud relay -> local connector pipeline", () => {
       "Rotation is enforced in src/auth/session.ts before reuse.",
     );
     expect(await repository.listMessages(conversationId)).toHaveLength(2);
-    expect(senderProviderRun).toHaveBeenCalledOnce();
-    expect(recipientProviderRun).toHaveBeenCalledOnce();
+    // Each side runs its own two-pass private turn, and only its own.
+    expect(senderProviderRun).toHaveBeenCalledTimes(2);
+    expect(recipientProviderRun).toHaveBeenCalledTimes(2);
   });
 });
 

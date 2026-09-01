@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,4 +10,10 @@ const destination = resolve(serverRoot, "dist", "telagent", "output-schemas");
 // a deleted schema cannot survive from an older build into a connector tarball.
 rmSync(destination, { recursive: true, force: true });
 mkdirSync(destination, { recursive: true });
-cpSync(source, destination, { recursive: true, force: true });
+// Schemas only. A colocated test beside a schema is source, not a runtime
+// asset, and must not reach a published connector tarball.
+cpSync(source, destination, {
+  recursive: true,
+  force: true,
+  filter: (entry) => statSync(entry).isDirectory() || entry.endsWith(".json"),
+});

@@ -258,7 +258,9 @@ describe("ConnectorWorker", () => {
     });
 
     await expect(worker.runOnce()).resolves.toBe("completed");
-    expect(run).toHaveBeenCalledOnce();
+    // Investigation and draft. The per-request assertions above therefore run
+    // on both passes: neither may take its workspace from the job.
+    expect(run).toHaveBeenCalledTimes(2);
     expect(transport.results).toHaveLength(1);
   });
 
@@ -394,7 +396,11 @@ describe("ConnectorWorker", () => {
     });
 
     await expect(worker.runOnce()).resolves.toBe("completed");
+    // Both passes of the private turn stream structural progress. The raw
+    // provider text crosses from neither.
     expect(transport.progressEvents).toEqual([
+      { type: "turn_started", provider: "claude" },
+      { type: "turn_completed", provider: "claude" },
       { type: "turn_started", provider: "claude" },
       { type: "turn_completed", provider: "claude" },
     ]);

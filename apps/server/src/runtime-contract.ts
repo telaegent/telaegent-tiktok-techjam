@@ -113,6 +113,15 @@ export type RuntimeProgressEvent =
       type: "activity_started" | "activity_completed";
       provider: AgentProvider;
       activity: RuntimeActivity;
+      /**
+       * Workspace-relative name of what the activity touched, or absent.
+       *
+       * The connector computes this through `projectRelativeDisplayLabel` and
+       * omits it for anything outside the workspace. It is the only local
+       * detail permitted to cross; prompts, command arguments, tool output,
+       * and model reasoning remain excluded.
+       */
+      target?: string;
     }
   | {
       type: "retrying";

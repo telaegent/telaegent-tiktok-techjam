@@ -14,6 +14,7 @@ import {
   connectorResourceRequestSchema,
   resourceExchangeResponseSchema,
 } from "./resource-exchange.js";
+import { resourceDisplayLabelSchema } from "./resource-request.js";
 
 /**
  * What a readiness probe is entitled to assert about a provider's answer.
@@ -108,6 +109,7 @@ const progressSchema = z.discriminatedUnion("type", [
     type: z.enum(["activity_started", "activity_completed"]),
     provider: providerSchema,
     activity: z.enum(["command", "file_change", "mcp", "web_search", "tool"]),
+    target: resourceDisplayLabelSchema.optional(),
   }),
   z.strictObject({
     type: z.literal("retrying"),
@@ -126,6 +128,9 @@ const progressSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("turn_completed"), provider: providerSchema }),
 ]);
+
+/** Exported so the transport contract can be asserted without a live route. */
+export const progressSchemaForTests = progressSchema;
 
 export interface ConnectorTransportRouteDependencies {
   relay: LongPollConnectorJobRelay;

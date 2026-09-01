@@ -7,6 +7,7 @@ import type {
   MiddlewareProviderRunner,
   LocalMiddlewareRunRequest,
   NormalizedRunResult,
+  RuntimeActivity,
   RuntimeProviderCapability,
   RuntimeProgressEvent,
   RuntimeProgressSink,
@@ -111,6 +112,54 @@ function emitProgress(
   }
 }
 
+/**
+ * Maps a Claude Code tool name onto the provider-neutral activity vocabulary.
+ *
+ * Unknown tools return null and are not reported. Silence is the correct
+ * default for a name this build does not recognise: an unmapped tool is more
+ * likely to be a new capability than a read, and inventing a category for it
+ * would put a guess in front of the owner.
+ */
+export function claudeToolActivity(toolName: string): RuntimeActivity | null {
+  if (toolName.startsWith("mcp__")) return "mcp";
+  switch (toolName) {
+    case "Read":
+    case "Glob":
+    case "Grep":
+      return "tool";
+    case "Bash":
+    case "PowerShell":
+      return "command";
+    case "Edit":
+    case "Write":
+    case "NotebookEdit":
+      return "file_change";
+    case "WebFetch":
+    case "WebSearch":
+      return "web_search";
+    default:
+      return null;
+  }
+}
+
+/**
+ * The path-shaped argument of a tool call, exactly as the model wrote it.
+ *
+ * Deliberately unsanitized: this is still on the owner's machine, and the
+ * connector applies workspace containment before anything crosses. Returning
+ * a raw path here keeps that single enforcement point honest -- it receives
+ * escapes and rejects them, rather than being handed pre-filtered input.
+ */
+export function claudeToolTarget(input: unknown): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const record = input as Record<string, unknown>;
+  for (const key of ["file_path", "path", "notebook_path"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
+}
+
 export function parseClaudeStreamLine(
   line: string,
   parsed: ParsedClaudeEvents,
@@ -166,6 +215,25 @@ export function parseClaudeStreamLine(
           type: "text_delta",
           provider: "claude",
           text: delta.text,
+        });
+      }
+    }
+  }
+  if (event.type === "assistant" && event.message && typeof event.message === "object") {
+    const content = (event.message as Record<string, unknown>).content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (typeof block !== "object" || block === null) continue;
+        const toolUse = block as Record<string, unknown>;
+        if (toolUse.type !== "tool_use" || typeof toolUse.name !== "string") continue;
+        const activity = claudeToolActivity(toolUse.name);
+        if (!activity) continue;
+        const target = claudeToolTarget(toolUse.input);
+        emitProgress(onProgress, {
+          type: "activity_started",
+          provider: "claude",
+          activity,
+          ...(target ? { target } : {}),
         });
       }
     }
