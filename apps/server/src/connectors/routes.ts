@@ -9,6 +9,7 @@ import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { ConnectorPairingService } from "./connector-pairing.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
+import { senderOutputSchema } from "../telagent/protocol/schemas.js";
 import {
   connectorResourceRequestSchema,
   resourceExchangeResponseSchema,
@@ -243,7 +244,8 @@ export function registerConnectorTransportRoutes(
         principal,
         connectorBindingId,
       );
-      const result = await dependencies.relay.dispatch<{ message: string }>({
+      const expectedCandidate = "TELAEGENT IS CONNECTED";
+      const result = await dependencies.relay.dispatch({
         jobId: randomUUID(),
         connectorBindingId,
         userId: principal.authenticatedUserId,
@@ -252,23 +254,23 @@ export function registerConnectorTransportRoutes(
         provider,
         purpose: "sender_draft",
         runtimePrompt: [
-          "This is a Telaegent connector probe.",
+          "This is a private Telaegent sender readiness check.",
           "Do not inspect files or call tools.",
-          'Print exactly: TELAEGENT IS CONNECTED',
+          `Prepare exactly this message for owner review: ${expectedCandidate}`,
+          "Return it as a ready sender turn using the required output schema.",
         ].join("\n"),
-        persistedSummary: "Connector provider probe",
-        sessionMode: "ephemeral",
+        persistedSummary: "Private connector sender readiness check",
+        // Production sender turns default to continuation. With a new probe
+        // scope this creates and remembers a session; repeated checks resume it.
+        sessionMode: "continue",
         sandboxMode: "read-only",
         networkMode: "none",
-        outputSchemaName: "connector-connection-probe.schema.json",
+        outputSchemaName: "sender-turn.schema.json",
         correlationId: randomUUID(),
-        maxTurns: 1,
+        maxTurns: 2,
       });
-      if (
-        !result.final ||
-        typeof result.final !== "object" ||
-        result.final.message !== "TELAEGENT IS CONNECTED"
-      ) {
+      const output = senderOutputSchema.safeParse(result.final);
+      if (!output.success || output.data.sendCandidate !== expectedCandidate) {
         throw new Error("Connector provider probe returned an invalid result");
       }
       return reply.send({
