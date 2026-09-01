@@ -45,7 +45,7 @@ legacy shared API token is not connector authentication.
 4. Run the cross-platform command rendered by the browser:
 
    ```text
-   npx --yes @telaegent/connector@0.1.0 connect . --url ORIGIN --pair ONE_TIME_CODE
+   npx --yes @telaegent/connector@0.1.1 connect . --url ORIGIN --pair ONE_TIME_CODE
    ```
 
 The npm artifact is built from the canonical compiled connector with

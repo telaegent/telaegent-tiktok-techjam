@@ -30,6 +30,16 @@ describe("classifyProviderFailure", () => {
     expect(error.message).not.toContain("private-id");
   });
 
+  it("classifies the current Claude missing-conversation wording as a missing session", () => {
+    const error = classifyProviderFailure(
+      "claude",
+      "No conversation found with session ID: 00000000-0000-0000-0000-000000000000",
+    );
+
+    expect(error.code).toBe("RUNTIME_SESSION_NOT_FOUND");
+    expect(error.message).toBe("Claude Code session is no longer available");
+  });
+
   it("keeps authentication failures distinct from missing sessions", () => {
     expect(classifyProviderFailure("claude", "Login required").code).toBe(
       "RUNTIME_AUTHENTICATION_FAILED",
