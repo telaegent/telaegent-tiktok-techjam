@@ -112,34 +112,82 @@ const defaultDependencies: CodexRunnerDependencies = {
 };
 
 /**
- * Overrides layered on top of the user's Codex config.
+ * The argument list that makes a Telaegent run Telaegent's, not the machine
+ * owner's.
  *
- * We deliberately do *not* pass `--ignore-user-config`. That flag was here to
- * keep a developer's personal settings out of a Telaegent run, and on macOS and
- * Linux it cost nothing. On Windows it is fatal: the sandbox backend is selected
- * by `[windows] sandbox` in the user's config, and without that key Codex
- * refuses to spawn any process at all — every command comes back
- * `rejected: blocked by policy`. Codex has no native read tool, so a shell it
- * cannot spawn is a model that cannot read. Observed end state was not an error
- * the owner could act on: the model either invented an answer it never read, or
- * escalated to `apply_patch` trying to infer file contents a read would have
- * given it.
+ * Two separate things have to be true at once, and an earlier version of this
+ * file got them confused.
  *
- * Reading the user's config brings back the tool surface that config carries, so
- * that surface is closed here explicitly rather than by discarding the whole
- * file:
+ * First, Codex has to be able to read. It has no native read tool; its only
+ * file access is spawning a shell. On Windows the sandbox backend is chosen by
+ * `[windows] sandbox`, and if nothing supplies that key every command comes
+ * back `rejected: blocked by policy`. A shell it cannot spawn is a model that
+ * cannot read, and the observed end state was not a clean error: the model
+ * either answered confidently from nothing, or escalated to `apply_patch`
+ * trying to infer contents a read would have handed it.
  *
- * - `mcp_servers={}` drops every configured MCP server. These are the owner's
- *   own tools (browser, computer-use), not ours, and they reach well past the
- *   repository. Closing them also removes their descriptions from the prompt,
- *   which measured as a drop from ~90k to ~31k input tokens per turn.
- * - `notify=[]` stops the per-turn hook, which launches a local executable from
- *   outside the workspace after every turn.
+ * Second, a Telaegent turn must not inherit the owner's personal tool surface.
+ * The fix for the first problem was briefly to drop `--ignore-user-config`
+ * altogether, which solved reading by importing the entire config file. That
+ * was measured, and it was wrong. Under those arguments a read-only turn could
+ * still reach the network: asked for a live GitHub API value it returned the
+ * real star count. `--sandbox read-only` governs the shell, not the model's own
+ * tools, and `mcp_servers={}` does not touch built-ins, plugins, marketplaces
+ * or `shell_environment_policy`.
  *
- * Containment is unchanged and is enforced where it always was: `--sandbox`,
- * `approval_policy="never"`, the network setting, and the `-C` workspace pin.
+ * So both are supplied explicitly. `--ignore-user-config` keeps the config file
+ * out (auth still resolves through `CODEX_HOME`, per the flag's own help), and
+ * every capability the run genuinely needs is named here as an override:
+ *
+ * - `windows.sandbox=unelevated` restores the backend the flag removed, which
+ *   is the whole reason reading works. Windows only, so the argument list stays
+ *   byte-identical elsewhere. `unelevated` needs no privileged setup.
+ * - `mcp_servers={}` drops configured MCP servers. Also removes their tool
+ *   descriptions from the prompt: ~90k to ~31k input tokens per turn.
+ * - `notify=[]` stops the per-turn hook launching a local executable.
+ * - `web_search="disabled"` closes network egress from the model itself.
+ * - `model_reasoning_effort` is pinned because ignoring the config drops the
+ *   effort to `none`, which would quietly make every turn shallower.
+ *
+ * A warning about verifying changes here. `-c` accepts unknown keys silently:
+ * `-c this.key.is.nonsense=true` starts fine. So a key that is accepted is not
+ * a key that works. `tools.web_search=false` is accepted and does nothing --
+ * with only that set, the network probe above still returned the live value.
+ * Test any addition by behaviour, never by whether the CLI took it.
+ *
+ * Containment proper is unchanged and enforced where it always was: `--sandbox`,
+ * `approval_policy="never"`, and the `-C` workspace pin.
+ *
+ * Note what is *not* here: `request.maxTurns`. `codex exec` has no turn-limit
+ * flag, so the `INVESTIGATION_MAX_TURNS` budget that bounds a Claude research
+ * pass does not bind Codex at all -- only the investigation deadline and the
+ * process timeout do. The two runners are therefore bounded by different
+ * things, which is safe (the sandbox is read-only and the workspace is pinned,
+ * so extra turns reach nothing new) but is not the symmetry the call site
+ * reads as. Enforcing it would mean counting turns out of the JSON stream and
+ * killing the process; do not assume the cap applies here until that exists.
+ *
+ * Resist closing the rest with `--disable <feature>`. Dropping the tools a
+ * read-only turn can never use measures at ~3.5k fewer tokens, but an
+ * unrecognised feature name is a hard startup error and that list churns
+ * between releases -- a runner that dies on the next upgrade for a small saving.
  */
-const CLOSED_TOOL_SURFACE = ["-c", "mcp_servers={}", "-c", "notify=[]"] as const;
+export function closedToolSurface(
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return [
+    "--ignore-user-config",
+    ...(platform === "win32" ? ["-c", "windows.sandbox=unelevated"] : []),
+    "-c",
+    "mcp_servers={}",
+    "-c",
+    "notify=[]",
+    "-c",
+    'web_search="disabled"',
+    "-c",
+    'model_reasoning_effort="medium"',
+  ];
+}
 
 export function buildCodexArgs(
   request: RunnerRequest,
@@ -150,7 +198,7 @@ export function buildCodexArgs(
   const args = [
     "exec",
     "--json",
-    ...CLOSED_TOOL_SURFACE,
+    ...closedToolSurface(),
     "--sandbox",
     sandboxMode,
     "--skip-git-repo-check",
@@ -175,7 +223,7 @@ export function buildCodexMiddlewareArgs(
   const args = [
     "exec",
     "--json",
-    ...CLOSED_TOOL_SURFACE,
+    ...closedToolSurface(),
     "-c",
     'approval_policy="never"',
     "--sandbox",

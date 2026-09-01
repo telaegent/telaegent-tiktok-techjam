@@ -1,0 +1,3282 @@
+<!doctype html>
+<!--
+  TELAEGENT — SCRIPTED PRESENTATION DEMO (END TO END)
+  ==================================================
+  A self-contained, offline replica of the whole Telaegent product journey:
+  landing -> GitHub authorization -> connector pairing -> provider selection ->
+  project trust -> agent-to-agent conversation -> durability proof.
+
+  It talks to no server, no database, no provider and no GitHub. Every screen,
+  every trace line and both agents' answers are authored in this file.
+
+  It is NOT the product and must never be presented as a live system.
+  It collects no credentials of any kind and has no input for one.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Telaegent — Trusted agent collaboration</title>
+    <link rel="icon" type="image/png" href="assets/logo-symbol.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ===================================================================
+         Tokens — copied from apps/web/src/styles.css so both themes match
+         the real product exactly.
+         =================================================================== */
+      :root {
+        font-family: "Manrope", "Manrope Variable", "Arial Nova",
+          "Helvetica Neue", Arial, sans-serif;
+        --canvas: #f5f5f3;
+        --surface: #ececea;
+        --surface-raised: #f9f9f7;
+        --surface-selected: #e2e2df;
+        --text: #161616;
+        --muted: #666662;
+        --quiet: #6f6f6a;
+        --line: #d2d2ce;
+        --line-strong: #bdbdb8;
+        --accent: #087f9c;
+        --accent-contrast: #f4f4f1;
+        --private-surface: #f3f3f0;
+        --bubble-outgoing: #dceef2;
+        --bubble-pending: #f1f1ee;
+        --bubble-private-agent: #e7e7e3;
+        --caution: #9b552d;
+        --button: #191919;
+        --button-text: #f4f4f1;
+        --mono: "IBM Plex Mono", "SFMono-Regular", Consolas,
+          "Liberation Mono", monospace;
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+        --fast: 160ms;
+        --ui: 200ms;
+        --drawer: 280ms;
+        --logo-blue: #01c0fc;
+        --private-room-width: 392px;
+      }
+
+      html[data-theme="dark"] {
+        --canvas: #080808;
+        --surface: #0d0d0d;
+        --surface-raised: #131313;
+        --surface-selected: #1b1b1b;
+        --text: #f1f1ef;
+        --muted: #a0a09b;
+        --quiet: #92928d;
+        --line: #262626;
+        --line-strong: #3b3b3b;
+        --accent: #01c0fc;
+        --accent-contrast: #0b171a;
+        --private-surface: #101010;
+        --bubble-outgoing: #12313a;
+        --bubble-pending: #171717;
+        --bubble-private-agent: #1c1c1c;
+        --caution: #e0a177;
+        --button: #eeeeeb;
+        --button-text: #111111;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        background: var(--canvas);
+        font-synthesis: none;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      a,
+      textarea,
+      select,
+      input {
+        font: inherit;
+      }
+
+      /* ===================== shared atoms ===================== */
+      .app-eyebrow {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .app-status-mark {
+        width: 6px;
+        height: 6px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        display: inline-block;
+        background: var(--accent);
+      }
+
+      .app-status-mark.quiet {
+        border: 1px solid var(--line-strong);
+        background: transparent;
+      }
+
+      .app-status-mark.live {
+        animation: pulse 2.4s var(--ease-out) infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+        }
+        60% {
+          box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent);
+        }
+      }
+
+      .app-avatar {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        color: var(--text);
+        background: var(--surface-raised);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .app-avatar.sm {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        font-size: 9px;
+      }
+
+      .app-primary-action,
+      .app-secondary-action {
+        min-height: 39px;
+        padding: 0 16px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+
+      .app-primary-action {
+        border: 1px solid var(--button);
+        color: var(--button-text);
+        background: var(--button);
+      }
+
+      .app-secondary-action {
+        border: 1px solid var(--line-strong);
+        color: var(--text);
+        background: transparent;
+      }
+
+      .app-primary-action:disabled,
+      .app-secondary-action:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      .app-text-button {
+        padding: 6px 0;
+        border: 0;
+        color: var(--muted);
+        background: transparent;
+        font-size: 13px;
+        cursor: pointer;
+        transition: color var(--fast);
+      }
+
+      .app-text-button:hover {
+        color: var(--text);
+      }
+
+      .app-typing-dots {
+        min-width: 27px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+      }
+
+      .app-typing-dots i {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: dot 900ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+
+      .app-typing-dots i:nth-child(2) {
+        animation-delay: 150ms;
+      }
+      .app-typing-dots i:nth-child(3) {
+        animation-delay: 300ms;
+      }
+
+      @keyframes dot {
+        0%,
+        100% {
+          opacity: 0.3;
+          transform: translateY(0);
+        }
+        50% {
+          opacity: 1;
+          transform: translateY(-3px);
+        }
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(7px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      .check {
+        width: 13px;
+        height: 13px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--accent-contrast);
+        background: var(--accent);
+        font-size: 8px;
+        font-weight: 700;
+      }
+
+      /* ===================== screens ===================== */
+      .screen {
+        width: 100%;
+        min-height: 100dvh;
+      }
+
+      /* Higher specificity than the per-screen `display` rules below, so a
+         screen that sets its own layout still hides while inactive. */
+      .screen:not(.active) {
+        display: none;
+      }
+
+      .screen.active {
+        animation: rise var(--ui) var(--ease-out) both;
+      }
+
+      /* ===================== 1. landing ===================== */
+      .landing {
+        min-height: 100dvh;
+        display: grid;
+        grid-template-rows: 72px 1fr;
+      }
+
+      .landing-topbar {
+        padding: 0 clamp(20px, 5vw, 56px);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .wordmark {
+        width: 148px;
+        height: 40px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .wordmark img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: left center;
+      }
+
+      .landing-hero {
+        padding: clamp(28px, 6vh, 72px) clamp(20px, 5vw, 56px) 56px;
+        display: grid;
+        align-content: center;
+        justify-items: start;
+        max-width: 1080px;
+        margin: 0 auto;
+        width: 100%;
+      }
+
+      .landing-hero h1 {
+        max-width: 780px;
+        margin: 20px 0 0;
+        font-size: clamp(38px, 6.2vw, 74px);
+        font-weight: 500;
+        line-height: 1.02;
+        letter-spacing: -0.05em;
+      }
+
+      .landing-hero h1 em {
+        font-style: normal;
+        color: var(--accent);
+      }
+
+      .landing-hero > p {
+        max-width: 620px;
+        margin: 26px 0 0;
+        color: var(--muted);
+        font-size: clamp(14px, 1.5vw, 17px);
+        line-height: 1.65;
+      }
+
+      .landing-actions {
+        margin-top: 34px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .github-button {
+        min-height: 46px;
+        padding: 0 20px;
+        border: 1px solid var(--button);
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--button-text);
+        background: var(--button);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .github-button svg {
+        width: 17px;
+        height: 17px;
+        fill: currentColor;
+      }
+
+      .landing-facts {
+        margin-top: 54px;
+        padding-top: 26px;
+        border-top: 1px solid var(--line);
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 26px;
+      }
+
+      .landing-facts div strong {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .landing-facts div p {
+        margin: 0;
+        color: var(--quiet);
+        font-size: 12px;
+        line-height: 1.65;
+      }
+
+      /* ===================== 2. GitHub authorization (mock) ===================== */
+      .gh-screen {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #0d1117;
+        color: #e6edf3;
+        font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+      }
+
+      .gh-chrome {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        background: #010409;
+        border-bottom: 1px solid #30363d;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: #7d8590;
+      }
+
+      .gh-url {
+        flex: 1;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        max-width: 520px;
+        margin: 0 auto;
+        text-align: center;
+      }
+
+      .gh-card {
+        width: min(438px, 100%);
+        padding: 26px 24px 22px;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        background: #161b22;
+        text-align: center;
+      }
+
+      .gh-mark {
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 18px;
+        fill: #e6edf3;
+        display: block;
+      }
+
+      .gh-card h2 {
+        margin: 0 0 6px;
+        font-size: 20px;
+        font-weight: 400;
+      }
+
+      .gh-card h2 b {
+        font-weight: 600;
+      }
+
+      .gh-card > p {
+        margin: 0 0 20px;
+        color: #7d8590;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .gh-scopes {
+        margin: 0 0 20px;
+        padding: 14px 16px;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        text-align: left;
+        list-style: none;
+      }
+
+      .gh-scopes li {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: #c9d1d9;
+      }
+
+      .gh-scopes li + li {
+        margin-top: 11px;
+      }
+
+      .gh-scopes span {
+        color: #3fb950;
+        flex: 0 0 auto;
+      }
+
+      .gh-account {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 13px;
+        margin-bottom: 18px;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        text-align: left;
+      }
+
+      .gh-account .app-avatar {
+        border-color: #30363d;
+        background: #0d1117;
+        color: #e6edf3;
+      }
+
+      .gh-account strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .gh-account small {
+        color: #7d8590;
+        font-size: 11.5px;
+      }
+
+      .gh-authorize {
+        width: 100%;
+        min-height: 40px;
+        border: 1px solid rgba(240, 246, 252, 0.1);
+        border-radius: 7px;
+        color: #fff;
+        background: #238636;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .gh-authorize:hover {
+        background: #2ea043;
+      }
+
+      .gh-authorize:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+
+      .gh-card > small {
+        display: block;
+        margin-top: 14px;
+        color: #7d8590;
+        font-size: 11px;
+        line-height: 1.6;
+      }
+
+      /* ===================== 3. onboarding ===================== */
+      .onboarding-shell {
+        min-height: 100dvh;
+        overflow-y: auto;
+      }
+
+      .onboarding-topbar {
+        height: 68px;
+        padding: 0 clamp(20px, 5vw, 56px);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .onboarding-layout {
+        width: min(980px, calc(100% - 48px));
+        min-height: calc(100dvh - 68px);
+        margin: 0 auto;
+        padding: 38px 0;
+        display: grid;
+        grid-template-columns: 190px minmax(0, 620px);
+        justify-content: center;
+        align-items: center;
+        gap: 76px;
+      }
+
+      .onboarding-progress > span {
+        display: block;
+        margin-bottom: 19px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 15px;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .onboarding-progress > div {
+        min-height: 48px;
+        border-left: 1px solid var(--line);
+        display: grid;
+        grid-template-columns: 28px 1fr;
+        align-items: start;
+        color: var(--quiet);
+        transition: color var(--ui);
+      }
+
+      .onboarding-progress > div:last-child {
+        min-height: 20px;
+      }
+
+      .onboarding-progress i {
+        width: 19px;
+        height: 19px;
+        margin-left: -10px;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--canvas);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-style: normal;
+        transition: all var(--ui);
+      }
+
+      .onboarding-progress p {
+        margin: 2px 0 0 4px;
+        font-size: 15px;
+        text-transform: capitalize;
+      }
+
+      .onboarding-progress > div.current {
+        border-left-color: var(--line-strong);
+        color: var(--text);
+      }
+
+      .onboarding-progress > div.current i {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .onboarding-card {
+        min-height: 480px;
+        padding: 54px 58px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface-raised);
+      }
+
+      .onboarding-card h1 {
+        max-width: 500px;
+        margin: 18px 0 0;
+        font-size: clamp(30px, 3.6vw, 44px);
+        font-weight: 500;
+        line-height: 1.06;
+        letter-spacing: -0.05em;
+      }
+
+      .onboarding-card > p {
+        max-width: 510px;
+        margin: 20px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .onboarding-card > .app-primary-action {
+        margin-top: 30px;
+      }
+
+      .onboarding-card > small {
+        display: block;
+        margin-top: 16px;
+        color: var(--quiet);
+        font-size: 10px;
+      }
+
+      .onboarding-step[hidden] {
+        display: none;
+      }
+
+      .setup-row {
+        min-height: 82px;
+        margin-top: 30px;
+        padding: 15px 16px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        background: var(--surface);
+        animation: rise var(--ui) var(--ease-out) both;
+      }
+
+      .setup-row strong,
+      .setup-row small {
+        display: block;
+      }
+
+      .setup-row strong {
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .setup-row small {
+        margin-top: 5px;
+        color: var(--quiet);
+        font-size: 10px;
+      }
+
+      .setup-row button {
+        min-height: 34px;
+        padding: 0 14px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--text);
+        background: transparent;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .setup-row button:hover {
+        background: var(--surface-selected);
+      }
+
+      .device-flow {
+        margin-top: 28px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--surface);
+        animation: rise var(--ui) var(--ease-out) both;
+      }
+
+      .device-flow > div:not(.inline-actions) {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+
+      .device-flow > div span {
+        color: var(--quiet);
+        font-size: 10px;
+      }
+
+      .device-flow strong,
+      .device-flow code {
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .device-flow > p {
+        margin: 12px 0 0;
+        color: var(--quiet);
+        font-size: 11px;
+        line-height: 1.65;
+      }
+
+      .connector-command-block {
+        margin-top: 14px;
+        padding: 13px 14px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--canvas);
+      }
+
+      .connector-command {
+        display: block;
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 11.5px;
+        line-height: 1.7;
+        word-break: break-all;
+      }
+
+      .connector-command b {
+        color: var(--accent);
+        font-weight: 500;
+      }
+
+      .connector-command-block > p {
+        margin: 11px 0 0;
+        color: var(--quiet);
+        font-size: 10px;
+        line-height: 1.6;
+      }
+
+      .inline-actions {
+        margin-top: 16px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex-wrap: wrap;
+      }
+
+      /* fake terminal */
+      .terminal {
+        margin-top: 16px;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        overflow: hidden;
+        background: #0a0a0a;
+        animation: rise var(--ui) var(--ease-out) both;
+      }
+
+      .terminal header {
+        height: 30px;
+        padding: 0 12px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        background: #161616;
+        border-bottom: 1px solid #262626;
+        color: #92928d;
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .terminal header i {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #3b3b3b;
+      }
+
+      .terminal pre {
+        margin: 0;
+        padding: 14px 15px;
+        min-height: 200px;
+        max-height: 264px;
+        overflow-y: auto;
+        color: #d6d6d2;
+        font-family: var(--mono);
+        font-size: 11px;
+        line-height: 1.8;
+        white-space: pre-wrap;
+      }
+
+      .terminal .ok {
+        color: #01c0fc;
+      }
+      .terminal .dim {
+        color: #7a7a75;
+      }
+      .terminal .win {
+        color: #4ade80;
+        font-weight: 600;
+      }
+      .terminal .cursor {
+        display: inline-block;
+        width: 7px;
+        height: 13px;
+        vertical-align: -2px;
+        background: #d6d6d2;
+        animation: blink 1.05s steps(1) infinite;
+      }
+
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      .provider-picker {
+        margin-top: 28px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .provider-picker button {
+        padding: 15px 16px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        color: var(--text);
+        background: var(--surface);
+        text-align: left;
+        cursor: pointer;
+        transition: all var(--fast);
+      }
+
+      .provider-picker button:hover {
+        border-color: var(--line-strong);
+      }
+
+      .provider-picker button.connected {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+      }
+
+      .provider-picker strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .provider-picker small {
+        display: block;
+        margin-top: 4px;
+        color: var(--quiet);
+        font-size: 10.5px;
+      }
+
+      .provider-picker > button > span:last-child {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--quiet);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .provider-picker button.connected > span:last-child {
+        color: var(--accent);
+      }
+
+      .ready-summary {
+        margin-top: 27px;
+        padding: 16px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .ready-summary span {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      /* ===================== 4. product shell ===================== */
+      .product-app-shell {
+        width: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        padding: 16px;
+        display: grid;
+        grid-template-rows: 56px minmax(0, 1fr);
+      }
+
+      .app-topbar {
+        height: 56px;
+        padding: 0 18px;
+        border: 1px solid var(--line);
+        border-bottom: 0;
+        border-radius: 12px 12px 0 0;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        background: var(--surface);
+      }
+
+      .app-wordmark {
+        width: 132px;
+        height: 38px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .app-wordmark img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: left center;
+      }
+
+      .app-topbar-context {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+
+      .app-topbar-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 14px;
+      }
+
+      .app-body {
+        min-height: 0;
+        border: 1px solid var(--line);
+        border-radius: 0 0 12px 12px;
+        overflow: hidden;
+        background: var(--canvas);
+      }
+
+      /* ---- projects page ---- */
+      .app-page {
+        height: 100%;
+        padding: 34px clamp(24px, 5vw, 60px);
+        overflow-y: auto;
+      }
+
+      .app-page-heading h2 {
+        margin: 14px 0 0;
+        font-size: clamp(26px, 3vw, 36px);
+        font-weight: 500;
+        letter-spacing: -0.04em;
+      }
+
+      .app-page-heading p {
+        margin: 12px 0 0;
+        max-width: 520px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .project-list {
+        margin-top: 30px;
+        display: grid;
+        gap: 11px;
+        max-width: 760px;
+      }
+
+      .repo-row {
+        padding: 17px 18px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        background: var(--surface);
+        text-align: left;
+        color: var(--text);
+        cursor: pointer;
+        transition: all var(--fast);
+      }
+
+      .repo-row:hover {
+        border-color: var(--line-strong);
+        background: var(--surface-selected);
+      }
+
+      .repo-row.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .repo-mark {
+        width: 38px;
+        height: 38px;
+        flex: 0 0 auto;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--surface-raised);
+      }
+
+      .repo-title {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .repo-title strong {
+        display: block;
+        font-size: 13.5px;
+        font-weight: 600;
+      }
+
+      .repo-meta {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 5px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10.5px;
+      }
+
+      .repo-open {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--quiet);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      /* ---- project trust ---- */
+      .connection-request-card {
+        margin-top: 26px;
+        max-width: 640px;
+        padding: 22px 24px;
+        border: 1px solid var(--line-strong);
+        border-radius: 10px;
+        background: var(--surface-raised);
+      }
+
+      .connection-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 13px 0;
+      }
+
+      .connection-row div {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .connection-row strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .connection-row small {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10.5px;
+      }
+
+      .permission-copy {
+        margin: 14px 0 0;
+        padding-top: 15px;
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-size: 11.5px;
+        line-height: 1.7;
+      }
+
+      /* ===================== workspace ===================== */
+      .workspace-shell {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 238px minmax(0, 1fr);
+        overflow: hidden;
+      }
+
+      .workspace-sidebar {
+        min-width: 0;
+        min-height: 0;
+        padding: 18px 16px 16px;
+        border-right: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: var(--surface);
+        overflow-y: auto;
+      }
+
+      .workspace-back {
+        width: fit-content;
+        padding: 5px 3px;
+        border: 0;
+        color: var(--quiet);
+        background: transparent;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .workspace-back:hover {
+        color: var(--text);
+      }
+
+      .sidebar-group {
+        margin-top: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .project-card {
+        width: 100%;
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        text-align: left;
+        color: var(--text);
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .project-card.selected {
+        border-color: var(--line-strong);
+        background: var(--surface-selected);
+      }
+
+      .project-card strong {
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+
+      .project-card small,
+      .collaborator-row small {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .collaborator-row {
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .collaborator-row div {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .collaborator-row strong {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .sidebar-foot {
+        margin-top: auto;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-size: 10px;
+        line-height: 1.6;
+      }
+
+      .workspace-page {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        overflow: hidden;
+      }
+
+      .project-chat-header {
+        grid-column: 1 / -1;
+        min-height: 72px;
+        padding: 0 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+
+      .project-chat-header > div:first-child {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .chat-header-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .chat-header-meta strong {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .chat-header-meta small {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10.5px;
+      }
+
+      .chat-project-strip {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .repo-chip {
+        padding: 5px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        background: var(--surface-raised);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        white-space: nowrap;
+      }
+
+      .shared-thread {
+        grid-column: 1;
+        grid-row: 2;
+        min-height: 0;
+        padding: 28px clamp(22px, 4vw, 52px) 34px;
+        overflow-y: auto;
+        scroll-behavior: smooth;
+      }
+
+      .thread-date {
+        margin: 0 auto 24px;
+        width: fit-content;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .empty-conversation {
+        height: 70%;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 10px;
+        text-align: center;
+        color: var(--quiet);
+      }
+
+      .empty-conversation p {
+        margin: 0;
+        max-width: 340px;
+        font-size: 12.5px;
+        line-height: 1.65;
+      }
+
+      .shared-message {
+        width: fit-content;
+        max-width: min(560px, 76%);
+        margin-top: 20px;
+        padding: 12px 13px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        animation: rise var(--ui) var(--ease-out) both;
+      }
+
+      .shared-message.outgoing {
+        margin-left: auto;
+        border-radius: 11px 3px 11px 11px;
+        background: var(--surface-selected);
+      }
+
+      .shared-message.incoming {
+        border-radius: 3px 11px 11px 11px;
+      }
+
+      .shared-message > span {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .shared-message p {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.56;
+      }
+
+      .shared-message p + p {
+        margin-top: 10px;
+      }
+
+      .shared-message code,
+      .private-bubble code {
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: var(--bubble-pending);
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+
+      .shared-message > small {
+        display: block;
+        margin-top: 9px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .thread-status {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+        animation: rise var(--ui) var(--ease-out) both;
+      }
+
+      .shared-composer {
+        grid-column: 1;
+        grid-row: 3;
+        margin: 0 16px 16px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--surface);
+      }
+
+      .shared-composer > label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 1px 4px 8px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .shared-composer select {
+        min-height: 30px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 7px;
+        color: var(--text);
+        background: var(--surface-raised);
+        font-family: var(--mono);
+        font-size: 12.5px;
+        text-transform: none;
+        letter-spacing: 0;
+        cursor: pointer;
+      }
+
+      .shared-composer > div {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+      }
+
+      .shared-composer textarea {
+        min-width: 0;
+        flex: 1;
+        padding: 6px 4px;
+        border: 0;
+        outline: 0;
+        resize: none;
+        color: var(--text);
+        background: transparent;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .shared-composer textarea::placeholder {
+        color: var(--quiet);
+      }
+
+      .shared-composer button {
+        min-height: 34px;
+        padding: 0 13px;
+        border: 1px solid var(--button);
+        border-radius: 999px;
+        color: var(--button-text);
+        background: var(--button);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .shared-composer button:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      .shared-composer > small {
+        display: block;
+        margin: 6px 4px 0;
+        color: var(--quiet);
+        font-size: 10px;
+      }
+
+      /* ---- private room ---- */
+      .workspace-private-room {
+        position: relative;
+        z-index: 5;
+        grid-column: 2;
+        grid-row: 1 / -1;
+        justify-self: end;
+        width: var(--private-room-width);
+        min-width: var(--private-room-width);
+        min-height: 0;
+        border-left: 1px solid var(--line-strong);
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+        overflow: hidden;
+        background: var(--private-surface);
+        pointer-events: none;
+        visibility: hidden;
+        transform: translateX(100%);
+        transition: transform var(--drawer) var(--ease-drawer),
+          visibility 0s linear var(--drawer);
+      }
+
+      .workspace-private-room.open {
+        pointer-events: auto;
+        visibility: visible;
+        transform: translateX(0);
+        transition-delay: 0s;
+      }
+
+      .workspace-private-room > header {
+        min-height: 100px;
+        padding: 19px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .private-title {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .private-title strong {
+        font-size: 13.5px;
+        font-weight: 600;
+      }
+
+      .private-title p {
+        margin: 0;
+        max-width: 250px;
+        color: var(--quiet);
+        font-size: 11px;
+        line-height: 1.6;
+      }
+
+      .private-scope-bar {
+        padding: 10px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .workspace-private-thread {
+        min-height: 0;
+        padding: 18px 20px 22px;
+        overflow-y: auto;
+        scroll-behavior: smooth;
+      }
+
+      .private-bubble {
+        margin-top: 14px;
+        padding: 12px 13px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--bubble-private-agent);
+        animation: rise var(--ui) var(--ease-out) both;
+      }
+
+      .private-bubble:first-child {
+        margin-top: 0;
+      }
+
+      .private-bubble.owner {
+        margin-left: 26px;
+        border-radius: 10px 3px 10px 10px;
+        background: var(--bubble-outgoing);
+      }
+
+      .private-bubble > span {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .private-bubble p {
+        margin: 0;
+        font-size: 12.5px;
+        line-height: 1.6;
+      }
+
+      .private-bubble p + p {
+        margin-top: 9px;
+      }
+
+      .private-thinking {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .trace-line {
+        margin-top: 6px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.75;
+        animation: rise 180ms var(--ease-out) both;
+      }
+
+      .trace-line b {
+        color: var(--accent);
+        font-weight: 500;
+      }
+
+      .private-bubble .ready-summary {
+        margin-top: 16px;
+        padding: 14px 0;
+        gap: 10px;
+      }
+
+      .private-approval-bar {
+        padding: 14px 20px 16px;
+        border-top: 1px solid var(--line-strong);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: var(--surface);
+      }
+
+      .private-approval-bar[hidden] {
+        display: none;
+      }
+
+      .private-approval-bar > strong {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .private-approval-bar > p {
+        margin: 0;
+        color: var(--quiet);
+        font-size: 10.5px;
+        line-height: 1.6;
+      }
+
+      .private-approval-bar .inline-actions {
+        margin-top: 0;
+      }
+
+      /* ===================== presenter ===================== */
+      .cue {
+        position: relative;
+      }
+
+      .cue::after {
+        content: "";
+        position: absolute;
+        inset: -5px;
+        border: 1.5px solid var(--accent);
+        border-radius: inherit;
+        pointer-events: none;
+        animation: cue 1.7s var(--ease-out) infinite;
+      }
+
+      .shared-composer.cue::after {
+        border-radius: 11px;
+      }
+
+      .gh-authorize.cue::after {
+        border-color: #3fb950;
+        border-radius: 9px;
+      }
+
+      @keyframes cue {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 0.9;
+        }
+      }
+
+      body.no-cues .cue::after {
+        display: none;
+      }
+
+      .presenter {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 40;
+        width: 340px;
+        max-height: min(76vh, 700px);
+        padding: 16px 17px 17px;
+        border: 1px solid var(--line-strong);
+        border-radius: 12px;
+        background: var(--surface-raised);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+        overflow-y: auto;
+      }
+
+      .presenter[hidden] {
+        display: none;
+      }
+
+      .presenter header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .presenter h2 {
+        margin: 0;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .presenter ol {
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+        counter-reset: step;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .presenter li {
+        counter-increment: step;
+        position: relative;
+        padding: 9px 11px 9px 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.55;
+        transition: all var(--ui);
+      }
+
+      .presenter li::before {
+        content: counter(step);
+        position: absolute;
+        left: 10px;
+        top: 9px;
+        width: 16px;
+        height: 16px;
+        border: 1px solid var(--line-strong);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-family: var(--mono);
+        font-size: 9px;
+        font-weight: 600;
+      }
+
+      .presenter li.active {
+        border-color: var(--accent);
+        color: var(--text);
+        background: color-mix(in srgb, var(--accent) 9%, transparent);
+      }
+
+      .presenter li.active::before {
+        border-color: var(--accent);
+        color: var(--accent-contrast);
+        background: var(--accent);
+      }
+
+      .presenter li.done {
+        opacity: 0.4;
+      }
+
+      .presenter li b {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .presenter-controls {
+        margin-top: 13px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .mini-button {
+        padding: 6px 11px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--text);
+        background: transparent;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .mini-button:hover {
+        background: var(--surface-selected);
+      }
+
+      .mini-button.on {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .presenter-hint {
+        margin: 11px 0 0;
+        color: var(--quiet);
+        font-size: 10px;
+        line-height: 1.6;
+      }
+
+      .demo-badge {
+        position: fixed;
+        left: 20px;
+        bottom: 20px;
+        z-index: 40;
+        padding: 6px 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--quiet);
+        background: var(--surface-raised);
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      /* ===================== restart overlay ===================== */
+      .restart-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: color-mix(in srgb, var(--canvas) 88%, transparent);
+        backdrop-filter: blur(3px);
+      }
+
+      .restart-overlay[hidden] {
+        display: none;
+      }
+
+      .restart-card {
+        width: min(580px, 100%);
+        padding: 26px 28px 24px;
+        border: 1px solid var(--line-strong);
+        border-radius: 12px;
+        background: var(--surface-raised);
+      }
+
+      .restart-card h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .restart-card > p {
+        margin: 0 0 18px;
+        color: var(--quiet);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .console {
+        padding: 15px 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--canvas);
+        font-family: var(--mono);
+        font-size: 11px;
+        line-height: 1.85;
+        min-height: 200px;
+      }
+
+      .console div {
+        animation: rise 160ms var(--ease-out) both;
+      }
+
+      .console .ok {
+        color: var(--accent);
+      }
+      .console .dim {
+        color: var(--quiet);
+      }
+
+      @media (max-width: 1180px) {
+        .presenter {
+          width: 296px;
+        }
+        :root {
+          --private-room-width: 340px;
+        }
+        .onboarding-layout {
+          grid-template-columns: minmax(0, 620px);
+          gap: 30px;
+        }
+        .onboarding-progress {
+          display: none;
+        }
+        .onboarding-card {
+          padding: 36px 30px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ================================================================
+         SCREEN 1 — landing
+         ================================================================ -->
+    <section class="screen active landing" id="screen-landing">
+      <div class="landing-topbar">
+        <button class="wordmark">
+          <img class="wordmark-img" src="assets/logo-bright.png" alt="Telaegent" />
+        </button>
+        <button class="app-text-button theme-toggle">Light mode</button>
+      </div>
+      <div class="landing-hero">
+        <span class="app-eyebrow">Agent-to-agent collaboration</span>
+        <h1>Your agent talks to their agent. <em>Neither repo moves.</em></h1>
+        <p>
+          Telaegent is a project-scoped trust and messaging layer for coding
+          agents. Each developer's agent runs on their own machine, against
+          their own checkout, under their own provider login. Only an approved
+          message ever crosses between them.
+        </p>
+        <div class="landing-actions">
+          <button class="github-button cue" id="signInButton">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+              />
+            </svg>
+            Sign in with GitHub
+          </button>
+          <span style="color: var(--quiet); font-size: 12px">
+            Repository access is granted separately, per project.
+          </span>
+        </div>
+        <div class="landing-facts">
+          <div>
+            <strong>Nothing is uploaded</strong>
+            <p>
+              Your checkout, GitHub login, provider credentials and agent
+              sessions stay on your machine. The cloud coordinates; it does not
+              execute.
+            </p>
+          </div>
+          <div>
+            <strong>Approval is the boundary</strong>
+            <p>
+              Your agent drafts privately. A deterministic guard layer runs
+              underneath. Only you can send.
+            </p>
+          </div>
+          <div>
+            <strong>Durable by construction</strong>
+            <p>
+              Every turn is rebuilt from Postgres rows alone. A provider session
+              is a cache, never a source of truth.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         SCREEN 2 — GitHub authorization (mock consent screen only;
+         no credential field exists anywhere on this page)
+         ================================================================ -->
+    <section class="screen gh-screen" id="screen-github">
+      <div class="gh-chrome">
+        <span>&#9679;&#9679;&#9679;</span>
+        <span class="gh-url">github.com/login/oauth/authorize</span>
+        <span>simulated</span>
+      </div>
+      <div class="gh-card">
+        <svg class="gh-mark" viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+          />
+        </svg>
+        <h2>Authorize <b>Telaegent</b></h2>
+        <p>Telaegent by telaegent would like permission to:</p>
+
+        <div class="gh-account">
+          <div class="app-avatar">MP</div>
+          <div>
+            <strong>Mark Pham</strong>
+            <small>@markpham &middot; signed in</small>
+          </div>
+        </div>
+
+        <ul class="gh-scopes">
+          <li><span>&#10003;</span> Verify your GitHub identity</li>
+          <li>
+            <span>&#10003;</span> Read the list of repositories you can access
+          </li>
+          <li>
+            <span>&#10003;</span> Confirm repository membership when a connector
+            proves it
+          </li>
+        </ul>
+
+        <button class="gh-authorize cue" id="authorizeButton">
+          Authorize telaegent
+        </button>
+        <small>
+          Telaegent receives no code, no contents and no write access. Simulated
+          screen &mdash; nothing is sent to GitHub.
+        </small>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         SCREEN 3 — onboarding
+         ================================================================ -->
+    <section class="screen onboarding-shell" id="screen-onboarding">
+      <div class="onboarding-topbar">
+        <button class="wordmark">
+          <img class="wordmark-img" src="assets/logo-bright.png" alt="Telaegent" />
+        </button>
+        <div style="display: flex; align-items: center; gap: 14px">
+          <button class="app-text-button theme-toggle">Light mode</button>
+          <div class="app-avatar">MP</div>
+        </div>
+      </div>
+
+      <div class="onboarding-layout">
+        <aside class="onboarding-progress" id="progressRail">
+          <span>Setup</span>
+          <div data-stage="identity"><i>1</i><p>identity</p></div>
+          <div data-stage="github"><i>2</i><p>repository</p></div>
+          <div data-stage="agent"><i>3</i><p>coding agent</p></div>
+          <div data-stage="ready"><i>4</i><p>ready</p></div>
+        </aside>
+
+        <section class="onboarding-card">
+          <!-- ---- 3a. identity ---- -->
+          <div class="onboarding-step" id="step-identity">
+            <span class="app-eyebrow">Your Telaegent account</span>
+            <h1>Start with your developer identity.</h1>
+            <p>
+              Sign in to Telaegent first. Repository access and collaborator
+              permissions stay separate, so you always know what you are
+              granting.
+            </p>
+            <button class="app-primary-action cue" id="continueSetup">
+              Continue setup
+            </button>
+            <small
+              >Signed in as @markpham &middot; no personal agent history is
+              imported</small
+            >
+          </div>
+
+          <!-- ---- 3b. repository ---- -->
+          <div class="onboarding-step" id="step-github" hidden>
+            <span class="app-eyebrow">Repository connection</span>
+            <h1>Connect this local repository.</h1>
+            <p>
+              Run the connector in the repository you choose. Your checkout,
+              GitHub login, credentials, and local path stay on this machine.
+            </p>
+
+            <div class="setup-row" id="connectorIdle">
+              <div>
+                <strong>Local Telaegent connector</strong>
+                <small>Not connected for this repository</small>
+              </div>
+              <button class="cue" id="createPairing">Connect</button>
+            </div>
+
+            <div class="setup-row" id="connectorIssuing" hidden>
+              <div>
+                <strong>Preparing a secure one-time command</strong>
+                <small>Bound to this Telaegent account and installation only</small>
+              </div>
+              <span class="app-typing-dots"><i></i><i></i><i></i></span>
+            </div>
+
+            <div class="device-flow" id="connectorPairing" hidden>
+              <div>
+                <span>Run from your repository</span>
+                <strong>Connect this repository</strong>
+              </div>
+              <div>
+                <span>What remains local</span>
+                <code>repo &middot; gh &middot; Claude/Codex &middot; sessions</code>
+              </div>
+              <p>
+                Open a terminal in the repository you want to connect, then run
+                this command. It works on Windows, macOS, and Linux.
+              </p>
+              <div class="connector-command-block">
+                <code class="connector-command" id="connectorCommand"></code>
+                <p id="pairingExpiry"></p>
+              </div>
+              <div class="inline-actions">
+                <button class="app-secondary-action" id="copyCommand">
+                  Copy command
+                </button>
+                <button class="app-primary-action cue" id="runConnector">
+                  Run it for me
+                </button>
+                <button class="app-text-button" id="newCommand">New command</button>
+              </div>
+
+              <div class="terminal" id="terminal" hidden>
+                <header>
+                  <i></i><i></i><i></i>
+                  <span style="margin-left: 6px">mark@macbook &mdash; ~/dev/telaegent</span>
+                </header>
+                <pre id="terminalOut"></pre>
+              </div>
+            </div>
+
+            <div class="setup-row" id="connectorConnected" hidden>
+              <div>
+                <strong>
+                  <span class="app-status-mark live"></span>
+                  Repository connector verified
+                </strong>
+                <small>
+                  The backend confirmed an active membership, repository proof,
+                  and opaque local binding.
+                </small>
+              </div>
+              <button class="cue" id="toAgentStep">Continue</button>
+            </div>
+          </div>
+
+          <!-- ---- 3c. coding agent ---- -->
+          <div class="onboarding-step" id="step-agent" hidden>
+            <span class="app-eyebrow">Your project agent</span>
+            <h1>Choose who works privately with you.</h1>
+            <p>
+              Choose only a provider the connector terminal reported as
+              TELAEGENT IS CONNECTED. Provider login and project sessions stay
+              local; unrelated conversations are never imported.
+            </p>
+            <div class="provider-picker" id="providerPicker">
+              <button data-provider="Codex" class="cue">
+                <span>
+                  <strong>Codex</strong>
+                  <small>Reported by your connector probe</small>
+                </span>
+                <span>Select</span>
+              </button>
+              <button data-provider="Claude Code">
+                <span>
+                  <strong>Claude Code</strong>
+                  <small>Choose provider</small>
+                </span>
+                <span>Select</span>
+              </button>
+            </div>
+            <button class="app-primary-action" id="toReadyStep" disabled>
+              Continue
+            </button>
+          </div>
+
+          <!-- ---- 3d. ready ---- -->
+          <div class="onboarding-step" id="step-ready" hidden>
+            <span class="app-eyebrow">Setup complete</span>
+            <h1>You&rsquo;re ready to choose a project.</h1>
+            <p>
+              Repositories set the boundary for conversations, agent context,
+              collaborators, and approvals.
+            </p>
+            <div class="ready-summary">
+              <span
+                ><i class="check">&#10003;</i>Repository connector registered</span
+              >
+              <span
+                ><i class="check">&#10003;</i>GitHub repository proof active</span
+              >
+              <span
+                ><i class="check">&#10003;</i
+                ><span id="chosenProvider">Codex</span>&nbsp;selected for this
+                project</span
+              >
+            </div>
+            <button class="app-primary-action cue" id="toProjects">
+              Choose a repository
+            </button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         SCREEN 4 — product (projects, trust, workspace)
+         ================================================================ -->
+    <section class="screen" id="screen-product">
+      <div class="product-app-shell">
+        <header class="app-topbar">
+          <button class="app-wordmark">
+            <img
+              class="wordmark-img"
+              src="assets/logo-bright.png"
+              alt="Telaegent"
+            />
+          </button>
+          <div class="app-topbar-context">
+            <span class="app-status-mark live"></span>
+            <span id="topbarContext">telaegent/telaegent-tiktok-techjam</span>
+          </div>
+          <div class="app-topbar-actions">
+            <button class="app-text-button theme-toggle">Light mode</button>
+            <button class="app-text-button" id="presenterToggle">Script</button>
+            <div class="app-avatar" title="Mark Pham">MP</div>
+          </div>
+        </header>
+
+        <div class="app-body">
+          <!-- ---- 4a. projects ---- -->
+          <div class="app-page" id="page-projects">
+            <div class="app-page-heading">
+              <span class="app-eyebrow">Your projects</span>
+              <h2>Connected repositories</h2>
+              <p>
+                Connections stay repository-scoped. A collaborator you trust on
+                one repository has no visibility into another.
+              </p>
+            </div>
+            <div class="project-list">
+              <button class="repo-row cue" id="openProject">
+                <span class="repo-mark">TT</span>
+                <span class="repo-title">
+                  <strong>telaegent/telaegent-tiktok-techjam</strong>
+                  <span class="repo-meta">
+                    <span class="app-status-mark live"></span>
+                    Connector live &middot; Codex &middot; 1 collaborator
+                  </span>
+                </span>
+                <span class="repo-open">Open</span>
+              </button>
+              <button class="repo-row disabled" disabled>
+                <span class="repo-mark">RP</span>
+                <span class="repo-title">
+                  <strong>reneducation/platform-api</strong>
+                  <span class="repo-meta">
+                    <span class="app-status-mark quiet"></span>
+                    Connector offline &middot; no verified collaborator
+                  </span>
+                </span>
+                <span class="repo-open">&mdash;</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ---- 4b. project trust ---- -->
+          <div class="app-page" id="page-trust" hidden>
+            <div class="app-page-heading">
+              <span class="app-eyebrow">Project trust</span>
+              <h2>Project collaborators</h2>
+              <p>
+                Both of you must independently prove access to this repository
+                from your own machine before a conversation can be opened.
+              </p>
+            </div>
+
+            <div class="connection-request-card">
+              <div class="connection-row">
+                <div class="app-avatar">HN</div>
+                <div>
+                  <strong>Henry Nguyen</strong>
+                  <small id="henryStatus">
+                    <span class="app-status-mark live"></span>
+                    @henrynguyen &middot; connector seen recently
+                  </small>
+                </div>
+                <button class="app-primary-action cue" id="requestConnection">
+                  Request connection
+                </button>
+              </div>
+              <p class="permission-copy" id="trustCopy">
+                Requesting a connection asks Henry to confirm the pairing from
+                his own Telaegent account. Neither of you gains access to the
+                other's checkout, provider login, or local path &mdash; only the
+                ability to exchange approved messages inside this repository.
+              </p>
+            </div>
+          </div>
+
+          <!-- ---- 4c. workspace ---- -->
+          <div id="page-workspace" style="height: 100%" hidden>
+            <div class="workspace-shell">
+              <aside class="workspace-sidebar">
+                <button class="workspace-back" id="backToProjects">
+                  &larr; Projects
+                </button>
+
+                <div class="sidebar-group">
+                  <span class="app-eyebrow">Your projects</span>
+                  <button class="project-card selected">
+                    <strong>telaegent&#8203;/telaegent-tiktok-techjam</strong>
+                    <small>
+                      <span class="app-status-mark live"></span>
+                      Connector live
+                    </small>
+                  </button>
+                </div>
+
+                <div class="sidebar-group">
+                  <span class="app-eyebrow">Project collaborators</span>
+                  <div class="collaborator-row">
+                    <div class="app-avatar sm">HN</div>
+                    <div>
+                      <strong>Henry Nguyen</strong>
+                      <small>
+                        <span class="app-status-mark live"></span>
+                        Connector seen recently
+                      </small>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="sidebar-group">
+                  <span class="app-eyebrow">Local execution</span>
+                  <div class="collaborator-row">
+                    <div class="app-avatar sm">CX</div>
+                    <div>
+                      <strong>Codex CLI</strong>
+                      <small>
+                        <span class="app-status-mark live"></span>
+                        Authenticated locally
+                      </small>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="sidebar-foot">
+                  Repositories, provider logins and agent sessions never leave
+                  this machine. Telaegent stores only approved messages and the
+                  durable rows needed to rebuild a turn.
+                </div>
+              </aside>
+
+              <section class="workspace-page">
+                <header class="project-chat-header">
+                  <div>
+                    <div class="app-avatar">HN</div>
+                    <div class="chat-header-meta">
+                      <strong>Henry Nguyen</strong>
+                      <small>
+                        <span class="app-status-mark live"></span>
+                        Connector seen recently &middot; Repository scoped
+                      </small>
+                    </div>
+                  </div>
+                  <div class="chat-project-strip">
+                    <span class="repo-chip">Approved project conversation</span>
+                    <button class="app-secondary-action" id="restartButton">
+                      Restart control plane
+                    </button>
+                  </div>
+                </header>
+
+                <div class="shared-thread" id="thread">
+                  <div class="thread-date">Today</div>
+                  <div class="empty-conversation" id="emptyState">
+                    <span class="app-eyebrow">No approved messages yet</span>
+                    <p>
+                      Both of you independently proved access to this
+                      repository. Nothing crosses until you approve it.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="shared-composer" id="composer">
+                  <label>
+                    <span>Message preparation</span>
+                    <select id="providerSelect">
+                      <option>Codex</option>
+                      <option>Claude Code</option>
+                    </select>
+                  </label>
+                  <div>
+                    <textarea
+                      id="promptInput"
+                      rows="2"
+                      placeholder="Tell your agent what to ask Henry&hellip;"
+                    ></textarea>
+                    <button id="prepareButton">Prepare draft</button>
+                  </div>
+                  <small>Only Send crosses the trust boundary.</small>
+                </div>
+
+                <aside class="workspace-private-room" id="privateRoom">
+                  <header>
+                    <div class="private-title">
+                      <strong>Your project agent</strong>
+                      <p id="privatePhase">
+                        Private to you. Henry never sees this room.
+                      </p>
+                    </div>
+                    <button class="app-text-button" id="closePrivate">
+                      Close
+                    </button>
+                  </header>
+
+                  <div class="private-scope-bar">
+                    <span class="app-status-mark"></span>
+                    <span>scope: telaegent-tiktok-techjam &middot; read only</span>
+                  </div>
+
+                  <div class="workspace-private-thread" id="privateThread"></div>
+
+                  <div class="private-approval-bar" id="approvalBar" hidden>
+                    <strong>Your decision is needed</strong>
+                    <p>
+                      This draft passed the schema and the deterministic guards.
+                      Nothing has been sent.
+                    </p>
+                    <div class="inline-actions">
+                      <button class="app-primary-action" id="sendButton">
+                        Send to Henry
+                      </button>
+                      <button class="app-secondary-action" id="discardButton">
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                </aside>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         presenter script + badges + overlay
+         ================================================================ -->
+    <aside class="presenter" id="presenter">
+      <header>
+        <h2>Presenter script</h2>
+        <button class="app-text-button" id="hidePresenter">Hide</button>
+      </header>
+      <ol id="steps">
+        <li data-step="0">Click <b>Sign in with GitHub</b>.</li>
+        <li data-step="1">
+          Click <b>Authorize</b>. Telaegent gets identity only &mdash; no code,
+          no write access.
+        </li>
+        <li data-step="2">Click <b>Continue setup</b>.</li>
+        <li data-step="3">
+          Click <b>Connect</b> &mdash; the backend mints a one-time pairing code.
+        </li>
+        <li data-step="4">
+          Click <b>Run it for me</b>. Say: this runs on <b>my laptop</b>, in
+          <b>my repo</b>.
+        </li>
+        <li data-step="5">Click <b>Continue</b> once the connector verifies.</li>
+        <li data-step="6">Pick <b>Codex</b>, then <b>Continue</b>.</li>
+        <li data-step="7">Click <b>Choose a repository</b>.</li>
+        <li data-step="8">Open <b>telaegent-tiktok-techjam</b>.</li>
+        <li data-step="9">
+          Click <b>Request connection</b> &mdash; Henry proved the same repo
+          independently.
+        </li>
+        <li data-step="10">
+          The prompt is pre-typed. Read it aloud, click <b>Prepare draft</b>.
+        </li>
+        <li data-step="11">
+          Show the guard checks, then <b>Send to Henry</b> &mdash; the only
+          action that crosses.
+        </li>
+        <li data-step="12">
+          Henry's agent reads <b>his</b> repo and answers. Neither repo moved.
+        </li>
+        <li data-step="13">
+          Click <b>Restart control plane</b>. It rebuilds from Postgres rows.
+          That is durable context.
+        </li>
+      </ol>
+      <div class="presenter-controls">
+        <button class="mini-button on" id="cueToggle">Cues: on</button>
+        <button class="mini-button" id="speedToggle">Speed: 1&times;</button>
+        <button class="mini-button" id="replayButton">Restart demo</button>
+        <button class="mini-button" id="skipButton">Skip to chat</button>
+      </div>
+      <p class="presenter-hint">
+        <b>P</b> hide panel &middot; <b>R</b> restart demo &middot; <b>S</b> skip
+        to chat &middot; <b>Enter</b> in composer prepares the draft.
+      </p>
+    </aside>
+
+    <div class="demo-badge">Scripted demo &middot; offline</div>
+
+    <div class="restart-overlay" id="restartOverlay" hidden>
+      <div class="restart-card">
+        <h3>Restarting the control plane</h3>
+        <p>
+          The container is stopped and replaced. Provider sessions on both
+          laptops are discarded. Nothing is read from a cache.
+        </p>
+        <div class="console" id="console"></div>
+      </div>
+    </div>
+
+    <script>
+      "use strict";
+
+      /* ==================================================================
+         Everything below is authored content. No network, no model,
+         no database, no GitHub. Nothing here collects a credential.
+         ================================================================== */
+
+      const PROMPT =
+        "Ask Henry which guard rejects a draft containing a bare secret, and whether it runs before or after the model's own risk flags.";
+
+      const PAIRING_CODE = "7K2M-9QX4-BTZP";
+
+      const CONNECTOR_COMMAND =
+        'npx --yes @telaegent/connector@0.1.0 connect . --url https://telaegent.live --pair <b>' +
+        PAIRING_CODE +
+        "</b>";
+
+      const TERMINAL_SCRIPT = [
+        ["dim", "$ npx --yes @telaegent/connector@0.1.0 connect . \\"],
+        ["dim", "    --url https://telaegent.live --pair " + PAIRING_CODE],
+        ["", ""],
+        ["ok", "TELAEGENT REPOSITORY DETECTED"],
+        ["", "GitHub:     telaegent/telaegent-tiktok-techjam"],
+        ["", "Local root: /Users/mark/dev/telaegent"],
+        ["", "Connect this repository? [y/N] y"],
+        ["", ""],
+        ["dim", "  ✓ pairing code exchanged for connector credential"],
+        ["dim", "  ✓ GitHub access verified as @markpham"],
+        ["dim", "  ✓ repository proof registered (id 902441773)"],
+        ["dim", "  ✓ provider probe: Codex CLI responded in 1.9s"],
+        ["dim", "  ✓ outbound long poll established"],
+        ["", ""],
+        ["win", "TELAEGENT IS CONNECTED"],
+        ["dim", "Waiting for turns. Nothing is uploaded. Ctrl+C to stop."],
+      ];
+
+      const SENDER_TRACE = [
+        "resolved workspace <b>~/dev/telaegent</b> (read only)",
+        "git rev-parse HEAD &rarr; <b>70dcfff</b>",
+        "read apps/server/src/telagent/protocol/contract.ts",
+        "read apps/server/src/telagent/protocol/guards.ts",
+        "sender prompt built &middot; format <b>P3</b> &middot; memory <b>M5</b>",
+      ];
+
+      const SENDER_DRAFT =
+        "On the sender path, which guard actually rejects a draft that contains a bare secret &mdash; and does it run before or after the model's own risk flags?\n\n" +
+        "I'm wiring the approval UI and I need to know whether a clean <code>risk_flags</code> array can ever let a turn skip the guard layer.";
+
+      const GUARD_CHECKS = [
+        "No secret material in the draft",
+        "Scoped to telaegent-tiktok-techjam",
+        "No file contents attached",
+        "Schema valid &middot; state <b>ready</b>",
+      ];
+
+      const RECIPIENT_TRACE = [
+        "relay delivered turn to <b>Henry's connector</b>",
+        "resolved workspace <b>~/code/telaegent</b> (read only)",
+        "read apps/server/src/telagent/protocol/guards.ts",
+        "recipient prompt built &middot; role <b>recipient</b>",
+      ];
+
+      const HENRY_REPLY =
+        "<code>looksLikeBareSecret()</code> in <code>guards.ts</code> &mdash; and it runs after the schema parse but before human approval. Never after the flags.\n\n" +
+        "The flags are hints, not permissions. A clean <code>risk_flags</code> array cannot skip the guard layer, and guards may only downgrade a turn &mdash; nothing can promote one to <code>ready</code>.\n\n" +
+        'So your approval UI should read <code>ready</code> as "the guards already passed", not "the model said it was fine".';
+
+      const RESTART_LOG = [
+        ["dim", "$ docker compose restart telaegent-control-plane"],
+        ["dim", "Stopping telaegent-control-plane   ... done"],
+        ["dim", "Discarding provider session cache  ... done"],
+        ["dim", "Starting telaegent-control-plane   ... done"],
+        ["", "&nbsp;"],
+        ["dim", "control plane listening on :3000"],
+        ["dim", "conversation persistence = <b>supabase</b>"],
+        ["", "&nbsp;"],
+        ["dim", "&rarr; rpc load_sender_protocol_context(conversation_id)"],
+        ["ok", "&larr; 1 row"],
+        ["dim", "&rarr; rpc load_recipient_protocol_context(conversation_id)"],
+        ["ok", "&larr; 1 row"],
+        ["", "&nbsp;"],
+        ["ok", "turn rebuilt from durable rows &middot; provider session not consulted"],
+      ];
+
+      /* ================= helpers ================= */
+      const $ = (id) => document.getElementById(id);
+      let speed = 1;
+      let step = 0;
+      let busy = false;
+      let chosenProviders = [];
+      /** The durable rows. A restart is rebuilt from these and nothing else. */
+      let durableRows = [];
+
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms / speed));
+      const clock = () =>
+        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const paragraphs = (body) =>
+        body
+          .split("\n\n")
+          .map((p) => "<p>" + p + "</p>")
+          .join("");
+
+      function showScreen(id) {
+        document
+          .querySelectorAll(".screen")
+          .forEach((s) => s.classList.toggle("active", s.id === id));
+      }
+
+      function setStep(next) {
+        step = next;
+        document.querySelectorAll("#steps li").forEach((li) => {
+          const n = Number(li.dataset.step);
+          li.classList.toggle("active", n === step);
+          li.classList.toggle("done", n < step);
+        });
+        const active = document.querySelector("#steps li.active");
+        if (active) active.scrollIntoView({ block: "nearest" });
+      }
+
+      function cueOnly(el) {
+        document.querySelectorAll(".cue").forEach((n) => n.classList.remove("cue"));
+        if (el) el.classList.add("cue");
+      }
+
+      function setStage(stage) {
+        const order = ["identity", "github", "agent", "ready"];
+        const index = order.indexOf(stage);
+        document.querySelectorAll("#progressRail > div").forEach((d, i) => {
+          d.classList.toggle("current", i <= index);
+        });
+        order.forEach((name) => {
+          $("step-" + name).hidden = name !== stage;
+        });
+      }
+
+      /* ================= 1 -> 2 : sign in ================= */
+      $("signInButton").addEventListener("click", async () => {
+        showScreen("screen-github");
+        setStep(1);
+        cueOnly($("authorizeButton"));
+      });
+
+      /* ================= 2 -> 3 : authorize ================= */
+      $("authorizeButton").addEventListener("click", async () => {
+        const button = $("authorizeButton");
+        button.disabled = true;
+        button.textContent = "Authorizing…";
+        button.classList.remove("cue");
+        await wait(900);
+        button.textContent = "Redirecting to telaegent.live…";
+        await wait(700);
+        showScreen("screen-onboarding");
+        setStage("identity");
+        setStep(2);
+        cueOnly($("continueSetup"));
+        button.disabled = false;
+        button.textContent = "Authorize telaegent";
+      });
+
+      /* ================= 3a -> 3b ================= */
+      $("continueSetup").addEventListener("click", () => {
+        setStage("github");
+        setStep(3);
+        cueOnly($("createPairing"));
+      });
+
+      /* ================= 3b : connector pairing ================= */
+      async function createPairing() {
+        $("connectorIdle").hidden = true;
+        $("connectorConnected").hidden = true;
+        $("connectorPairing").hidden = true;
+        $("terminal").hidden = true;
+        $("terminalOut").innerHTML = "";
+        $("connectorIssuing").hidden = false;
+        cueOnly(null);
+
+        await wait(1300);
+
+        $("connectorIssuing").hidden = true;
+        $("connectorPairing").hidden = false;
+        $("connectorCommand").innerHTML = CONNECTOR_COMMAND;
+
+        const expires = new Date(Date.now() + 5 * 60 * 1000);
+        $("pairingExpiry").textContent =
+          "The connector uses the current Git repository. Its local path, checkout, GitHub login, and coding-agent sessions stay on this device. This one-time command expires at " +
+          expires.toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          }) +
+          ".";
+
+        setStep(4);
+        cueOnly($("runConnector"));
+      }
+
+      $("createPairing").addEventListener("click", createPairing);
+      $("newCommand").addEventListener("click", createPairing);
+
+      $("copyCommand").addEventListener("click", async (event) => {
+        const plain =
+          "npx --yes @telaegent/connector@0.1.0 connect . --url https://telaegent.live --pair " +
+          PAIRING_CODE;
+        try {
+          await navigator.clipboard.writeText(plain);
+        } catch (error) {
+          /* clipboard is optional in the demo */
+        }
+        event.target.textContent = "Command copied";
+        setTimeout(() => (event.target.textContent = "Copy command"), 1800);
+      });
+
+      $("runConnector").addEventListener("click", async () => {
+        if (busy) return;
+        busy = true;
+        cueOnly(null);
+        $("runConnector").disabled = true;
+        $("terminal").hidden = false;
+
+        const out = $("terminalOut");
+        out.innerHTML = "";
+        for (const [cls, line] of TERMINAL_SCRIPT) {
+          const el = document.createElement("div");
+          if (cls) el.className = cls;
+          el.innerHTML = line === "" ? "&nbsp;" : line;
+          out.appendChild(el);
+          out.scrollTop = out.scrollHeight;
+          await wait(line === "" ? 90 : 330);
+        }
+        const cursor = document.createElement("div");
+        cursor.innerHTML = '<span class="cursor"></span>';
+        out.appendChild(cursor);
+        out.scrollTop = out.scrollHeight;
+
+        await wait(800);
+        $("connectorPairing").hidden = true;
+        $("connectorConnected").hidden = false;
+        $("runConnector").disabled = false;
+        busy = false;
+        setStep(5);
+        cueOnly($("toAgentStep"));
+      });
+
+      /* ================= 3b -> 3c ================= */
+      $("toAgentStep").addEventListener("click", () => {
+        setStage("agent");
+        setStep(6);
+        cueOnly(document.querySelector('[data-provider="Codex"]'));
+      });
+
+      $("providerPicker").addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-provider]");
+        if (!button) return;
+        const name = button.dataset.provider;
+        const on = button.classList.toggle("connected");
+        button.querySelector("span:last-child").textContent = on
+          ? "Selected"
+          : "Select";
+        button.querySelector("small").textContent = on
+          ? "Selected for this project"
+          : "Choose provider";
+        chosenProviders = on
+          ? chosenProviders.concat(name)
+          : chosenProviders.filter((p) => p !== name);
+        $("toReadyStep").disabled = chosenProviders.length === 0;
+        if (chosenProviders.length) cueOnly($("toReadyStep"));
+      });
+
+      $("toReadyStep").addEventListener("click", () => {
+        $("chosenProvider").textContent = chosenProviders.join(" + ");
+        $("providerSelect").value = chosenProviders[0];
+        setStage("ready");
+        setStep(7);
+        cueOnly($("toProjects"));
+      });
+
+      /* ================= 3d -> 4a ================= */
+      $("toProjects").addEventListener("click", () => {
+        showScreen("screen-product");
+        $("page-projects").hidden = false;
+        $("page-trust").hidden = true;
+        $("page-workspace").hidden = true;
+        setStep(8);
+        cueOnly($("openProject"));
+      });
+
+      /* ================= 4a -> 4b ================= */
+      $("openProject").addEventListener("click", () => {
+        $("page-projects").hidden = true;
+        $("page-trust").hidden = false;
+        setStep(9);
+        cueOnly($("requestConnection"));
+      });
+
+      /* ================= 4b -> 4c : project trust ================= */
+      let connectionAccepted = false;
+
+      $("requestConnection").addEventListener("click", async () => {
+        if (busy) return;
+        if (connectionAccepted) {
+          openWorkspace();
+          return;
+        }
+        busy = true;
+        const button = $("requestConnection");
+        button.classList.remove("cue");
+        button.disabled = true;
+        button.textContent = "Request sent";
+        $("henryStatus").innerHTML =
+          '<span class="app-typing-dots"><i></i><i></i><i></i></span> waiting for Henry to accept…';
+
+        await wait(1600);
+        $("henryStatus").innerHTML =
+          '<span class="app-status-mark live"></span> Connected &middot; both proved repository access';
+        $("trustCopy").innerHTML =
+          "<strong style='color:var(--text)'>Both of you independently proved access to this repository.</strong> " +
+          "Henry accepted from his own Telaegent account, on his own machine. Neither of you can read the other's checkout, " +
+          "provider login, or local path &mdash; only approved messages inside this repository.";
+        button.textContent = "Open conversation";
+        button.disabled = false;
+        button.classList.add("cue");
+        connectionAccepted = true;
+        busy = false;
+      });
+
+      function openWorkspace() {
+        $("page-trust").hidden = true;
+        $("page-workspace").hidden = false;
+        $("promptInput").value = PROMPT;
+        setStep(10);
+        cueOnly($("composer"));
+      }
+
+      /* ================= workspace : shared thread ================= */
+      const thread = $("thread");
+      const privateThread = $("privateThread");
+      const privateRoom = $("privateRoom");
+      const approvalBar = $("approvalBar");
+      const promptInput = $("promptInput");
+      const prepareButton = $("prepareButton");
+
+      function addSharedMessage(row) {
+        $("emptyState").hidden = true;
+        const el = document.createElement("article");
+        el.className = "shared-message " + row.direction;
+        el.innerHTML =
+          "<span>" +
+          row.author +
+          "</span>" +
+          paragraphs(row.body) +
+          "<small>" +
+          row.time +
+          " &middot; approved</small>";
+        thread.appendChild(el);
+        thread.scrollTop = thread.scrollHeight;
+      }
+
+      function setThreadStatus(html) {
+        clearThreadStatus();
+        if (!html) return;
+        const el = document.createElement("div");
+        el.className = "thread-status";
+        el.id = "threadStatus";
+        el.innerHTML =
+          '<span class="app-typing-dots"><i></i><i></i><i></i></span>' + html;
+        thread.appendChild(el);
+        thread.scrollTop = thread.scrollHeight;
+      }
+
+      function clearThreadStatus() {
+        const el = $("threadStatus");
+        if (el) el.remove();
+      }
+
+      function addPrivateBubble(label, body, owner) {
+        const el = document.createElement("div");
+        el.className = "private-bubble" + (owner ? " owner" : "");
+        el.innerHTML = "<span>" + label + "</span>" + paragraphs(body);
+        privateThread.appendChild(el);
+        privateThread.scrollTop = privateThread.scrollHeight;
+        return el;
+      }
+
+      function thinkingBlock(label, note) {
+        const el = document.createElement("div");
+        el.className = "private-bubble";
+        el.innerHTML =
+          "<span>" +
+          label +
+          "</span>" +
+          '<div class="private-thinking">' +
+          '<span class="app-typing-dots"><i></i><i></i><i></i></span>' +
+          "<span>" +
+          note +
+          "</span></div>";
+        privateThread.appendChild(el);
+        privateThread.scrollTop = privateThread.scrollHeight;
+        return el;
+      }
+
+      async function runTrace(lines, host) {
+        for (const line of lines) {
+          const el = document.createElement("div");
+          el.className = "trace-line";
+          el.innerHTML = "&rsaquo; " + line;
+          host.appendChild(el);
+          privateThread.scrollTop = privateThread.scrollHeight;
+          await wait(430);
+        }
+      }
+
+      /* ================= act 1 : prepare the draft ================= */
+      async function prepareDraft() {
+        if (busy) return;
+        const text = promptInput.value.trim();
+        if (!text) return;
+        busy = true;
+        prepareButton.disabled = true;
+        promptInput.disabled = true;
+        cueOnly(null);
+        setStep(11);
+
+        privateRoom.classList.add("open");
+        addPrivateBubble("You", text, true);
+        await wait(420);
+
+        const block = thinkingBlock(
+          "Your agent &middot; Codex &middot; local",
+          "working locally",
+        );
+        await wait(650);
+        block.querySelector(".private-thinking span:last-child").textContent =
+          "reading your repository";
+        await runTrace(SENDER_TRACE, block);
+        block.querySelector(".private-thinking").remove();
+
+        await wait(300);
+        const draft = addPrivateBubble("Draft for Henry", SENDER_DRAFT, false);
+
+        const summary = document.createElement("div");
+        summary.className = "ready-summary";
+        summary.innerHTML = GUARD_CHECKS.map(
+          (c) => '<span><i class="check">&#10003;</i>' + c + "</span>",
+        ).join("");
+        draft.appendChild(summary);
+        privateThread.scrollTop = privateThread.scrollHeight;
+
+        await wait(260);
+        approvalBar.hidden = false;
+        cueOnly($("sendButton"));
+        busy = false;
+      }
+
+      /* ================= act 2 : send, Henry answers ================= */
+      async function sendDraft() {
+        if (busy) return;
+        busy = true;
+        approvalBar.hidden = true;
+        cueOnly(null);
+        setStep(12);
+
+        const row = {
+          author: "Mark Pham",
+          body: SENDER_DRAFT,
+          direction: "outgoing",
+          time: clock(),
+        };
+        addSharedMessage(row);
+        durableRows.push(row);
+
+        addPrivateBubble(
+          "Approved &middot; sent",
+          "You approved this draft. It is now an approved project message and a durable row.",
+          false,
+        );
+        $("privatePhase").textContent =
+          "Waiting for Henry's agent to answer on his machine.";
+
+        await wait(700);
+        setThreadStatus("delivering to Henry's connector&hellip;");
+        await wait(1200);
+        setThreadStatus("Henry's agent is reading <b>his</b> repository&hellip;");
+
+        const block = thinkingBlock(
+          "Henry's agent &middot; Claude Code &middot; his laptop",
+          "running on Henry's machine",
+        );
+        await runTrace(RECIPIENT_TRACE, block);
+        block.querySelector(".private-thinking").remove();
+
+        await wait(450);
+        setThreadStatus("Henry approved the reply&hellip;");
+        await wait(950);
+        clearThreadStatus();
+
+        const reply = {
+          author: "Henry Nguyen",
+          body: HENRY_REPLY,
+          direction: "incoming",
+          time: clock(),
+        };
+        addSharedMessage(reply);
+        durableRows.push(reply);
+
+        addPrivateBubble(
+          "Answer received",
+          "Henry's agent answered from his own checkout. Neither repository was uploaded, and neither provider session was stored.",
+          false,
+        );
+
+        promptInput.disabled = false;
+        promptInput.value = "";
+        prepareButton.disabled = false;
+        busy = false;
+        setStep(13);
+        cueOnly($("restartButton"));
+      }
+
+      /* ================= act 3 : durability proof ================= */
+      async function restartControlPlane() {
+        if (busy) return;
+        busy = true;
+        cueOnly(null);
+
+        const overlay = $("restartOverlay");
+        const consoleEl = $("console");
+        consoleEl.innerHTML = "";
+        overlay.hidden = false;
+
+        thread
+          .querySelectorAll(".shared-message, .thread-status")
+          .forEach((n) => n.remove());
+        privateThread.innerHTML = "";
+        privateRoom.classList.remove("open");
+        approvalBar.hidden = true;
+        $("emptyState").hidden = false;
+
+        for (const [cls, line] of RESTART_LOG) {
+          const el = document.createElement("div");
+          if (cls) el.className = cls;
+          el.innerHTML = line;
+          consoleEl.appendChild(el);
+          await wait(line === "&nbsp;" ? 120 : 380);
+        }
+
+        await wait(950);
+        overlay.hidden = true;
+
+        for (const row of durableRows) {
+          addSharedMessage(row);
+          await wait(240);
+        }
+
+        promptInput.disabled = false;
+        promptInput.placeholder =
+          "The conversation survived the restart. Ask a follow-up…";
+        prepareButton.disabled = false;
+        busy = false;
+        setStep(14);
+      }
+
+      /* ================= reset ================= */
+      function restartDemo() {
+        busy = false;
+        durableRows = [];
+        chosenProviders = [];
+
+        thread
+          .querySelectorAll(".shared-message, .thread-status")
+          .forEach((n) => n.remove());
+        privateThread.innerHTML = "";
+        privateRoom.classList.remove("open");
+        approvalBar.hidden = true;
+        $("emptyState").hidden = false;
+        $("restartOverlay").hidden = true;
+        $("privatePhase").textContent =
+          "Private to you. Henry never sees this room.";
+
+        promptInput.disabled = false;
+        promptInput.value = "";
+        promptInput.placeholder = "Tell your agent what to ask Henry…";
+        prepareButton.disabled = false;
+
+        $("connectorIdle").hidden = false;
+        $("connectorIssuing").hidden = true;
+        $("connectorPairing").hidden = true;
+        $("connectorConnected").hidden = true;
+        $("terminal").hidden = true;
+        $("terminalOut").innerHTML = "";
+
+        document.querySelectorAll("[data-provider]").forEach((b) => {
+          b.classList.remove("connected");
+          b.querySelector("span:last-child").textContent = "Select";
+          b.querySelector("small").textContent =
+            b.dataset.provider === "Codex"
+              ? "Reported by your connector probe"
+              : "Choose provider";
+        });
+        $("toReadyStep").disabled = true;
+
+        const request = $("requestConnection");
+        request.textContent = "Request connection";
+        request.disabled = false;
+        connectionAccepted = false;
+        $("henryStatus").innerHTML =
+          '<span class="app-status-mark live"></span> @henrynguyen &middot; connector seen recently';
+
+        $("page-projects").hidden = false;
+        $("page-trust").hidden = true;
+        $("page-workspace").hidden = true;
+
+        showScreen("screen-landing");
+        setStage("identity");
+        setStep(0);
+        cueOnly($("signInButton"));
+      }
+
+      /** Jump straight to the conversation, for a short demo slot. */
+      function skipToChat() {
+        chosenProviders = ["Codex"];
+        showScreen("screen-product");
+        $("page-projects").hidden = true;
+        $("page-trust").hidden = true;
+        $("page-workspace").hidden = false;
+        $("henryStatus").innerHTML =
+          '<span class="app-status-mark live"></span> Connected &middot; both proved repository access';
+        promptInput.value = PROMPT;
+        promptInput.disabled = false;
+        prepareButton.disabled = false;
+        setStep(10);
+        cueOnly($("composer"));
+      }
+
+      /* ================= theme ================= */
+      function applyTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        const src =
+          theme === "dark" ? "assets/logo-bright.png" : "assets/logo-dark.png";
+        document
+          .querySelectorAll(".wordmark-img")
+          .forEach((img) => (img.src = src));
+        document
+          .querySelectorAll(".theme-toggle")
+          .forEach(
+            (b) => (b.textContent = theme === "dark" ? "Light mode" : "Dark mode"),
+          );
+        try {
+          localStorage.setItem("telaegent-theme", theme);
+        } catch (error) {
+          /* storage is optional */
+        }
+      }
+
+      /* ================= wiring ================= */
+      prepareButton.addEventListener("click", prepareDraft);
+      $("sendButton").addEventListener("click", sendDraft);
+      $("restartButton").addEventListener("click", restartControlPlane);
+      $("closePrivate").addEventListener("click", () =>
+        privateRoom.classList.remove("open"),
+      );
+      $("backToProjects").addEventListener("click", () => {
+        $("page-workspace").hidden = true;
+        $("page-projects").hidden = false;
+      });
+
+      $("discardButton").addEventListener("click", () => {
+        approvalBar.hidden = true;
+        addPrivateBubble(
+          "Discarded",
+          "Nothing was sent. No shared message was created.",
+          false,
+        );
+        promptInput.disabled = false;
+        prepareButton.disabled = false;
+        cueOnly($("composer"));
+        setStep(10);
+      });
+
+      promptInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          prepareDraft();
+        }
+      });
+
+      document
+        .querySelectorAll(".theme-toggle")
+        .forEach((b) =>
+          b.addEventListener("click", () =>
+            applyTheme(
+              document.documentElement.dataset.theme === "dark"
+                ? "light"
+                : "dark",
+            ),
+          ),
+        );
+
+      $("presenterToggle").addEventListener("click", () => {
+        $("presenter").hidden = !$("presenter").hidden;
+      });
+      $("hidePresenter").addEventListener("click", () => {
+        $("presenter").hidden = true;
+      });
+      $("replayButton").addEventListener("click", restartDemo);
+      $("skipButton").addEventListener("click", skipToChat);
+
+      $("cueToggle").addEventListener("click", (event) => {
+        document.body.classList.toggle("no-cues");
+        const on = !document.body.classList.contains("no-cues");
+        event.target.textContent = "Cues: " + (on ? "on" : "off");
+        event.target.classList.toggle("on", on);
+      });
+
+      $("speedToggle").addEventListener("click", (event) => {
+        speed = speed === 1 ? 2.5 : 1;
+        event.target.textContent = "Speed: " + (speed === 1 ? "1×" : "2.5×");
+        event.target.classList.toggle("on", speed !== 1);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.target.tagName === "TEXTAREA") return;
+        const key = event.key.toLowerCase();
+        if (key === "p") $("presenter").hidden = !$("presenter").hidden;
+        if (key === "r") restartDemo();
+        if (key === "s") skipToChat();
+      });
+
+      /* ================= boot ================= */
+      let saved = null;
+      try {
+        saved = localStorage.getItem("telaegent-theme");
+      } catch (error) {
+        /* storage is optional */
+      }
+      applyTheme(saved === "light" ? "light" : "dark");
+      restartDemo();
+    </script>
+  </body>
+</html>
