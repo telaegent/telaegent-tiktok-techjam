@@ -272,6 +272,15 @@ export async function createApp(
         ? { code: authenticationError.code, retryable: authenticationError.retryable }
         : {}),
       ...(repositoryProofError ? { code: repositoryProofError.code } : {}),
+      ...(authorizationError
+        ? {
+            code: authorizationError.code,
+            retryable:
+              authorizationError.code ===
+                "PRIVATE_RUNTIME_AUTHORIZATION_UNAVAILABLE" ||
+              authorizationError.reason === "repository_access_stale",
+          }
+        : {}),
       ...(policyError ? { findings: policyError.findings } : {}),
       ...(validationError ? { details: error.issues } : {}),
     });

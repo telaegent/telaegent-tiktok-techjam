@@ -16,6 +16,28 @@ import type {
 import { RuntimeProviderError } from "../runtime-errors.js";
 import type { ConnectorResourceRequest } from "./resource-exchange.js";
 
+/**
+ * Maximum wall-clock time reserved for the connector-local research pass.
+ *
+ * This is part of the job-budget contract, not merely a runner detail: the
+ * cloud lease must cover this pass and the drafting pass that follows it.
+ */
+export const CONNECTOR_INVESTIGATION_DEADLINE_MS = 90_000;
+
+/** Time reserved for returning the bounded result after local execution. */
+export const CONNECTOR_JOB_COMPLETION_GRACE_MS = 30_000;
+
+export function connectorJobTimeoutMs(maximumProviderTimeoutMs: number): number {
+  if (!Number.isInteger(maximumProviderTimeoutMs) || maximumProviderTimeoutMs < 1_000) {
+    throw new Error("Connector provider timeout is invalid");
+  }
+  return (
+    CONNECTOR_INVESTIGATION_DEADLINE_MS +
+    maximumProviderTimeoutMs +
+    CONNECTOR_JOB_COMPLETION_GRACE_MS
+  );
+}
+
 export interface ConnectorJobRequest {
   jobId: string;
   connectorBindingId: string;

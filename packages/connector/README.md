@@ -8,7 +8,7 @@ an outbound connection to the Telaegent control plane.
 From the repository you want to connect:
 
 ```bash
-npx --yes @telaegent/connector@0.1.10 connect . \
+npx --yes @telaegent/connector@0.1.11 connect . \
   --url https://telaegent.live \
   --pair ONE_TIME_PAIRING_CODE
 ```
@@ -22,6 +22,10 @@ credentials, and provider sessions remain on this machine.
 Run the command from the repository root. Before consuming the pairing code,
 the connector prints the canonical local root and exact GitHub `owner/name`;
 answer `y` only when both identify the repository you intended to connect.
+While it remains running, the connector refreshes its repository-access proof
+every five minutes and after a control-plane reconnection. These bounded,
+single-flight checks keep the website authorization lease fresh without
+blocking agent job polling.
 
 Requirements:
 

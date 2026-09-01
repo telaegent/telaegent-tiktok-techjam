@@ -163,6 +163,9 @@ function apiErrorGuidance(error: ApiError): string {
   }
   if (error.status === 401)
     return "Sign in again before opening this conversation.";
+  if (error.code === "PRIVATE_RUNTIME_FORBIDDEN" && error.retryable) {
+    return "Telaegent is rechecking local repository access. Keep the connector running, then retry.";
+  }
   if (error.status === 403) {
     return "Your project connection or repository authorization does not allow this action.";
   }

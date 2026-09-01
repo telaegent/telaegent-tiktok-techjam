@@ -26,6 +26,7 @@ import { createConnectorResourceRegistry } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
 import { refreshEstablishedReadiness } from "./connector-readiness.js";
+import { ConnectorRepositoryRevalidator } from "./connector-repository-revalidator.js";
 import { runConnectorProbePump } from "./connector-probe-pump.js";
 import {
   probeFailureReason,
@@ -69,6 +70,8 @@ const pairingResponseSchema = z.strictObject({
   }),
 });
 const LIVE_HEARTBEAT_INTERVAL_MS = 20_000;
+const CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+const REPOSITORY_PROOF_COMMAND_TIMEOUT_MS = 20_000;
 
 async function main(): Promise<void> {
   const options = parseConnectorCliOptions(process.argv.slice(2));
@@ -107,6 +110,7 @@ async function main(): Promise<void> {
     serverOrigin,
     credential,
     "/api/connectors/session",
+    CONTROL_REQUEST_TIMEOUT_MS,
   );
   const principal = z.strictObject({ connector: connectorPrincipalSchema }).parse(
     await principalResponse.json(),
@@ -119,6 +123,8 @@ async function main(): Promise<void> {
     credential,
     "/api/connectors/repository-proofs",
     proof,
+    undefined,
+    CONTROL_REQUEST_TIMEOUT_MS,
   );
   const registered = bindingResponseSchema.parse(await response.json()).binding;
 
@@ -146,6 +152,7 @@ async function main(): Promise<void> {
       new InMemoryProviderSessionStore(),
       async (_scope, request) => request,
     );
+    let repositoryRevalidator: ConnectorRepositoryRevalidator | undefined;
     const transport = new HttpConnectorWorkerTransport(
       serverOrigin,
       registered.connectorBindingId,
@@ -154,6 +161,12 @@ async function main(): Promise<void> {
       {
         onRetry: ({ attempt, delayMs }) => {
           process.stderr.write(`TELAEGENT RECONNECTING (attempt ${attempt}, ${delayMs}ms)\n`);
+        },
+        onRecovered: ({ attempts }) => {
+          process.stdout.write(`TELAEGENT RECONNECTED (after ${attempts} attempts)\n`);
+          // A meaningful offline interval can outlive the authorization proof.
+          // Refresh independently; never hold recovered job polling behind it.
+          void repositoryRevalidator?.refresh();
         },
       },
     );
@@ -238,22 +251,65 @@ async function main(): Promise<void> {
       return;
     }
 
+    const refreshRepositoryProof = async (): Promise<void> => {
+      const refreshedProof = await collectRepositoryProof(workspacePath);
+      assertSameRepositoryScope(proof, refreshedProof);
+      const refreshedResponse = await connectorRequest(
+        serverOrigin,
+        credential,
+        "/api/connectors/repository-proofs",
+        refreshedProof,
+        undefined,
+        CONTROL_REQUEST_TIMEOUT_MS,
+      );
+      const refreshed = bindingResponseSchema.parse(
+        await refreshedResponse.json(),
+      ).binding;
+      if (
+        refreshed.connectorBindingId !== registered.connectorBindingId ||
+        refreshed.projectId !== registered.projectId ||
+        refreshed.githubRepositoryId !== registered.githubRepositoryId
+      ) {
+        throw new Error("Repository revalidation returned a different binding");
+      }
+    };
+    repositoryRevalidator = new ConnectorRepositoryRevalidator(
+      refreshRepositoryProof,
+      {
+        onRetry: ({ attempt, delayMs }) => {
+          process.stderr.write(
+            `TELAEGENT REVALIDATING (attempt ${attempt}, ${delayMs}ms)\n`,
+          );
+        },
+        onRecovered: ({ attempts }) => {
+          process.stdout.write(
+            `TELAEGENT REVALIDATED (after ${attempts} attempts)\n`,
+          );
+        },
+      },
+    );
+
     const announceReady = () => connectorRequest(
       serverOrigin,
       credential,
       `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
       {},
+      undefined,
+      CONTROL_REQUEST_TIMEOUT_MS,
     );
     await announceReady();
-    let heartbeatInFlight = false;
+    repositoryRevalidator.start();
+    let readinessRefresh: Promise<boolean> | undefined;
+    const refreshReadiness = (): Promise<boolean> => {
+      if (readinessRefresh) return readinessRefresh;
+      const refresh = refreshEstablishedReadiness(announceReady).finally(() => {
+        if (readinessRefresh === refresh) readinessRefresh = undefined;
+      });
+      readinessRefresh = refresh;
+      return refresh;
+    };
     const heartbeat = setInterval(() => {
-      if (heartbeatInFlight) return;
-      heartbeatInFlight = true;
-      void announceReady()
-        .catch(() => undefined)
-        .finally(() => {
-          heartbeatInFlight = false;
-        });
+      void refreshReadiness();
     }, LIVE_HEARTBEAT_INTERVAL_MS);
     heartbeat.unref();
 
@@ -264,10 +320,14 @@ async function main(): Promise<void> {
         // plane does not wait for the next heartbeat. This is best-effort after
         // the initial hard readiness gate: the next authenticated job poll will
         // still terminate the connector if its credential has been revoked.
-        await refreshEstablishedReadiness(announceReady);
+        // Readiness is metadata, while the authenticated long poll is the
+        // authoritative connection. Never pause polling behind a slow
+        // heartbeat; one bounded single-flight refresh is enough.
+        void refreshReadiness();
       }
     } finally {
       clearInterval(heartbeat);
+      repositoryRevalidator.stop();
     }
   } finally {
     await processLock.release();
@@ -279,17 +339,21 @@ async function exchangePairing(
   pairingCode: string,
 ): Promise<{ credential: string; connectorInstanceId: string }> {
   const origin = new URL(serverOrigin);
-  const response = await fetch(origin.origin + "/api/connectors/pairings/exchange", {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
+  const response = await fetchWithTimeout(
+    origin.origin + "/api/connectors/pairings/exchange",
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ pairingCode }),
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
     },
-    body: JSON.stringify({ pairingCode }),
-    cache: "no-store",
-    credentials: "omit",
-    redirect: "error",
-  });
+    CONTROL_REQUEST_TIMEOUT_MS,
+  );
   if (!response.ok) {
     await response.body?.cancel();
     throw new Error("Telaegent connector pairing failed; create a new command in the website");
@@ -337,6 +401,23 @@ async function collectRepositoryProof(workspacePath: string) {
   };
 }
 
+type CollectedRepositoryProof = Awaited<ReturnType<typeof collectRepositoryProof>>;
+
+function assertSameRepositoryScope(
+  initial: Readonly<CollectedRepositoryProof>,
+  refreshed: Readonly<CollectedRepositoryProof>,
+): void {
+  if (
+    refreshed.github.userId !== initial.github.userId ||
+    refreshed.repository.id !== initial.repository.id ||
+    refreshed.repository.owner.toLowerCase() !==
+      initial.repository.owner.toLowerCase() ||
+    refreshed.repository.name.toLowerCase() !== initial.repository.name.toLowerCase()
+  ) {
+    throw new Error("Local GitHub identity or repository changed; restart the connector");
+  }
+}
+
 function parseGitHubRemote(remote: string): string {
   const match = remote.match(
     /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?$/,
@@ -360,9 +441,10 @@ async function connectorRequest(
   pathname: string,
   body: unknown,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<Response> {
   const origin = new URL(serverOrigin);
-  const response = await fetch(origin.origin + pathname, {
+  const response = await fetchWithTimeout(origin.origin + pathname, {
     method: "POST",
     headers: {
       authorization: `Bearer ${credential}`,
@@ -373,8 +455,7 @@ async function connectorRequest(
     cache: "no-store",
     credentials: "omit",
     redirect: "error",
-    ...(signal ? { signal } : {}),
-  });
+  }, timeoutMs, signal);
   if (!response.ok) {
     throw await connectorHttpResponseError(response, "request");
   }
@@ -385,9 +466,10 @@ async function connectorGet(
   serverOrigin: string,
   credential: string,
   pathname: string,
+  timeoutMs?: number,
 ): Promise<Response> {
   const origin = new URL(serverOrigin);
-  const response = await fetch(origin.origin + pathname, {
+  const response = await fetchWithTimeout(origin.origin + pathname, {
     method: "GET",
     headers: {
       authorization: `Bearer ${credential}`,
@@ -396,17 +478,52 @@ async function connectorGet(
     cache: "no-store",
     credentials: "omit",
     redirect: "error",
-  });
+  }, timeoutMs);
   if (!response.ok) {
     throw await connectorHttpResponseError(response, "GET request");
   }
   return response;
 }
 
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs?: number,
+  parentSignal?: AbortSignal,
+): Promise<Response> {
+  if (timeoutMs === undefined) {
+    return await fetch(input, {
+      ...init,
+      ...(parentSignal ? { signal: parentSignal } : {}),
+    });
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000) {
+    throw new Error("Connector control request timeout is invalid");
+  }
+  const controller = new AbortController();
+  const abortFromParent = (): void => controller.abort(parentSignal?.reason);
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  timer.unref?.();
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (!parentSignal?.aborted && controller.signal.aborted) {
+      throw new Error("Telaegent control-plane request timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", abortFromParent);
+  }
+}
+
 async function run(executable: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(executable, args, {
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
+    timeout: REPOSITORY_PROOF_COMMAND_TIMEOUT_MS,
     windowsHide: true,
   });
   return stdout;

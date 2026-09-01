@@ -8,6 +8,7 @@ import type { AppConfig } from "../config.js";
 import { HttpError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
+import { REPOSITORY_ACCESS_MAX_AGE_MS } from "../repository-proof/lifetime.js";
 import { createConfiguredConversationRepository } from "./conversation-repository-factory.js";
 import type { ConversationRepository } from "./repository.js";
 import type {
@@ -20,8 +21,6 @@ import {
   type PrivateDraftTurnRuntime,
 } from "./service.js";
 
-/** Repository access proof older than this must be re-verified before a turn. */
-const repositoryAccessMaxAgeMs = 900_000;
 /** Authorization snapshot read deadline. */
 const repositoryReadTimeoutMs = 5_000;
 
@@ -113,7 +112,10 @@ export function createConversationApi(
 ): ConversationRouteDependencies {
   const authorizer = options.authorizer ?? new PrivateRuntimeAuthorizationService(
     createConfiguredAuthorizationRepository(config),
-    { repositoryAccessMaxAgeMs, repositoryReadTimeoutMs },
+    {
+      repositoryAccessMaxAgeMs: REPOSITORY_ACCESS_MAX_AGE_MS,
+      repositoryReadTimeoutMs,
+    },
   );
   const service = new ConversationService(
     options.repository ?? createConfiguredConversationRepository(config),

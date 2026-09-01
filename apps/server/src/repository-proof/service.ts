@@ -9,8 +9,8 @@ import {
   type RepositoryUnavailableResult,
 } from "./contract.js";
 import type { RepositoryProofRepository } from "./repository.js";
+import { REPOSITORY_ACCESS_MAX_AGE_MS } from "./lifetime.js";
 
-const maximumProofAgeMs = 15 * 60 * 1_000;
 const maximumClockLeadMs = 5 * 60 * 1_000;
 
 export type RepositoryProofErrorCode =
@@ -97,7 +97,7 @@ export class RepositoryProofService {
     const current = this.now().getTime();
     if (
       !Number.isFinite(observed) ||
-      observed < current - maximumProofAgeMs ||
+      observed < current - REPOSITORY_ACCESS_MAX_AGE_MS ||
       observed > current + maximumClockLeadMs
     ) {
       throw invalidProof();
@@ -139,4 +139,3 @@ function normalizeRepositoryError(error: unknown): RepositoryProofError {
     503,
   );
 }
-

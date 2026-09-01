@@ -17,6 +17,7 @@ import type {
   ConnectorJobRequest,
   ConnectorJobResult,
 } from "./connector-turn-executor.js";
+import { CONNECTOR_INVESTIGATION_DEADLINE_MS } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
 import { LocalFileBroker } from "./file-broker.js";
@@ -72,8 +73,6 @@ const INVESTIGATION_SCHEMA_NAME = "investigation-note.schema.json";
  * the original prompt and the rest of the budget, exactly as it did before this
  * existed.
  */
-const INVESTIGATION_DEADLINE_MS = 90_000;
-
 const idPart = z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/);
 const jobSchema = z.strictObject({
   jobId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
@@ -147,10 +146,13 @@ export interface ConnectorWorkerOptions {
 export interface ConnectorTransportRetryOptions {
   initialDelayMs?: number;
   maximumDelayMs?: number;
+  /** Hard deadline for one network attempt, including a stalled TCP socket. */
+  requestTimeoutMs?: number;
   jitterRatio?: number;
   random?: () => number;
   sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
   onRetry?: (event: Readonly<{ attempt: number; delayMs: number }>) => void;
+  onRecovered?: (event: Readonly<{ attempts: number }>) => void;
 }
 
 export class ConnectorCredentialRejectedError extends Error {
@@ -421,7 +423,10 @@ export class ConnectorWorker {
       deadline.abort();
     };
     signal.addEventListener("abort", stopInvestigating, { once: true });
-    const timer = setTimeout(stopInvestigating, INVESTIGATION_DEADLINE_MS);
+    const timer = setTimeout(
+      stopInvestigating,
+      CONNECTOR_INVESTIGATION_DEADLINE_MS,
+    );
     timer.unref?.();
     try {
       const result = await this.sessions.run(
@@ -628,10 +633,12 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
   ): Promise<Response> {
     const initialDelayMs = this.retryOptions.initialDelayMs ?? 500;
     const maximumDelayMs = this.retryOptions.maximumDelayMs ?? 30_000;
+    const requestTimeoutMs = this.retryOptions.requestTimeoutMs ?? 35_000;
     const jitterRatio = this.retryOptions.jitterRatio ?? 0.2;
     if (
       !Number.isInteger(initialDelayMs) || initialDelayMs < 10 ||
       !Number.isInteger(maximumDelayMs) || maximumDelayMs < initialDelayMs ||
+      !Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 10 ||
       !Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1
     ) {
       throw new Error("Connector retry policy is invalid");
@@ -641,6 +648,7 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
     let attempt = 0;
     for (;;) {
       let response: Response;
+      const deadline = requestDeadline(init.signal ?? undefined, requestTimeoutMs);
       try {
         response = await this.fetchImplementation(this.jobsUrl + pathname, {
           ...init,
@@ -652,8 +660,10 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
           cache: "no-store",
           credentials: "omit",
           redirect: "error",
+          signal: deadline.signal,
         });
       } catch (error) {
+        deadline.release();
         if (init.signal?.aborted) throw error;
         attempt += 1;
         if (attempt > maximumReconnectAttempts) {
@@ -666,11 +676,17 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
           jitterRatio,
           random,
         );
-        this.retryOptions.onRetry?.({ attempt, delayMs });
+        safeRetryNotification(this.retryOptions.onRetry, { attempt, delayMs });
         await sleep(delayMs, init.signal ?? undefined);
         continue;
       }
-      if (!isTransientHttpStatus(response.status)) return response;
+      deadline.release();
+      if (!isTransientHttpStatus(response.status)) {
+        if (attempt > 0 && (response.ok || response.status === 409)) {
+          safeRecoveryNotification(this.retryOptions.onRecovered, { attempts: attempt });
+        }
+        return response;
+      }
       await response.body?.cancel();
       attempt += 1;
       if (attempt > maximumReconnectAttempts) {
@@ -683,9 +699,50 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
         jitterRatio,
         random,
       );
-      this.retryOptions.onRetry?.({ attempt, delayMs });
+      safeRetryNotification(this.retryOptions.onRetry, { attempt, delayMs });
       await sleep(delayMs, init.signal ?? undefined);
     }
+  }
+}
+
+function requestDeadline(
+  parent: AbortSignal | undefined,
+  timeoutMs: number,
+): Readonly<{ signal: AbortSignal; release: () => void }> {
+  const controller = new AbortController();
+  const abortFromParent = (): void => controller.abort(parent?.reason);
+  if (parent?.aborted) abortFromParent();
+  else parent?.addEventListener("abort", abortFromParent, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  timer.unref?.();
+  return {
+    signal: controller.signal,
+    release: () => {
+      clearTimeout(timer);
+      parent?.removeEventListener("abort", abortFromParent);
+    },
+  };
+}
+
+function safeRetryNotification(
+  notifyRetry: ConnectorTransportRetryOptions["onRetry"],
+  event: Readonly<{ attempt: number; delayMs: number }>,
+): void {
+  try {
+    notifyRetry?.(event);
+  } catch {
+    // Local diagnostics are advisory and cannot break reconnection.
+  }
+}
+
+function safeRecoveryNotification(
+  notifyRecovery: ConnectorTransportRetryOptions["onRecovered"],
+  event: Readonly<{ attempts: number }>,
+): void {
+  try {
+    notifyRecovery?.(event);
+  } catch {
+    // Local diagnostics are advisory and cannot break a recovered connection.
   }
 }
 
