@@ -3,6 +3,7 @@ import { RunCancelledError } from "./errors.js";
 import {
   RuntimeProviderError,
   classifyProviderFailure,
+  providerFailureDetail,
   normalizeRuntimeFailure,
   safeRuntimeError,
 } from "./runtime-errors.js";
@@ -206,5 +207,25 @@ describe("normalizeRuntimeFailure", () => {
     expect(normalizeRuntimeFailure(error).message).toBe(
       "Agent provider is temporarily unavailable",
     );
+  });
+});
+
+describe("provider failure detail", () => {
+  it("keeps stderr when the parsed events already carry a generic error", () => {
+    // Claude Code's real shape for a stale --resume: the stream event says only
+    // that something failed, and the line naming the cause is on stderr. Taking
+    // one or the other loses the half that makes this recoverable.
+    const detail = providerFailureDetail(
+      ["Claude Code reported an error"],
+      "No conversation found with session ID: 0000",
+    );
+
+    expect(classifyProviderFailure("claude", detail).code).toBe(
+      "RUNTIME_SESSION_NOT_FOUND",
+    );
+  });
+
+  it("omits empty stderr rather than classifying blank text", () => {
+    expect(providerFailureDetail(["boom"], "   ")).toEqual(["boom"]);
   });
 });

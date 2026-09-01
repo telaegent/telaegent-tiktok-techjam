@@ -18,6 +18,7 @@ import type {
 import {
   RuntimeProviderError,
   classifyProviderFailure,
+  providerFailureDetail,
 } from "./runtime-errors.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import {
@@ -600,9 +601,10 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         });
       }
       if (codexProcessFailed(exitCode, parsed)) {
+        const detail = providerFailureDetail(parsed.errors, stderr);
         throw classifyProviderFailure(
           "codex",
-          parsed.errors.length > 0 ? parsed.errors : stderr || "provider failure",
+          detail.length > 0 ? detail : "provider failure",
           { phase: "provider_exit", exitCode },
         );
       }

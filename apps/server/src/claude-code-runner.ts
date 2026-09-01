@@ -14,6 +14,7 @@ import type {
 import {
   RuntimeProviderError,
   classifyProviderFailure,
+  providerFailureDetail,
   type LocalRuntimeFailureDiagnostic,
 } from "./runtime-errors.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
@@ -416,7 +417,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
         // missing-session error followed by a generic terminal error; looking
         // only at the last item prevents ProviderSessionManager from recovering.
         throw classifyClaudeFailure(
-          parsed.errors.length > 0 ? parsed.errors : stderr,
+          providerFailureDetail(parsed.errors, stderr),
           {
             phase: "provider_exit",
             exitCode,
