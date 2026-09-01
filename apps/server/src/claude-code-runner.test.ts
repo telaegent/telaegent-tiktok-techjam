@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildClaudeArgs,
   classifyClaudeFailure,
+  completedStructuredOutputBeforeMaxTurns,
   extractClaudeFinalResult,
   parseClaudeStreamLine,
   type ParsedClaudeEvents,
@@ -33,6 +34,7 @@ const emptyParsed = (): ParsedClaudeEvents => ({
   sessionId: null,
   structuredOutput: undefined,
   resultText: null,
+  resultSubtype: null,
   errors: [],
 });
 
@@ -177,6 +179,44 @@ describe("Claude Code runner protocol", () => {
     expect(() => extractClaudeFinalResult(emptyParsed())).toThrow(
       "without structured output",
     );
+  });
+
+  it("retains completed structured output when old Claude exhausts turns afterward", () => {
+    const parsed = emptyParsed();
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_max_turns",
+        is_error: true,
+        structured_output: {
+          state: "ready",
+          assistantMessage: "Ready for review.",
+          sendCandidate: "Can you clarify the expected behavior?",
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        errors: ["Claude Code reported an internal provider detail"],
+      }),
+      parsed,
+    );
+
+    expect(completedStructuredOutputBeforeMaxTurns(parsed)).toBe(true);
+    expect(extractClaudeFinalResult(parsed)).toMatchObject({ state: "ready" });
+  });
+
+  it("does not suppress execution errors merely because they include output", () => {
+    const parsed = emptyParsed();
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        structured_output: { state: "ready" },
+      }),
+      parsed,
+    );
+
+    expect(completedStructuredOutputBeforeMaxTurns(parsed)).toBe(false);
   });
 
   it("preserves current Claude stream errors for local failure classification", () => {

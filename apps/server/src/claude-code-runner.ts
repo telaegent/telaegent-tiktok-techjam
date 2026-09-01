@@ -28,7 +28,22 @@ export interface ParsedClaudeEvents {
   sessionId: string | null;
   structuredOutput: unknown;
   resultText: string | null;
+  resultSubtype: string | null;
   errors: string[];
+}
+
+/**
+ * Older Claude Code releases can emit a valid structured object and then keep
+ * calling StructuredOutput until the turn budget is exhausted. The object is
+ * still passed through Telaegent's strict protocol parser and security guard,
+ * so retaining it for this one known terminal subtype is safe.
+ */
+export function completedStructuredOutputBeforeMaxTurns(
+  parsed: Readonly<ParsedClaudeEvents>,
+): boolean {
+  return (
+    parsed.structuredOutput !== undefined && parsed.resultSubtype === "error_max_turns"
+  );
 }
 
 export function buildClaudeArgs(
@@ -154,6 +169,10 @@ export function parseClaudeStreamLine(
     }
   }
   if (event.type !== "result") return;
+
+  if (typeof event.subtype === "string") {
+    parsed.resultSubtype = event.subtype;
+  }
 
   if (event.structured_output !== undefined) {
     parsed.structuredOutput = event.structured_output;
@@ -300,6 +319,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
       sessionId: request.sessionMode === "continue" ? request.sessionId ?? null : null,
       structuredOutput: undefined,
       resultText: null,
+      resultSubtype: null,
       errors: [],
     };
     let stdout = "";
@@ -381,7 +401,10 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
           exitCode,
         });
       }
-      if (exitCode !== 0 || parsed.errors.length > 0) {
+      if (
+        (exitCode !== 0 || parsed.errors.length > 0) &&
+        !completedStructuredOutputBeforeMaxTurns(parsed)
+      ) {
         throw classifyClaudeFailure(parsed.errors.at(-1) ?? stderr, {
           phase: "provider_exit",
           exitCode,
