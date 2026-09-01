@@ -56,3 +56,16 @@ test("the website command pins the exact package release", async () => {
     new RegExp(`${packageJson.name.replace("/", "\\/")}@${packageJson.version.replaceAll(".", "\\.")}`),
   );
 });
+
+test("the package excludes removed runtime schemas", async () => {
+  await assert.rejects(
+    readFile(
+      path.join(
+        packageRoot,
+        "dist/telagent/output-schemas/connector-connection-probe.schema.json",
+      ),
+      "utf8",
+    ),
+    { code: "ENOENT" },
+  );
+});

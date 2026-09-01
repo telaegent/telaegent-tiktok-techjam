@@ -191,14 +191,23 @@ describe("connector long-poll HTTP transport", () => {
       provider: "codex",
       sandboxMode: "read-only",
       networkMode: "none",
-      outputSchemaName: "connector-connection-probe.schema.json",
+      purpose: "sender_draft",
+      sessionMode: "continue",
+      outputSchemaName: "sender-turn.schema.json",
+      maxTurns: 2,
     });
     const result = await app.inject({
       method: "POST",
       url: `/api/connectors/jobs/${leased.job.jobId}/result`,
       payload: {
         provider: "codex",
-        final: { message: "TELAEGENT IS CONNECTED" },
+        final: {
+          state: "ready",
+          assistantMessage: "The private readiness draft is prepared.",
+          sendCandidate: "TELAEGENT IS CONNECTED",
+          riskFlags: [],
+          referencedPaths: [],
+        },
         changedFiles: [],
         exitCode: 0,
         durationMs: 25,

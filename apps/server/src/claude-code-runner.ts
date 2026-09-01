@@ -192,9 +192,15 @@ export function parseClaudeStreamLine(
       : [];
     if (typeof event.result === "string" && event.result.trim().length > 0) {
       parsed.errors.push(event.result.slice(-16_384));
-    } else if (eventErrors.length > 0) {
-      parsed.errors.push(...eventErrors);
-    } else {
+    }
+    // A result event may carry both a summary in `result` and the underlying
+    // failures in `errors`. Keep both: the summary is often generic while an
+    // earlier detail contains the missing-session signal needed for recovery.
+    parsed.errors.push(...eventErrors);
+    if (
+      (typeof event.result !== "string" || event.result.trim().length === 0) &&
+      eventErrors.length === 0
+    ) {
       parsed.errors.push("Claude Code reported an error");
     }
   }
@@ -405,10 +411,16 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
         (exitCode !== 0 || parsed.errors.length > 0) &&
         !completedStructuredOutputBeforeMaxTurns(parsed)
       ) {
-        throw classifyClaudeFailure(parsed.errors.at(-1) ?? stderr, {
-          phase: "provider_exit",
-          exitCode,
-        });
+        // Classify the complete bounded error set. Claude can emit a useful
+        // missing-session error followed by a generic terminal error; looking
+        // only at the last item prevents ProviderSessionManager from recovering.
+        throw classifyClaudeFailure(
+          parsed.errors.length > 0 ? parsed.errors : stderr,
+          {
+            phase: "provider_exit",
+            exitCode,
+          },
+        );
       }
       let final: unknown;
       try {
