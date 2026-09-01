@@ -241,9 +241,14 @@ export class ConnectorWorker {
     } finally {
       signal?.removeEventListener("abort", abortExecution);
       cancellationController.abort();
-      await cancellation.catch((error: unknown) => {
-        if (!(error instanceof ConnectorCredentialRejectedError)) throw error;
-      });
+      // Joining the watcher is cleanup, and cleanup may not overwrite the turn's
+      // verdict. Aborting that watcher one line above is itself a routine reason
+      // for it to reject, so throwing here replaced an already durable
+      // "completed" with that abort, and the caller reported it as the
+      // provider's own failure. Whatever the watcher had to say was raced into
+      // the try block through `cancellationFailure`; by this point it has been
+      // classified already or been overtaken by the turn's own outcome.
+      await cancellation.catch(() => undefined);
       if (executionController.signal.aborted) {
         // Do not let a pre-launch provider task outlive revocation. The signal
         // prevents process creation and this await lets its local cleanup finish.

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { runConnectorProbePump } from "./connector-probe-pump.js";
+import {
+  ConnectorPollingFailedError,
+  runConnectorProbePump,
+} from "./connector-probe-pump.js";
+import {
+  probeFailureReason,
+  probeFailureSource,
+} from "./connector-probe-failure.js";
 
 function untilAborted(signal: AbortSignal): Promise<never> {
   return new Promise((_resolve, reject) => {
@@ -39,10 +46,15 @@ describe("runConnectorProbePump", () => {
       }
     });
 
-    await expect(runConnectorProbePump(
+    const failure = await runConnectorProbePump(
       runOnce,
       async () => { throw new Error("probe failed"); },
-    )).rejects.toThrow("probe failed");
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain("probe failed");
+    // The probe reached a verdict, so the provider is the subject of it.
+    expect(probeFailureSource(failure)).toBe("provider");
     expect(pollingFinished).toBe(true);
   });
 
@@ -56,10 +68,29 @@ describe("runConnectorProbePump", () => {
       }
     });
 
-    await expect(runConnectorProbePump(
+    const failure = await runConnectorProbePump(
       async () => { throw new Error("poll failed"); },
       runProbe,
-    )).rejects.toThrow("poll failed");
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ConnectorPollingFailedError);
+    expect((failure as ConnectorPollingFailedError).cause).toBeInstanceOf(Error);
     expect(probeFinished).toBe(true);
+  });
+
+  it("blames the connector, not the provider, when the long poll is what aborted", async () => {
+    // The failure that reached production: an abort raised on the polling side
+    // was reported verbatim as "PROVIDER UNAVAILABLE: This operation was
+    // aborted", naming a CLI that had never been asked for a verdict and
+    // costing a day of debugging the wrong component.
+    const failure = await runConnectorProbePump(
+      async () => { throw new DOMException("This operation was aborted", "AbortError"); },
+      (signal) => untilAborted(signal),
+    ).catch((error: unknown) => error);
+
+    expect(probeFailureSource(failure)).toBe("connector");
+    const reason = probeFailureReason(failure);
+    expect(reason).toContain("polling stopped");
+    expect(reason).toContain("AbortError");
   });
 });
