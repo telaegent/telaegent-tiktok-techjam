@@ -2635,9 +2635,16 @@ export default function ProductApp({
   onLogout: () => void | Promise<void>;
   preview?: boolean;
 }) {
-  const [route, setRoute] = useState<ProductRoute>(
-    preview ? "projects" : "onboarding",
-  );
+  const [route, setRoute] = useState<ProductRoute>(() => {
+    const previewRoute = new URLSearchParams(window.location.search).get(
+      "route",
+    );
+    return preview && previewRoute === "onboarding"
+      ? "onboarding"
+      : preview
+        ? "projects"
+        : "onboarding";
+  });
   const [discoveredProjects, setDiscoveredProjects] = useState<
     ProjectSummary[]
   >([]);

@@ -216,13 +216,13 @@
   place-items: center;
   background: var(--canvas);
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 10px;
   font-style: normal;
 }
 
 .onboarding-progress p {
   margin: 2px 0 0 4px;
-  font-size: 11px;
+  font-size: 15px;
   text-transform: capitalize;
 }
 
