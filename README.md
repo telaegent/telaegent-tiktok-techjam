@@ -224,20 +224,12 @@ as the happy path rather than a separate build.
 
 Honest about what this is, three days in:
 
-- **Revocation is not hardened against a determined attacker.** It works, and
-  the tests cover it, but it has not been probed adversarially.
-- **The connector trusts its own machine.** It resolves the registered workspace
-  and refuses paths from the wire, but a compromised developer machine is
-  outside the model.
-- **Provider terms for hosted use are unreviewed.** Each developer runs their
-  own authenticated CLI locally, which is the licensed pattern; a hosted
-  multi-user variant would need its own review.
-- **The deployment is demo-scoped.** One EC2 instance, one Supabase project, no
-  redundancy, no load testing.
-- **The connector package pins one version.** The browser issues
-  `@telaegent/connector@0.1.0`; older or newer connectors are not negotiated.
+- **Revocation is not hardened against a determined attacker.** It works and the
+  tests cover it, but it has not been probed adversarially.
 - **Secret policy covers known classes.** `.env`, keys, tokens and credential
   files are refused deterministically. It is not a general-purpose DLP engine.
+- **The deployment is demo-scoped.** One EC2 instance, one Supabase project, no
+  redundancy or load testing.
 
 ## What Telaegent is not
 
