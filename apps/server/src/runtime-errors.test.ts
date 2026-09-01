@@ -30,6 +30,16 @@ describe("classifyProviderFailure", () => {
     expect(error.message).not.toContain("private-id");
   });
 
+  it("classifies every Codex error when a generic terminal error follows the cause", () => {
+    const error = classifyProviderFailure("codex", [
+      "no rollout found for thread id private-id",
+      "provider failed",
+    ]);
+
+    expect(error.code).toBe("RUNTIME_SESSION_NOT_FOUND");
+    expect(error.message).not.toContain("private-id");
+  });
+
   it("classifies the current Claude missing-conversation wording as a missing session", () => {
     const error = classifyProviderFailure(
       "claude",
@@ -57,6 +67,10 @@ describe("classifyProviderFailure", () => {
     ["spawn codex ENOENT", "RUNTIME_UNAVAILABLE"],
     ["429 too many requests", "RUNTIME_UNAVAILABLE"],
     ["malformed JSON response containing private-data", "INVALID_AGENT_OUTPUT"],
+    [
+      "--json-schema is not a valid JSON Schema: no schema with key or ref private-uri",
+      "INVALID_AGENT_OUTPUT",
+    ],
     ["unrecognized provider explosion", "RUNTIME_FAILED"],
   ] as const)("classifies %s as %s", (detail, code) => {
     const error = classifyProviderFailure("codex", detail);

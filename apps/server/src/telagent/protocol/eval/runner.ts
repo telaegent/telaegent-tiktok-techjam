@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { providerCompatibleSchema } from "../../../provider-output-schema.js";
 import type { AgentProvider } from "../../../runtime-contract.js";
 import type { RenderedPrompt } from "../contract.js";
 
@@ -308,25 +309,7 @@ export function codexStructuredArgs(
 export function codexCompatibleSchema(
   value: Record<string, unknown>,
 ): Record<string, unknown> {
-  const visit = (node: unknown): unknown => {
-    if (Array.isArray(node)) return node.map(visit);
-    if (node === null || typeof node !== "object") return node;
-
-    const converted: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
-      converted[key === "oneOf" ? "anyOf" : key] = visit(child);
-    }
-    if (
-      converted.properties !== null &&
-      typeof converted.properties === "object" &&
-      !Array.isArray(converted.properties)
-    ) {
-      converted.required = Object.keys(converted.properties as Record<string, unknown>);
-    }
-    return converted;
-  };
-
-  return visit(value) as Record<string, unknown>;
+  return providerCompatibleSchema("codex", value);
 }
 
 /* ========================================================================== *

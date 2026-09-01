@@ -54,6 +54,25 @@ describe("Claude Code runner protocol", () => {
     expect(args).not.toContain("Return status");
   });
 
+  it("removes the unsupported JSON Schema dialect before launching Claude", () => {
+    const args = buildClaudeArgs(request(), {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: { state: { type: "string" } },
+      required: ["state"],
+      additionalProperties: false,
+    });
+    const encoded = args[args.indexOf("--json-schema") + 1];
+
+    expect(encoded).toBeDefined();
+    expect(JSON.parse(encoded!)).toEqual({
+      type: "object",
+      properties: { state: { type: "string" } },
+      required: ["state"],
+      additionalProperties: false,
+    });
+  });
+
   it("disables persistence only for an explicitly ephemeral session", () => {
     const args = buildClaudeArgs(
       request({ sessionMode: "ephemeral" }),
