@@ -34,10 +34,16 @@ describe("classifyProviderFailure", () => {
     const error = classifyProviderFailure(
       "claude",
       "No conversation found with session ID: 00000000-0000-0000-0000-000000000000",
+      { phase: "provider_exit", exitCode: 1 },
     );
 
     expect(error.code).toBe("RUNTIME_SESSION_NOT_FOUND");
     expect(error.message).toBe("Claude Code session is no longer available");
+    expect(error.message).not.toContain("00000000-0000-0000-0000-000000000000");
+    expect(error.localDiagnostic).toEqual({
+      phase: "provider_exit",
+      exitCode: 1,
+    });
   });
 
   it("keeps authentication failures distinct from missing sessions", () => {
@@ -77,6 +83,25 @@ describe("normalizeRuntimeFailure", () => {
     expect(safeRuntimeError(
       new RuntimeProviderError("RUNTIME_FAILED", "private provider stderr"),
     ).message).toBe("Agent runtime failed");
+  });
+
+  it("preserves safe local diagnostics without serializing them", () => {
+    const safe = safeRuntimeError(
+      new RuntimeProviderError(
+        "RUNTIME_FAILED",
+        "private provider stderr",
+        { phase: "provider_exit", exitCode: 1 },
+      ),
+    ) as RuntimeProviderError;
+
+    expect(safe.message).toBe("Agent runtime failed");
+    expect(safe.localDiagnostic).toEqual({ phase: "provider_exit", exitCode: 1 });
+    expect(normalizeRuntimeFailure(safe)).toEqual({
+      code: "RUNTIME_FAILED",
+      message: "Agent runtime failed",
+      retryable: true,
+      statusCode: 502,
+    });
   });
 
   it("normalizes cancellation without treating it as a provider failure", () => {

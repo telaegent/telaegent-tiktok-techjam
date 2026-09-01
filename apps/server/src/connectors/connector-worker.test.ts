@@ -18,6 +18,7 @@ import {
   retryDelayMs,
   type ConnectorWorkerTransport,
 } from "./connector-worker.js";
+import { RuntimeProviderError } from "../runtime-errors.js";
 import type { ResourceExchangeResponse } from "./resource-exchange.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
@@ -291,15 +292,76 @@ describe("ConnectorWorker", () => {
 
   it("normalizes local provider failures before reporting them", async () => {
     const transport = new FakeTransport({ kind: "job", job });
+    const onRuntimeFailure = vi.fn();
     const worker = new ConnectorWorker(
       binding,
       sessions(async () => {
         throw new Error("401 token=private-provider-value");
       }),
       transport,
-      { cancel: async () => false },
+      { cancel: async () => false, onRuntimeFailure },
     );
     await expect(worker.runOnce()).resolves.toBe("completed");
+    expect(transport.failures).toEqual(["RUNTIME_FAILED"]);
+    expect(onRuntimeFailure).toHaveBeenCalledWith({
+      provider: "claude",
+      code: "RUNTIME_FAILED",
+      errorName: "Error",
+      phase: "unknown",
+      exitCode: null,
+    });
+    expect(JSON.stringify(onRuntimeFailure.mock.calls)).not.toContain(
+      "private-provider-value",
+    );
+  });
+
+  it("does not let diagnostic output prevent the durable failure update", async () => {
+    const transport = new FakeTransport({ kind: "job", job });
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async () => {
+        throw new Error("private provider detail");
+      }),
+      transport,
+      {
+        cancel: async () => false,
+        onRuntimeFailure: () => {
+          throw new Error("broken stderr sink");
+        },
+      },
+    );
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+    expect(transport.failures).toEqual(["RUNTIME_FAILED"]);
+  });
+
+  it("reports provider exit metadata locally but sends only the safe code", async () => {
+    const transport = new FakeTransport({ kind: "job", job });
+    const onRuntimeFailure = vi.fn();
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async () => {
+        throw new RuntimeProviderError(
+          "RUNTIME_FAILED",
+          "private provider output",
+          { phase: "provider_exit", exitCode: 1 },
+        );
+      }),
+      transport,
+      { cancel: async () => false, onRuntimeFailure },
+    );
+
+    await expect(worker.runOnce()).resolves.toBe("completed");
+    expect(onRuntimeFailure).toHaveBeenCalledWith({
+      provider: "claude",
+      code: "RUNTIME_FAILED",
+      errorName: "RuntimeProviderError",
+      phase: "provider_exit",
+      exitCode: 1,
+    });
+    expect(JSON.stringify(onRuntimeFailure.mock.calls)).not.toContain(
+      "private provider output",
+    );
     expect(transport.failures).toEqual(["RUNTIME_FAILED"]);
   });
 

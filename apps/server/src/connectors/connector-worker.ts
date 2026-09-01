@@ -6,12 +6,17 @@ import type {
   ProviderSessionScope,
 } from "../provider-session-manager.js";
 import type { RuntimeProgressEvent } from "../runtime-contract.js";
-import { normalizeRuntimeFailure } from "../runtime-errors.js";
+import {
+  RuntimeProviderError,
+  normalizeRuntimeFailure,
+  type LocalRuntimeFailurePhase,
+} from "../runtime-errors.js";
 import type {
   ConnectorJobRequest,
   ConnectorJobResult,
 } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
+import { connectorHttpResponseError } from "./connector-http-error.js";
 import { LocalFileBroker } from "./file-broker.js";
 import type { ResourcePolicyLimits } from "./resource-policy.js";
 import {
@@ -81,6 +86,14 @@ export interface ConnectorWorkerTransport {
 
 export interface ConnectorWorkerOptions {
   cancel: (connectorBindingId: string) => Promise<boolean>;
+  /** Emits only bounded structural diagnostics on the owning machine. */
+  onRuntimeFailure?: (failure: Readonly<{
+    provider: "codex" | "claude";
+    code: string;
+    errorName: string;
+    phase: LocalRuntimeFailurePhase | "unknown";
+    exitCode: number | null;
+  }>) => void;
   pollRetryDelayMs?: number;
   /**
    * Capability serving. Absent means this connector cannot resolve any
@@ -196,6 +209,24 @@ export class ConnectorWorker {
       if (error instanceof ConnectorCredentialRejectedError) throw error;
       const failure = normalizeRuntimeFailure(error);
       if (failure.code === "RUNTIME_CANCELLED" || cancelled) return "cancelled";
+      try {
+        this.options.onRuntimeFailure?.({
+          provider: job.provider,
+          code: failure.code,
+          errorName: safeErrorName(error),
+          phase:
+            error instanceof RuntimeProviderError
+              ? error.localDiagnostic?.phase ?? "unknown"
+              : "unknown",
+          exitCode:
+            error instanceof RuntimeProviderError &&
+            Number.isInteger(error.localDiagnostic?.exitCode)
+              ? error.localDiagnostic!.exitCode!
+              : null,
+        });
+      } catch {
+        // Diagnostics must never prevent the durable failure update.
+      }
       await this.transport.failure(job.jobId, failure.code);
       return "completed";
     } finally {
@@ -363,7 +394,7 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
     });
     if (response.status === 204) return null;
     assertCredentialAccepted(response);
-    if (!response.ok) throw new Error("Connector job poll failed");
+    if (!response.ok) throw await connectorHttpResponseError(response, "job poll");
     return deliverySchema.parse(await response.json());
   }
 
@@ -403,7 +434,7 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
     );
     assertCredentialAccepted(response);
     if (!response.ok && response.status !== 409) {
-      throw new Error("Connector job update failed");
+      throw await connectorHttpResponseError(response, "job update");
     }
   }
 
@@ -487,6 +518,11 @@ function assertCredentialAccepted(response: Readonly<Response>): void {
   if (response.status === 401 || response.status === 403) {
     throw new ConnectorCredentialRejectedError();
   }
+}
+
+function safeErrorName(error: unknown): string {
+  const name = error instanceof Error ? error.name : "UnknownError";
+  return /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(name) ? name : "UnknownError";
 }
 
 async function waitForRetry(signal: AbortSignal, delayMs: number): Promise<void> {

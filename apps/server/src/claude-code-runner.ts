@@ -14,6 +14,7 @@ import type {
 import {
   RuntimeProviderError,
   classifyProviderFailure,
+  type LocalRuntimeFailureDiagnostic,
 } from "./runtime-errors.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import {
@@ -162,10 +163,16 @@ export function parseClaudeStreamLine(
   }
   if (event.is_error === true) {
     const eventErrors = Array.isArray(event.errors)
-      ? event.errors.filter((value): value is string => typeof value === "string")
+      ? event.errors
+          .filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0,
+          )
+          .slice(-8)
+          .map((value) => value.slice(-16_384))
       : [];
-    if (typeof event.result === "string") {
-      parsed.errors.push(event.result);
+    if (typeof event.result === "string" && event.result.trim().length > 0) {
+      parsed.errors.push(event.result.slice(-16_384));
     } else if (eventErrors.length > 0) {
       parsed.errors.push(...eventErrors);
     } else {
@@ -190,8 +197,11 @@ export function extractClaudeFinalResult(parsed: ParsedClaudeEvents): unknown {
   );
 }
 
-export function classifyClaudeFailure(detail: unknown): RuntimeProviderError {
-  return classifyProviderFailure("claude", detail);
+export function classifyClaudeFailure(
+  detail: unknown,
+  localDiagnostic?: Readonly<LocalRuntimeFailureDiagnostic>,
+): RuntimeProviderError {
+  return classifyProviderFailure("claude", detail, localDiagnostic);
 }
 
 interface ActiveClaudeProcess {
@@ -253,7 +263,11 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
   ): Promise<NormalizedRunResult> {
     throwIfRuntimeCancelled(signal);
     if (this.active.has(request.agentId)) {
-      throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
+      throw new RuntimeProviderError(
+        "RUNTIME_FAILED",
+        "Agent runtime is already active",
+        { phase: "concurrency" },
+      );
     }
     const startedAt = Date.now();
     const child = spawn(this.config.claudeBin, buildClaudeArgs(request, outputSchema), {
@@ -340,26 +354,49 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
           child.once("close", (code) => resolve(code ?? 1));
         });
       } catch (error) {
-        throw classifyClaudeFailure(error);
+        throw classifyClaudeFailure(error, { phase: "spawn" });
       }
       if (stdout.trim() && !parseFailure) {
         parseClaudeStreamLine(stdout.trim(), parsed, onProgress);
       }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {
-        throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Claude Code runtime timed out");
+        throw new RuntimeProviderError(
+          "RUNTIME_TIMEOUT",
+          "Claude Code runtime timed out",
+          { phase: "timeout" },
+        );
       }
       if (active.outputExceeded) {
         throw new RuntimeProviderError(
           "RUNTIME_OUTPUT_LIMIT",
           "Claude Code output exceeded the configured limit",
+          { phase: "output_limit" },
         );
       }
-      if (parseFailure) throw parseFailure;
-      if (exitCode !== 0 || parsed.errors.length > 0) {
-        throw classifyClaudeFailure(parsed.errors.at(-1) ?? stderr);
+      if (parseFailure) {
+        const failure = parseFailure as RuntimeProviderError;
+        throw new RuntimeProviderError(failure.code, failure.message, {
+          phase: "event_stream",
+          exitCode,
+        });
       }
-      const final = extractClaudeFinalResult(parsed);
+      if (exitCode !== 0 || parsed.errors.length > 0) {
+        throw classifyClaudeFailure(parsed.errors.at(-1) ?? stderr, {
+          phase: "provider_exit",
+          exitCode,
+        });
+      }
+      let final: unknown;
+      try {
+        final = extractClaudeFinalResult(parsed);
+      } catch (error) {
+        if (!(error instanceof RuntimeProviderError)) throw error;
+        throw new RuntimeProviderError(error.code, error.message, {
+          phase: "structured_output",
+          exitCode,
+        });
+      }
       return {
         provider: "claude",
         ...(request.sessionMode !== "ephemeral" && parsed.sessionId

@@ -24,6 +24,7 @@ import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worke
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
 import { createConnectorResourceRegistry } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
+import { connectorHttpResponseError } from "./connector-http-error.js";
 import {
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
@@ -161,6 +162,12 @@ async function main(): Promise<void> {
       transport,
       {
         cancel: (bindingId) => providers.cancel(bindingId),
+        onRuntimeFailure: ({ provider, code, errorName, phase, exitCode }) => {
+          process.stderr.write(
+            `TELAEGENT TURN FAILED (${provider}, ${code}, phase=${phase}, ` +
+              `exit=${exitCode ?? "none"}, ${errorName})\n`,
+          );
+        },
         resources: {
           registry: createConnectorResourceRegistry(registered.connectorBindingId),
         },
@@ -349,8 +356,7 @@ async function connectorRequest(
     redirect: "error",
   });
   if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error("Telaegent connector request failed");
+    throw await connectorHttpResponseError(response, "request");
   }
   return response;
 }
@@ -372,8 +378,7 @@ async function connectorGet(
     redirect: "error",
   });
   if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error("Telaegent connector request failed");
+    throw await connectorHttpResponseError(response, "GET request");
   }
   return response;
 }

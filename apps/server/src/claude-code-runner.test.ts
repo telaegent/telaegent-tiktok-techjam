@@ -204,4 +204,22 @@ describe("Claude Code runner protocol", () => {
     expect(error.message).toBe("Claude Code authentication failed");
     expect(error.message).not.toContain("sk-private-value");
   });
+
+  it("retains Claude's local errors array for safe resume-failure classification", () => {
+    const parsed = emptyParsed();
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: ["No conversation found with session ID: private-session-id"],
+      }),
+      parsed,
+    );
+
+    const error = classifyClaudeFailure(parsed.errors.at(-1));
+    expect(error.code).toBe("RUNTIME_SESSION_NOT_FOUND");
+    expect(error.message).toBe("Claude Code session is no longer available");
+    expect(error.message).not.toContain("private-session-id");
+  });
 });

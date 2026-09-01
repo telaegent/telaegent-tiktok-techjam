@@ -3,7 +3,10 @@ import type {
   MiddlewareRunRequest,
   NormalizedRunResult,
 } from "./runtime-contract.js";
-import { RuntimeProviderError } from "./runtime-errors.js";
+import {
+  RuntimeProviderError,
+  classifyProviderFailure,
+} from "./runtime-errors.js";
 import { RunCancelledError } from "./errors.js";
 import {
   InMemoryProviderSessionStore,
@@ -114,9 +117,9 @@ describe("ProviderSessionManager", () => {
       calls += 1;
       if (calls === 1) return result("lost-session");
       if (calls === 2) {
-        throw new RuntimeProviderError(
-          "RUNTIME_SESSION_NOT_FOUND",
-          "Codex session is no longer available",
+        throw classifyProviderFailure(
+          "claude",
+          "No conversation found with session ID: private-session-id",
         );
       }
       return result("replacement-session");
