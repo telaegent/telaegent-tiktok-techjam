@@ -14,6 +14,13 @@ export function providerCompatibleSchema(
       // Claude Code 2.1.x has no draft-2020-12 meta-schema. Codex releases
       // also vary here. The annotation is not needed to enforce constraints.
       if (key === "$schema") continue;
+      // Codex Structured Outputs reliably supports enum across CLI/model
+      // versions, while support for the equivalent JSON Schema `const`
+      // keyword has varied. Preserve the exact constraint as a one-value enum.
+      if (provider === "codex" && key === "const") {
+        converted.enum = [visit(child)];
+        continue;
+      }
       converted[provider === "codex" && key === "oneOf" ? "anyOf" : key] =
         visit(child);
     }

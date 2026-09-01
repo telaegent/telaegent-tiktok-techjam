@@ -41,6 +41,8 @@ describe("providerCompatibleSchema", () => {
     expect(encoded).not.toContain('"$schema"');
     expect(encoded).not.toContain('"oneOf"');
     expect(encoded).toContain('"anyOf"');
+    expect(encoded).not.toContain('"const"');
+    expect(encoded).toContain('"enum":["resource"]');
     expect(compatible.required).toEqual(["state", "request"]);
     expect(source.required).toEqual(["state"]);
   });
