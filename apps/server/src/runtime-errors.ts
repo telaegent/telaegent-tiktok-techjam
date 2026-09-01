@@ -121,6 +121,25 @@ const transportFailurePattern =
 const invalidOutputPattern =
   /(?:invalid|malformed|unexpected)\s+(?:json|output|response|event|stream|schema)|failed to (?:parse|decode)|not a valid json schema|(?:json )?schema[^\r\n]*(?:invalid|unsupported|not permitted)|no schema with key or ref/i;
 
+/**
+ * The complete failure text for one provider exit.
+ *
+ * A provider can report a failure in two places at once. Claude Code emits a
+ * `result` stream event with `is_error` and no message, which becomes a generic
+ * parsed error, while the actionable line - "No conversation found with session
+ * ID" - arrives only on stderr. Classifying one or the other therefore drops
+ * the half that says what happened: a recoverable missing session degrades to
+ * RUNTIME_FAILED, and ProviderSessionManager never gets the code it needs to
+ * delete the session and start fresh.
+ */
+export function providerFailureDetail(
+  parsedErrors: readonly string[],
+  stderr: string,
+): readonly string[] {
+  const trimmed = stderr.trim();
+  return trimmed.length > 0 ? [...parsedErrors, trimmed] : [...parsedErrors];
+}
+
 export function classifyProviderFailure(
   provider: AgentProvider,
   detail: unknown,
