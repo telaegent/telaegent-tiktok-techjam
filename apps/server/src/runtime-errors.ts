@@ -99,8 +99,16 @@ const missingSessionPattern =
 
 const timeoutPattern = /(?:ETIMEDOUT|timed?\s*out|timeout)/i;
 
+/**
+ * Exhausted capacity, including the plan quotas both CLIs report in prose. A
+ * spent Codex or Claude allowance says "usage limit", never "rate limit", so
+ * without these the only actionable failure a developer can hit on a normal
+ * day degrades to RUNTIME_FAILED and hides the wait-and-retry instruction.
+ * A retired or unentitled model belongs here too: the turn cannot succeed now
+ * but the runtime itself is intact, which is what RUNTIME_UNAVAILABLE means.
+ */
 const unavailablePattern =
-  /(?:ENOENT|command not found|not recognized as an internal or external command|ECONNREFUSED|ECONNRESET|ENOTFOUND|service unavailable|temporarily unavailable|provider overloaded|rate limit|usage limit|quota exceeded|too many requests|model (?:is )?(?:unavailable|unsupported|retired|deprecated)|does not have access to (?:the )?model|\b429\b)/i;
+  /(?:ENOENT|command not found|not recognized as an internal or external command|ECONNREFUSED|ECONNRESET|ENOTFOUND|service unavailable|temporarily unavailable|provider overloaded|rate limit|too many requests|\b429\b|usage limit|\bquota\b|out of credits|insufficient credits|purchase more credits|model (?:is )?(?:unavailable|unsupported|retired|deprecated)|does not have access to (?:the )?model)/i;
 
 /**
  * Transport-layer failures raised before the CLI ever reaches the model.

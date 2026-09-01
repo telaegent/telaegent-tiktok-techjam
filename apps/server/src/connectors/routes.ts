@@ -9,11 +9,28 @@ import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { ConnectorPairingService } from "./connector-pairing.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
-import { senderOutputSchema } from "../telagent/protocol/schemas.js";
+import { TURN_STATES } from "../telagent/protocol/contract.js";
 import {
   connectorResourceRequestSchema,
   resourceExchangeResponseSchema,
 } from "./resource-exchange.js";
+
+/**
+ * What a readiness probe is entitled to assert about a provider's answer.
+ *
+ * The turn is judged against the contract the provider was actually handed:
+ * sender-turn.schema.json. That document does not encode the protocol
+ * invariants senderOutputSchema layers on top -- a `blocked` turn must carry a
+ * risk flag, a `ready` turn must carry a candidate. Production turns are
+ * taught those rules by the shared protocol prompt; this probe deliberately
+ * sends a minimal prompt instead, so a refusal legitimately comes back as
+ * `blocked` with no flags. Rejecting it for breaking a rule it was never told
+ * would be a false negative about the transport, which is all this measures.
+ */
+const probeOutputSchema = z.object({
+  state: z.enum(TURN_STATES),
+  assistantMessage: z.string().min(1),
+});
 
 const bindingIdSchema = z.string().uuid();
 const jobIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/);
@@ -244,7 +261,14 @@ export function registerConnectorTransportRoutes(
         principal,
         connectorBindingId,
       );
-      const expectedCandidate = "TELAEGENT IS CONNECTED";
+      // A readiness probe must prove the round trip, not the model's
+      // agreeableness. Asking for a fixed "TELAEGENT IS CONNECTED" sentence
+      // back as a ready-to-send owner message made well-aligned providers
+      // refuse -- they will not vouch for a connection they cannot observe --
+      // so they answered `blocked` and the equality check failed on a pipeline
+      // that had just worked end to end. The stricter the model, the more
+      // reliably the probe lied. Ask for something a model can honestly do,
+      // and assert only what connectivity actually implies.
       const result = await dependencies.relay.dispatch({
         jobId: randomUUID(),
         connectorBindingId,
@@ -254,10 +278,13 @@ export function registerConnectorTransportRoutes(
         provider,
         purpose: "sender_draft",
         runtimePrompt: [
-          "This is a private Telaegent sender readiness check.",
-          "Do not inspect files or call tools.",
-          `Prepare exactly this message for owner review: ${expectedCandidate}`,
-          "Return it as a ready sender turn using the required output schema.",
+          "This is an automated Telaegent connectivity self-test.",
+          "Nothing you return is shown to anyone or sent anywhere; only the",
+          "shape of the response is checked.",
+          "Do not inspect files, call tools, or confirm anything you cannot",
+          "observe for yourself.",
+          "Answer with the required output schema, describing this check in one",
+          "short sentence. Any state value is acceptable.",
         ].join("\n"),
         persistedSummary: "Private connector sender readiness check",
         // Production sender turns default to continuation. With a new probe
@@ -269,8 +296,12 @@ export function registerConnectorTransportRoutes(
         correlationId: randomUUID(),
         maxTurns: 2,
       });
-      const output = senderOutputSchema.safeParse(result.final);
-      if (!output.success || output.data.sendCandidate !== expectedCandidate) {
+      // The requested provider ran locally and returned output matching the
+      // schema it was handed. That exercises every hop the real path uses:
+      // relay lease, connector, provider CLI, structured output, result. The
+      // content of a refusal makes none of that less true.
+      const output = probeOutputSchema.safeParse(result.final);
+      if (result.provider !== provider || !output.success) {
         throw new Error("Connector provider probe returned an invalid result");
       }
       return reply.send({
