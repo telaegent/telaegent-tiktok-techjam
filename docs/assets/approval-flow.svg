@@ -46,66 +46,66 @@
   <rect class="priv" x="60" y="104" width="368" height="184" rx="6"/>
   <text class="privt" x="72" y="126">PRIVATE — NEVER LEAVES THIS MACHINE</text>
   <rect class="pill" x="76" y="140" width="336" height="44" rx="22"/>
-  <text class="num"   x="92"  y="167">01</text>
+  <text class="num"   x="92"  y="167">01.</text>
   <text class="pillt" x="124" y="167">Rough request from A</text>
   <path class="wire" d="M244 184 V200" marker-end="url(#ar)"/>
   <rect class="proc" x="76" y="206" width="336" height="60" rx="4"/>
-  <text class="num"   x="92"  y="231">02</text>
+  <text class="num"   x="92"  y="231">02.</text>
   <text class="proct" x="124" y="231">Agent clarifies and inspects</text>
   <text class="procs" x="124" y="252">reads A's local repository · flags risk</text>
 
   <path class="wire" d="M244 288 V306" marker-end="url(#ar)"/>
   <rect class="gate" x="76" y="312" width="336" height="58" rx="4"/>
-  <text class="num"   x="92"  y="337">03</text>
+  <text class="num"   x="92"  y="337">03.</text>
   <text class="gatet" x="124" y="337">A approves the exact text</text>
   <text class="gates" x="124" y="358">Edit   ·   No   ·   Send</text>
 
   <!-- 04 A -> cloud -->
   <path class="wire" d="M412 341 H470 V420 H548" marker-end="url(#ar)"/>
-  <text class="wl" x="556" y="382">04  approved request only</text>
+  <text class="wl" x="556" y="382">04. approved request only</text>
   <rect class="pill" x="556" y="398" width="328" height="44" rx="22"/>
   <text class="pillt" x="578" y="425">Shared conversation · request</text>
 
   <!-- 05 cloud -> B -->
   <path class="wire" d="M884 420 H950 V536 H1024" marker-end="url(#ar)"/>
-  <text class="wl" x="556" y="470">05  relayed to B's connector</text>
+  <text class="wl" x="556" y="470">05. relayed to B's connector</text>
   <text class="wm" x="556" y="490">opaque binding · no path, no command</text>
 
   <!-- B private -->
   <rect class="priv" x="1012" y="472" width="368" height="140" rx="6"/>
   <text class="privt" x="1024" y="494">PRIVATE — NEVER LEAVES THIS MACHINE</text>
   <rect class="proc" x="1032" y="506" width="336" height="60" rx="4"/>
-  <text class="num"   x="1048" y="531">06</text>
+  <text class="num"   x="1048" y="531">06.</text>
   <text class="proct" x="1080" y="531">Agent investigates B's repo</text>
   <text class="procs" x="1080" y="552">hard policy blocks raw secret values</text>
 
   <!-- 07 capability ask, B -> A -->
   <path class="wireo" d="M1196 612 V624 H244 V654" marker-end="url(#ar)"/>
-  <text class="wl" x="560" y="616">07  optional: asks for one file it cannot see</text>
+  <text class="wl" x="560" y="616">07. optional: asks for one file it cannot see</text>
 
   <rect class="gate" x="76" y="660" width="336" height="58" rx="4"/>
-  <text class="num"   x="92"  y="685">08</text>
+  <text class="num"   x="92"  y="685">08.</text>
   <text class="gatet" x="124" y="685">A scopes that one resource</text>
   <text class="gates" x="124" y="706">Deny · Allow once · Allow for task</text>
 
   <!-- 10 A -> B -->
   <path class="wireo" d="M412 689 H452 V752 H1196 V758" marker-end="url(#ar)"/>
-  <text class="wl" x="560" y="744">09  only the approved resource</text>
+  <text class="wl" x="560" y="744">09. only the approved resource</text>
 
   <rect class="gate" x="1032" y="764" width="336" height="58" rx="4"/>
-  <text class="num"   x="1048" y="789">10</text>
+  <text class="num"   x="1048" y="789">10.</text>
   <text class="gatet" x="1080" y="789">B approves the response</text>
   <text class="gates" x="1080" y="810">Edit   ·   No   ·   Send</text>
 
   <!-- 11 B -> cloud -->
   <path class="wire" d="M1196 822 V842 H720 V844" marker-end="url(#ar)"/>
-  <text class="wl" x="800" y="834">11  approved answer only</text>
+  <text class="wl" x="800" y="834">11. approved answer only</text>
   <rect class="pill" x="556" y="850" width="328" height="44" rx="22"/>
   <text class="pillt" x="578" y="877">Shared conversation · answer</text>
 
   <!-- 12 cloud -> A -->
   <path class="wire" d="M556 872 H456" marker-end="url(#ar)"/>
-  <text class="wl" x="76" y="877">12  A reads the answer</text>
+  <text class="wl" x="76" y="877">12. A reads the answer</text>
 
   <line x1="36" y1="928" x2="1404" y2="928" stroke="#DDDDDD"/>
   <text class="foot" x="36" y="956">Crosses only after a human presses Send:  the approved request  ·  one scoped resource  ·  the approved answer</text>
