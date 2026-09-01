@@ -34,6 +34,10 @@ export interface PrivateDraftFollowUp {
     draft: Readonly<FollowUpDraftContext>,
     requests: readonly ConnectorResourceRequest[],
   ): Promise<readonly DeliveredResourceBlock[]>;
+  end(
+    draft: Readonly<FollowUpDraftContext>,
+    status: "completed" | "cancelled",
+  ): Promise<void>;
 }
 
 export interface DraftFollowUpServiceDependencies {
@@ -96,5 +100,34 @@ export class DraftFollowUpService implements PrivateDraftFollowUp {
       content: resource.content,
       truncated: resource.truncated,
     }));
+  }
+
+  /**
+   * Closes the task when its recipient draft leaves the private lifecycle.
+   *
+   * Resolving the task through the crossing message keeps this restart-safe:
+   * the database returns the existing task identifier instead of requiring the
+   * server process to remember it. Closing it atomically retires every active
+   * task-scoped grant.
+   */
+  async end(
+    draft: Readonly<FollowUpDraftContext>,
+    status: "completed" | "cancelled",
+  ): Promise<void> {
+    if (!draft.incomingMessageId) return;
+    const task = await this.#tasks.openTask({
+      taskId: this.#newTaskId(),
+      originSharedMessageId: draft.incomingMessageId,
+      responderUserId: draft.ownerUserId,
+    });
+    if (task.outcome === "unavailable") return;
+    const ended = await this.#tasks.endTask({
+      taskId: task.taskId,
+      actorUserId: draft.ownerUserId,
+      status,
+    });
+    if (ended.outcome === "unavailable" || ended.outcome === "invalid") {
+      throw new Error("Collaboration task could not be closed");
+    }
   }
 }

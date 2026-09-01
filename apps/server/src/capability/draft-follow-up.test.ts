@@ -61,6 +61,7 @@ const completed: CapabilityFollowUpOutcome = {
 
 function build(parts: {
   openTask?: CollaborationTaskRepository["openTask"];
+  endTask?: CollaborationTaskRepository["endTask"];
   runRound?: CapabilityFollowUpCoordinator["runRound"];
 } = {}) {
   const openTask = vi.fn<CollaborationTaskRepository["openTask"]>(
@@ -69,12 +70,15 @@ function build(parts: {
   const runRound = vi.fn<CapabilityFollowUpCoordinator["runRound"]>(
     parts.runRound ?? (async () => completed),
   );
+  const endTask = vi.fn<CollaborationTaskRepository["endTask"]>(
+    parts.endTask ?? (async () => ({ outcome: "ended", status: "completed" })),
+  );
   const service = new DraftFollowUpService({
-    tasks: { openTask, endTask: async () => ({ outcome: "unavailable" }) },
+    tasks: { openTask, endTask },
     coordinator: { runRound } as unknown as CapabilityFollowUpCoordinator,
     newTaskId: () => taskId,
   });
-  return { service, openTask, runRound };
+  return { service, openTask, endTask, runRound };
 }
 
 describe("carrying a draft's questions to the other machine", () => {
@@ -156,6 +160,33 @@ describe("carrying a draft's questions to the other machine", () => {
     expect(runRound).toHaveBeenCalledWith(
       expect.objectContaining({ taskId }),
       [ask],
+    );
+  });
+
+  it.each(["completed", "cancelled"] as const)(
+    "ends the existing task as %s when the recipient draft finishes",
+    async (status) => {
+      const { service, endTask } = build({
+        openTask: async () => ({ ...opened, outcome: "existing" }),
+      });
+
+      await service.end(draft, status);
+
+      expect(endTask).toHaveBeenCalledWith({
+        taskId,
+        actorUserId: responderId,
+        status,
+      });
+    },
+  );
+
+  it("fails safely when durable task closure is unavailable", async () => {
+    const { service } = build({
+      endTask: async () => ({ outcome: "unavailable" }),
+    });
+
+    await expect(service.end(draft, "completed")).rejects.toThrow(
+      "Collaboration task could not be closed",
     );
   });
 });
