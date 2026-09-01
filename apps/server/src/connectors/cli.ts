@@ -25,6 +25,7 @@ import { parseConnectorCliOptions } from "./connector-cli-options.js";
 import { createConnectorResourceRegistry } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
+import { refreshEstablishedReadiness } from "./connector-readiness.js";
 import {
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
@@ -245,8 +246,10 @@ async function main(): Promise<void> {
       for (;;) {
         await worker.runOnce();
         // Also re-announce after every long-poll cycle so a restarted control
-        // plane does not wait for the next heartbeat.
-        await announceReady();
+        // plane does not wait for the next heartbeat. This is best-effort after
+        // the initial hard readiness gate: the next authenticated job poll will
+        // still terminate the connector if its credential has been revoked.
+        await refreshEstablishedReadiness(announceReady);
       }
     } finally {
       clearInterval(heartbeat);
