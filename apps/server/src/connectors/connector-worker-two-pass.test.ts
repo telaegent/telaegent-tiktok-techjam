@@ -69,8 +69,12 @@ class FakeTransport implements ConnectorWorkerTransport {
     });
   }
 
+  /** Set to model a cloud that rejects an event shape it does not know. */
+  rejectProgress = false;
+
   async progress(_jobId: string, event: RuntimeProgressEvent): Promise<void> {
     this.progressEvents.push(event);
+    if (this.rejectProgress) throw new Error("400 unrecognized_keys: target");
   }
 
   async result(_jobId: string, result: ConnectorJobResult): Promise<void> {
@@ -254,5 +258,36 @@ describe("two-pass private turn", () => {
     await worker.runOnce();
 
     expect(requests[1]?.runtimePrompt).toBe(job.runtimePrompt);
+  });
+});
+
+describe("deployment compatibility", () => {
+  it("completes the turn when the cloud rejects a progress event it cannot parse", async () => {
+    // A cloud deployed before `target` existed answers 400 to an activity
+    // event carrying one, because `progressSchema` is built from strict
+    // objects. Progress is advisory: losing it degrades the live view of the
+    // turn and must never cost the owner the turn itself.
+    const transport = new FakeTransport();
+    transport.rejectProgress = true;
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async (request, onProgress) => {
+        onProgress?.({
+          type: "activity_started",
+          provider: "claude",
+          activity: "tool",
+          target: path.join(workspacePath, "src", "auth", "session.ts"),
+        });
+        return request.outputSchemaName === "investigation-note.schema.json"
+          ? ok({ note: "read src/auth/session.ts" })
+          : ok(draftFinal);
+      }),
+      transport,
+      { cancel: async () => true },
+    );
+
+    expect(await worker.runOnce()).toBe("completed");
+    expect(transport.results).toHaveLength(1);
+    expect(transport.failures).toEqual([]);
   });
 });
