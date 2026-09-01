@@ -118,6 +118,12 @@ export function buildCodexArgs(
 ): string[] {
   const args = [
     "exec",
+    // Keep Telaegent runs independent from a developer's personal model and
+    // provider settings. Authentication and Telaegent-owned sessions still
+    // come from CODEX_HOME; an explicit CODEX_MODEL below remains supported.
+    // This also prevents an older CLI from inheriting a newer app's default
+    // model and failing before the first turn starts.
+    "--ignore-user-config",
     "--json",
     "--sandbox",
     sandboxMode,
@@ -142,6 +148,10 @@ export function buildCodexMiddlewareArgs(
 ): string[] {
   const args = [
     "exec",
+    // Reuse CODEX_HOME for local authentication/session state, but do not
+    // inherit unrelated personal model/provider configuration. CODEX_MODEL,
+    // when explicitly configured for Telaegent, is added below and wins.
+    "--ignore-user-config",
     "--json",
     "-c",
     'approval_policy="never"',
