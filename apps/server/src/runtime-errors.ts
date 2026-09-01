@@ -103,7 +103,7 @@ const unavailablePattern =
   /(?:ENOENT|command not found|not recognized as an internal or external command|ECONNREFUSED|ECONNRESET|ENOTFOUND|service unavailable|temporarily unavailable|provider overloaded|rate limit|too many requests|\b429\b)/i;
 
 const invalidOutputPattern =
-  /(?:invalid|malformed|unexpected)\s+(?:json|output|response|event|stream)|failed to (?:parse|decode)/i;
+  /(?:invalid|malformed|unexpected)\s+(?:json|output|response|event|stream)|failed to (?:parse|decode)|not a valid json schema|json schema[^\r\n]*(?:invalid|unsupported)|no schema with key or ref/i;
 
 export function classifyProviderFailure(
   provider: AgentProvider,

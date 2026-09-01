@@ -21,6 +21,7 @@ import {
   onRuntimeCancellation,
   throwIfRuntimeCancelled,
 } from "./runtime-cancellation.js";
+import { providerCompatibleSchema } from "./provider-output-schema.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -71,7 +72,7 @@ export function buildClaudeArgs(
     "--verbose",
     "--include-partial-messages",
     "--json-schema",
-    JSON.stringify(outputSchema),
+    JSON.stringify(providerCompatibleSchema("claude", outputSchema)),
     "--max-turns",
     String(request.maxTurns),
     "--permission-mode",

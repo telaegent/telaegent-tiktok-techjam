@@ -24,6 +24,7 @@ import {
   onRuntimeCancellation,
   throwIfRuntimeCancelled,
 } from "./runtime-cancellation.js";
+import { providerCompatibleSchema } from "./provider-output-schema.js";
 import type {
   AgentRunner,
   RunUsage,
@@ -343,10 +344,14 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     const schemaPath = path.join(schemaDirectory, "output.schema.json");
     try {
       throwIfRuntimeCancelled(signal);
-      await this.dependencies.writeFile(schemaPath, JSON.stringify(outputSchema), {
-        encoding: "utf8",
-        mode: 0o600,
-      });
+      await this.dependencies.writeFile(
+        schemaPath,
+        JSON.stringify(providerCompatibleSchema("codex", outputSchema)),
+        {
+          encoding: "utf8",
+          mode: 0o600,
+        },
+      );
       throwIfRuntimeCancelled(signal);
       const result = await this.runProcess(
         {
@@ -520,7 +525,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       if (codexProcessFailed(exitCode, parsed)) {
         throw classifyProviderFailure(
           "codex",
-          parsed.errors.at(-1) ?? stderr ?? "provider failure",
+          parsed.errors.length > 0 ? parsed.errors : stderr || "provider failure",
           { phase: "provider_exit", exitCode },
         );
       }
