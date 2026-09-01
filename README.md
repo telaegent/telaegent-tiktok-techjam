@@ -42,6 +42,27 @@ Today, a developer often has to copy a question from their agent, pass it to a t
 | A blanket trust grant | A connection per project, plus approval of every outbound message |
 | Provider lock-in | Claude Code and Codex working through one collaboration layer |
 
+## The middleware problem
+
+An agent platform can already reason, call tools and write files. What it cannot
+do is let one person's agent ask another person's agent about a repository they
+both work on, without one of them handing over access to their machine.
+
+Telaegent is the middleware for that exchange. It sits between independently
+owned agents and decides what is allowed to cross:
+
+| Capability | Where it executes | Evidence it produces |
+| --- | --- | --- |
+| Repository authorization | control plane, proved by the owner's local GitHub CLI | a stable GitHub repository ID, never a path |
+| Project-scoped collaborator connection | control plane, per repository, revocable | connection state and its transitions |
+| Human approval of outbound content | control plane, before anything is appended | the approved message, and only that |
+| Capability-scoped resource grants | owner's connector, per file, per task | Deny / Allow once / Allow for this task |
+| Deterministic secret policy | connector, before content leaves the machine | blocked disclosure plus a safe alternative |
+
+None of this runs in the browser. The frontend renders decisions; the control
+plane and the connector make and enforce them, which is why revoking a
+connection or denying a resource changes what a later agent turn can do.
+
 ## How a message crosses
 
 <p align="center">
@@ -173,6 +194,50 @@ setup, exact environment values, diagnostics, and the boundary between
 automated repository setup and explicit external account provisioning.
 
 Before changing product behavior, architecture, security policy, API contracts, runtime integration, or UX, read the four canonical documents above and the relevant owner brief. In particular, do not turn an unvalidated hypothesis into a product claim.
+
+## Demo steps
+
+The three-minute scenario, in order:
+
+1. **Sign in** at <https://telaegent.live> with GitHub, and open a project. The
+   repository appears because a connector proved access with that developer's
+   own `gh` identity - the cloud never received a token for it.
+2. **Show both connectors online.** Two developers, two machines, one
+   repository. Each connector dialled out; neither opened a port.
+3. **Ask a question.** Type a rough request. It stays private while your own
+   agent clarifies it and inspects your checkout.
+4. **Approve it.** Choose Edit, No, or Send. Only Send appends to the shared
+   conversation - this is the enforcement point, not a confirmation dialog.
+5. **Watch the other side.** The recipient's agent investigates their own
+   repository. If it needs a file it cannot see, the owner gets Deny / Allow
+   once / Allow for this task, and only the approved resource crosses.
+6. **Try to break it.** Ask for `.env`. Deterministic policy refuses the raw
+   values and offers variable names instead, so the denial happens below the
+   model rather than depending on it.
+7. **Revoke.** Disconnect the repository or the collaborator connection, then
+   repeat step 3 and watch the same request fail closed.
+
+Steps 6 and 7 are the failure and denial cases; run them from the same session
+as the happy path rather than a separate build.
+
+## Limitations
+
+Honest about what this is, three days in:
+
+- **Revocation is not hardened against a determined attacker.** It works, and
+  the tests cover it, but it has not been probed adversarially.
+- **The connector trusts its own machine.** It resolves the registered workspace
+  and refuses paths from the wire, but a compromised developer machine is
+  outside the model.
+- **Provider terms for hosted use are unreviewed.** Each developer runs their
+  own authenticated CLI locally, which is the licensed pattern; a hosted
+  multi-user variant would need its own review.
+- **The deployment is demo-scoped.** One EC2 instance, one Supabase project, no
+  redundancy, no load testing.
+- **The connector package pins one version.** The browser issues
+  `@telaegent/connector@0.1.0`; older or newer connectors are not negotiated.
+- **Secret policy covers known classes.** `.env`, keys, tokens and credential
+  files are refused deterministically. It is not a general-purpose DLP engine.
 
 ## What Telaegent is not
 
