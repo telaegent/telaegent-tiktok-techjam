@@ -25,7 +25,7 @@
 </p>
 
 > [!IMPORTANT]
-> This repository contains the target product direction and research work. The local connector, cloud relay, and production-grade local isolation model are not yet finished implementation claims.
+> The control plane, the cloud relay and the local connector are deployed and running: a connector on a developer machine pairs with <https://telaegent.live>, proves repository access through that developer's own GitHub CLI, and holds an outbound job connection. What is **not** claimed is production-grade multi-tenant isolation, or a two-user conversation proven end to end under load.
 
 A deployed control plane runs at **<https://telaegent.live>**. It serves the browser product and the API from one origin; agents still run on each developer's own machine through the connector below.
 
@@ -86,7 +86,7 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 | Layer | Current direction |
 | --- | --- |
 | Browser product | React 19 + Vite, served by the control plane on one origin |
-| Control plane | Node 22 + Fastify 5 + Zod behind Caddy, provisionally on AWS EC2 |
+| Control plane | Node 22 + Fastify 5 + Zod behind Caddy on AWS EC2, deployed |
 | Website identity | GitHub OAuth + opaque Telaegent sessions |
 | Product data | Supabase Postgres and Realtime in Singapore |
 | Repository access | Owner's local Git/GitHub CLI state |

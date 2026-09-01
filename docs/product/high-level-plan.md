@@ -111,13 +111,13 @@ user × repository workspace and the correct local provider identity. The cloud
 stores only an opaque connector binding and safe status/metadata; it never
 stores or chooses a local path.
 
-### 3.1 Provisional deployment direction
+### 3.1 Deployment
 
-The current infrastructure hypothesis to validate is:
+The deployed shape is:
 
-| Layer | Provisional choice |
+| Layer | Choice |
 | --- | --- |
-| Frontend | React/Vite on Vercel |
+| Frontend | React/Vite, served by the control plane on one origin |
 | Backend/control plane | Node 22 + Fastify 5 behind Caddy on AWS EC2 |
 | Database/session persistence/Realtime | Supabase Postgres in Southeast Asia/Singapore |
 | Connector presence/job relay | AWS EC2 backend using outbound WebSocket, long-polling, or equivalent |
@@ -125,10 +125,11 @@ The current infrastructure hypothesis to validate is:
 | Repository access | developer's local Git/GitHub CLI state |
 | Coding providers | developer's locally authenticated Claude Code CLI and/or Codex CLI |
 
-The exact connector transport is **not frozen yet**. The control plane does not provision
-provider runtimes. Production-grade local path binding, connector
-authentication, revocation, and job delivery should not be claimed until
-proven.
+The connector transport is outbound long-polling. The control plane does not
+provision provider runtimes. Connector pairing, local repository proof and job
+delivery have been exercised against the live deployment; production-grade path
+binding, revocation under adversarial conditions, and multi-tenant isolation
+remain unproven and should not be claimed.
 
 ---
 
