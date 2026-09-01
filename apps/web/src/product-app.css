@@ -370,41 +370,6 @@
   margin: 11px 0 0;
 }
 
-.connector-path-fields {
-  display: grid;
-  gap: 12px;
-  margin: 18px 0;
-}
-
-.connector-path-fields label,
-.connector-path-fields span {
-  display: block;
-}
-
-.connector-path-fields span {
-  margin-bottom: 6px;
-  color: var(--quiet);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.connector-path-fields input {
-  width: 100%;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
-  background: var(--surface);
-  font: 13px/1.4 var(--mono);
-}
-
-.connector-path-fields input:focus {
-  border-color: var(--accent);
-  outline: 2px solid color-mix(in srgb, var(--accent) 20%, transparent);
-  outline-offset: 1px;
-}
-
 .device-flow p {
   margin: 12px 0 0;
 }

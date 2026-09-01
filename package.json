@@ -5,7 +5,8 @@
   "description": "Telagent messaging and trust infrastructure for independently owned coding Agents.",
   "type": "module",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "engines": {
     "node": ">=22"
@@ -22,6 +23,7 @@
     "demo:session-recovery": "npm run demo:session-recovery -w @launchpad/server",
     "smoke:authorization:supabase": "npm run smoke:authorization:supabase -w @launchpad/server",
     "connector:connect": "npm run build -w @launchpad/server && node --env-file-if-exists=.env --env-file-if-exists=connector.env apps/server/dist/connectors/cli.js",
+    "connector:package": "npm run build -w @telaegent/connector",
     "build": "npm run build -w @launchpad/web && npm run build -w @launchpad/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test:setup": "node --test scripts/setup-core.test.mjs scripts/process-tree.test.mjs scripts/local-development-security.test.mjs",

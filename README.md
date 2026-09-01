@@ -91,9 +91,10 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 | Agent execution | Local connector binding per user × repository |
 | Coding providers | Locally authenticated Claude Code CLI and/or Codex CLI |
 
-The cloud host runs only the control plane and connector relay. Connector packaging,
-outbound transport, local binding enforcement, and provider probes remain
-research/implementation gates.
+The cloud host runs only the control plane and connector relay. A publishable
+connector package, outbound transport, local binding enforcement, and provider
+probes exist in the source tree; registry publication, secure pairing/update,
+and the two-machine live proof remain release gates.
 
 ## What Telaegent remembers - and what it does not
 

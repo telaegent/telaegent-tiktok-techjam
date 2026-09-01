@@ -89,11 +89,30 @@ legacy runtime POC.
 
 ## Start a connector
 
-Start the app with `npm run up`, sign in in the browser, and create a connector
-credential from the Connections screen. The credential is displayed once.
-`npm run setup` creates an ignored, connector-only `connector.env` with a stable
-random installation ID. Enter that same ID in the browser, then paste the
-returned bearer into `connector.env`:
+Normal users do not need a Telaegent source checkout. After the release owner
+publishes `@telaegent/connector`, sign in at Telaegent, create a connector
+credential, open a terminal in the repository to connect, and run the exact
+command shown by the website:
+
+```text
+npx --yes @telaegent/connector@0.1.0 connect . --url https://telaegent.live --instance-id ID --credential CREDENTIAL
+```
+
+The same command syntax works on Windows, macOS, and Linux. `.` is resolved and
+canonicalized as the selected Git root. The connector verifies local GitHub
+access, registers safe repository metadata, runs a real provider probe, and
+begins outbound long polling. No local path, credential, repository checkout,
+or provider session is uploaded.
+
+The package is built with `npm run connector:package` and must be published
+before a production frontend displays this command.
+
+### Source-checkout development fallback
+
+Start the local app with `npm run up`, sign in in the browser, and create a
+connector credential. `npm run setup` creates an ignored, connector-only
+`connector.env` with a stable random installation ID. Enter that same ID in the
+browser, then paste the returned bearer into `connector.env`:
 
 ```text
 TELAEGENT_URL=http://localhost:3000

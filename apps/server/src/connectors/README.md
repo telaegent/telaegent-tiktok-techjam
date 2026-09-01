@@ -42,12 +42,17 @@ legacy shared API token is not connector authentication.
 2. `POST /api/connectors/credentials` with a stable, random installation ID.
    Save the returned credential locally; the backend stores only its hash. The
    response is explicitly non-cacheable and the browser must not persist it.
-3. Put `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
-   `TELAEGENT_CONNECTOR_CREDENTIAL` in the ignored, connector-only `connector.env`.
-   Do not put the bearer in the root `.env`, which application processes load.
-4. Run `npm.cmd run connector:connect -- connect .` from the Telaegent source
-   root in PowerShell. The script builds the connector before starting it, so
-   it does not depend on the development-time TypeScript loader.
+3. Open a terminal in the deliberately selected repository.
+4. Run the cross-platform command rendered by the browser:
+
+   ```text
+   npx --yes @telaegent/connector@0.1.0 connect . --url ORIGIN --instance-id ID --credential BEARER
+   ```
+
+The npm artifact is built from the canonical compiled connector with
+`npm run connector:package`; it does not contain a second implementation. A
+source-checkout developer may continue to put the three values in the ignored
+`connector.env` and run `npm run connector:connect -- connect .`.
 
 Use `--provider codex` or `--provider claude` to allow only one locally chosen
 provider for this connector process. The default, `--provider auto`, allows all
@@ -84,12 +89,15 @@ ready binding from durable authorization state. Revoked, suspended, stale, and
 unavailable bindings fail closed. This costs one bounded status lookup per
 binding recovery, not one database call per poll.
 
-This is still a source-tree proof command, not finished `npx telaegent`
-packaging. OS credential-vault integration, installer/update signing, and
-durable presence telemetry remain follow-up work. Credential issuance already
-rotates the server-side hash and unregisters the old process-local principal,
-but the local replacement must remain a deliberate user action until a secure
-vault-backed installer owns it.
+The `@telaegent/connector` artifact and cross-platform `npx` command are
+implemented, but registry publication and a two-machine packaged live proof
+remain release work. Version 0.1 passes the one-time connector bearer as a
+local command argument, matching the browser's existing one-time command
+handoff; browser/device pairing, OS credential-vault integration,
+installer/update signing, and durable presence telemetry remain follow-up work.
+Credential issuance already rotates the server-side hash and unregisters the
+old process-local principal, but local replacement remains a deliberate user
+action.
 
 ## Resource requests (loop closed end to end)
 

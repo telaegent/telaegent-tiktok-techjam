@@ -25,6 +25,7 @@ import {
   selectConnectedPeer,
 } from "./project-conversation";
 import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
+import { buildConnectorCommand } from "./connector-command";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
@@ -239,8 +240,7 @@ function Onboarding({
   const [connectorError, setConnectorError] = useState<ApiError | null>(null);
   const [checkingConnector, setCheckingConnector] = useState(false);
   const [connectedAgents, setConnectedAgents] = useState<string[]>([]);
-  const [connectorSourcePath, setConnectorSourcePath] = useState("");
-  const [repositoryPath, setRepositoryPath] = useState("");
+  const [connectorCommandCopied, setConnectorCommandCopied] = useState(false);
   const steps: OnboardingStep[] = ["identity", "github", "agent", "ready"];
   const stepIndex = steps.indexOf(step);
 
@@ -259,6 +259,7 @@ function Onboarding({
     try {
       const result = await api.issueConnectorCredential(connectorInstanceId);
       setConnectorCredential(result.connector);
+      setConnectorCommandCopied(false);
       setGithubStage("connector");
     } catch (error) {
       setConnectorError(normalizeApiError(error));
@@ -266,30 +267,12 @@ function Onboarding({
     }
   }
 
-  function connectorCommand(credential: ConnectorCredential): string {
-    const quotePowerShell = (value: string) =>
-      `'${value.replaceAll("'", "''")}'`;
-    const source = connectorSourcePath.trim() || "<Telaegent source folder>";
-    const workspace = repositoryPath.trim() || "<repository folder>";
-    return [
-      `Set-Location -LiteralPath ${quotePowerShell(source)}`,
-      `$env:TELAEGENT_URL='${window.location.origin}'`,
-      `$env:TELAEGENT_CONNECTOR_INSTANCE_ID='${credential.connectorInstanceId}'`,
-      `$env:TELAEGENT_CONNECTOR_CREDENTIAL='${credential.credential}'`,
-      `npm.cmd run connector:connect -- connect ${quotePowerShell(workspace)}`,
-    ].join("; ");
-  }
-
   async function copyConnectorCommand() {
-    if (
-      connectorCredential &&
-      connectorSourcePath.trim() &&
-      repositoryPath.trim()
-    ) {
-      await navigator.clipboard.writeText(
-        connectorCommand(connectorCredential),
-      );
-    }
+    if (!connectorCredential) return;
+    await navigator.clipboard.writeText(
+      buildConnectorCommand(window.location.origin, connectorCredential),
+    );
+    setConnectorCommandCopied(true);
   }
 
   async function verifyConnectorSetup() {
@@ -436,54 +419,28 @@ function Onboarding({
               {githubStage === "connector" && connectorCredential && (
                 <div className="device-flow">
                   <div>
-                    <span>Configure paths on this device</span>
-                    <strong>Connect this installation</strong>
+                    <span>Run from your repository</span>
+                    <strong>Connect this repository</strong>
                   </div>
                   <div>
                     <span>What remains local</span>
                     <code>repo · gh · Claude/Codex · sessions</code>
                   </div>
                   <p>
-                    Run the command, then continue once the terminal confirms
-                    the connector is connected.
+                    Open a terminal in the repository you want to connect, then
+                    run this command. It works on Windows, macOS, and Linux.
                   </p>
-                  <div className="connector-path-fields">
-                    <label>
-                      <span>Local Telaegent checkout</span>
-                      <input
-                        type="text"
-                        value={connectorSourcePath}
-                        onChange={(event) =>
-                          setConnectorSourcePath(event.target.value)
-                        }
-                        placeholder="Enter its path on this device"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </label>
-                    <label>
-                      <span>Local repository checkout</span>
-                      <input
-                        type="text"
-                        value={repositoryPath}
-                        onChange={(event) =>
-                          setRepositoryPath(event.target.value)
-                        }
-                        placeholder="Enter its path on this device"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </label>
-                  </div>
                   <div className="connector-command-block">
                     <code className="connector-command">
-                      {connectorCommand(connectorCredential)}
+                      {buildConnectorCommand(
+                        window.location.origin,
+                        connectorCredential,
+                      )}
                     </code>
                     <p>
-                      The command changes to the Telaegent source folder before
-                      launching the connector and passes the separate repository
-                      folder as its workspace. Neither path is uploaded. The
-                      credential expires{" "}
+                      The connector uses the current Git repository. Its local
+                      path, checkout, GitHub login, and coding-agent sessions
+                      stay on this device. This credential expires{" "}
                       {new Intl.DateTimeFormat(undefined, {
                         hour: "numeric",
                         minute: "2-digit",
@@ -495,12 +452,9 @@ function Onboarding({
                     <button
                       className="app-secondary-action"
                       type="button"
-                      disabled={
-                        !connectorSourcePath.trim() || !repositoryPath.trim()
-                      }
                       onClick={() => void copyConnectorCommand()}
                     >
-                      Copy command
+                      {connectorCommandCopied ? "Command copied" : "Copy command"}
                     </button>
                     <button
                       className="app-primary-action"
