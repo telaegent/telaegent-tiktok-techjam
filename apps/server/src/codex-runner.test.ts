@@ -25,8 +25,11 @@ describe("Codex runner protocol", () => {
     );
     expect(args).toEqual([
       "exec",
-      "--ignore-user-config",
       "--json",
+      "-c",
+      "mcp_servers={}",
+      "-c",
+      "notify=[]",
       "--sandbox",
       "workspace-write",
       "--skip-git-repo-check",
@@ -201,7 +204,6 @@ describe("Codex runner protocol", () => {
       "/tmp/status.schema.json",
     );
     expect(args).toContain("read-only");
-    expect(args).toContain("--ignore-user-config");
     expect(args).toContain("--output-schema");
     expect(args).toContain("/tmp/status.schema.json");
     expect(args.slice(-3)).toEqual(["resume", "thread-123", "-"]);
@@ -232,6 +234,60 @@ describe("Codex runner protocol", () => {
 
     expect(args).toContain("--model");
     expect(args).toContain("gpt-5.5");
+  });
+
+  it("reads the user's Codex config so the platform sandbox stays selectable", () => {
+    // `--ignore-user-config` discards `[windows] sandbox`, and Codex then
+    // refuses to spawn the shell that is its only way to read a file. A run
+    // that cannot read does not fail loudly; it answers from nothing.
+    const args = buildCodexMiddlewareArgs(
+      {
+        agentId: "agent",
+        provider: "codex",
+        purpose: "status",
+        workspacePath: "/tmp/workspace",
+        runtimePrompt: "Return status",
+        persistedSummary: "Status",
+        sessionMode: "ephemeral",
+        sandboxMode: "read-only",
+        networkMode: "none",
+        outputSchemaName: "status.schema.json",
+        correlationId: "corr-config",
+        maxTurns: 1,
+      },
+      "/tmp/status.schema.json",
+    );
+
+    expect(args).not.toContain("--ignore-user-config");
+  });
+
+  it("closes the tool surface the user's config would otherwise carry in", () => {
+    const args = buildCodexMiddlewareArgs(
+      {
+        agentId: "agent",
+        provider: "codex",
+        purpose: "status",
+        workspacePath: "/tmp/workspace",
+        runtimePrompt: "Return status",
+        persistedSummary: "Status",
+        sessionMode: "ephemeral",
+        sandboxMode: "read-only",
+        networkMode: "none",
+        outputSchemaName: "status.schema.json",
+        correlationId: "corr-surface",
+        maxTurns: 1,
+      },
+      "/tmp/status.schema.json",
+    );
+
+    // The owner's own MCP servers and per-turn notify hook reach outside the
+    // workspace. Reading their config must not import their tools.
+    expect(args).toContain("mcp_servers={}");
+    expect(args).toContain("notify=[]");
+    // Containment still comes from the sandbox, not from ignoring the config.
+    expect(args).toContain("--sandbox");
+    expect(args).toContain("read-only");
+    expect(args).toContain('approval_policy="never"');
   });
 
   it("does not spawn Codex when cancellation arrives during schema preflight", async () => {

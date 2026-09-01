@@ -111,6 +111,36 @@ const defaultDependencies: CodexRunnerDependencies = {
   spawn,
 };
 
+/**
+ * Overrides layered on top of the user's Codex config.
+ *
+ * We deliberately do *not* pass `--ignore-user-config`. That flag was here to
+ * keep a developer's personal settings out of a Telaegent run, and on macOS and
+ * Linux it cost nothing. On Windows it is fatal: the sandbox backend is selected
+ * by `[windows] sandbox` in the user's config, and without that key Codex
+ * refuses to spawn any process at all — every command comes back
+ * `rejected: blocked by policy`. Codex has no native read tool, so a shell it
+ * cannot spawn is a model that cannot read. Observed end state was not an error
+ * the owner could act on: the model either invented an answer it never read, or
+ * escalated to `apply_patch` trying to infer file contents a read would have
+ * given it.
+ *
+ * Reading the user's config brings back the tool surface that config carries, so
+ * that surface is closed here explicitly rather than by discarding the whole
+ * file:
+ *
+ * - `mcp_servers={}` drops every configured MCP server. These are the owner's
+ *   own tools (browser, computer-use), not ours, and they reach well past the
+ *   repository. Closing them also removes their descriptions from the prompt,
+ *   which measured as a drop from ~90k to ~31k input tokens per turn.
+ * - `notify=[]` stops the per-turn hook, which launches a local executable from
+ *   outside the workspace after every turn.
+ *
+ * Containment is unchanged and is enforced where it always was: `--sandbox`,
+ * `approval_policy="never"`, the network setting, and the `-C` workspace pin.
+ */
+const CLOSED_TOOL_SURFACE = ["-c", "mcp_servers={}", "-c", "notify=[]"] as const;
+
 export function buildCodexArgs(
   request: RunnerRequest,
   sandboxMode: AppConfig["codexSandboxMode"],
@@ -119,13 +149,8 @@ export function buildCodexArgs(
 ): string[] {
   const args = [
     "exec",
-    // Keep Telaegent runs independent from a developer's personal model and
-    // provider settings. Authentication and Telaegent-owned sessions still
-    // come from CODEX_HOME; an explicit CODEX_MODEL below remains supported.
-    // This also prevents an older CLI from inheriting a newer app's default
-    // model and failing before the first turn starts.
-    "--ignore-user-config",
     "--json",
+    ...CLOSED_TOOL_SURFACE,
     "--sandbox",
     sandboxMode,
     "--skip-git-repo-check",
@@ -149,11 +174,8 @@ export function buildCodexMiddlewareArgs(
 ): string[] {
   const args = [
     "exec",
-    // Reuse CODEX_HOME for local authentication/session state, but do not
-    // inherit unrelated personal model/provider configuration. CODEX_MODEL,
-    // when explicitly configured for Telaegent, is added below and wins.
-    "--ignore-user-config",
     "--json",
+    ...CLOSED_TOOL_SURFACE,
     "-c",
     'approval_policy="never"',
     "--sandbox",

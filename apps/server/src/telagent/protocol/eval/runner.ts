@@ -278,6 +278,25 @@ export class CodexCliRunner implements ProtocolRunner {
   }
 }
 
+/**
+ * The one config key a Codex run started with `--ignore-user-config` cannot do
+ * without on Windows.
+ *
+ * `[windows] sandbox` selects the sandbox backend. On macOS and Linux the
+ * backend is implied by the platform and no key is needed, which is why this
+ * was invisible for so long. On Windows an unset key is not a default — Codex
+ * refuses to spawn a process at all, and since Codex reaches files only by
+ * spawning a shell, the model goes blind while still answering confidently.
+ *
+ * Returns nothing off Windows so the argument list stays byte-identical to what
+ * it has always been there.
+ */
+export function windowsSandboxConfig(
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return platform === "win32" ? ["--config", "windows.sandbox=unelevated"] : [];
+}
+
 /** Pure argument builder so CI proves native schema enforcement stays wired. */
 export function codexStructuredArgs(
   schemaPath: string,
@@ -328,6 +347,17 @@ export function codexCompatibleSchema(
  * is read from `AI_KEY`; it is never written to config, command arguments,
  * reports, or the repository. `--ignore-user-config` also keeps the user's
  * normal Codex/ChatGPT setup out of the measurement.
+ *
+ * `--ignore-user-config` has to stay here — it is what points Codex at DeepSeek
+ * instead of the operator's own account — but on Windows it discards one key
+ * this runner needs. The Windows sandbox backend is selected by
+ * `[windows] sandbox` in the user's config; with no value, Codex declines to
+ * spawn any process and every command returns `rejected: blocked by policy`.
+ * Codex has no native read tool, so a shell it cannot spawn is a model that
+ * cannot read, and the closed-book measurement this comment warns about is
+ * exactly what a Windows operator would have got — silently, with every
+ * grounding case scored against an answer the model invented. The key is
+ * supplied back explicitly, and only on Windows.
  */
 export class DeepSeekCodexRunner implements ProtocolRunner {
   readonly id = "deepseek-v4-flash";
@@ -358,6 +388,7 @@ export class DeepSeekCodexRunner implements ProtocolRunner {
     const args = [
       "exec",
       "--ignore-user-config",
+      ...windowsSandboxConfig(),
       "--ephemeral",
       "--sandbox",
       "read-only",

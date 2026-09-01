@@ -33,6 +33,7 @@ import {
   FakeProtocolRunner,
   codexCompatibleSchema,
   codexStructuredArgs,
+  windowsSandboxConfig,
   createRunner,
   liveEvalEnabled,
 } from "./eval/runner.js";
@@ -622,6 +623,22 @@ describe("live evaluation is not reachable from CI", () => {
     expect(args).toContain("--output-last-message");
     expect(args[args.indexOf("--output-last-message") + 1]).toBe("answer.json");
     expect(args.at(-1)).toBe("PROMPT");
+  });
+
+  it("restores the Windows sandbox key that --ignore-user-config discards", () => {
+    // The DeepSeek runner has to ignore user config to reach a different
+    // provider, and on Windows that also drops `[windows] sandbox`. Unset, it
+    // is not a default: Codex spawns nothing, and because a shell is Codex's
+    // only route to a file, every grounding case silently becomes closed-book
+    // and is scored against an answer the model made up.
+    expect(windowsSandboxConfig("win32")).toEqual([
+      "--config",
+      "windows.sandbox=unelevated",
+    ]);
+    // Off Windows the backend follows from the platform, and the argument list
+    // stays exactly what it has always been.
+    expect(windowsSandboxConfig("darwin")).toEqual([]);
+    expect(windowsSandboxConfig("linux")).toEqual([]);
   });
 
   it("translates Zod oneOf unions for Codex Structured Outputs", () => {
