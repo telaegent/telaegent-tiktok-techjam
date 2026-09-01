@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CodexRunner,
   buildCodexArgs,
+  buildCodexChildEnvironment,
   buildCodexMiddlewareArgs,
   codexProcessFailed,
   parseCodexEventLine,
@@ -263,5 +264,62 @@ describe("Codex runner protocol", () => {
     await expect(running).rejects.toBeInstanceOf(RunCancelledError);
     expect(spawn).not.toHaveBeenCalled();
     expect(remove).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Codex child environment", () => {
+  const config = { codexHome: "D:\telaegent\codex-home", codexApiKey: "" };
+
+  it("forwards operator-supplied Codex variables to the CLI", () => {
+    const environment = buildCodexChildEnvironment(config, {
+      CODEX_CA_CERTIFICATE: "/etc/corp/ca.pem",
+      CODEX_ACCESS_TOKEN: "token",
+      CODEX_SQLITE_HOME: "/var/codex/sqlite",
+      CODEX_WORKLOAD_IDENTITY_PROVIDER: "gcp://project/pool",
+    });
+    expect(environment.CODEX_CA_CERTIFICATE).toBe("/etc/corp/ca.pem");
+    expect(environment.CODEX_ACCESS_TOKEN).toBe("token");
+    expect(environment.CODEX_SQLITE_HOME).toBe("/var/codex/sqlite");
+    expect(environment.CODEX_WORKLOAD_IDENTITY_PROVIDER).toBe("gcp://project/pool");
+  });
+
+  it("keeps CODEX_HOME under Telaegent control", () => {
+    const environment = buildCodexChildEnvironment(config, {
+      CODEX_HOME: "D:\attacker\home",
+    });
+    expect(environment.CODEX_HOME).toBe("D:\telaegent\codex-home");
+  });
+
+  it("resolves the API key from configuration rather than the ambient value", () => {
+    expect(
+      buildCodexChildEnvironment({ ...config, codexApiKey: "configured" }, {
+        CODEX_API_KEY: "ambient",
+      }).CODEX_API_KEY,
+    ).toBe("configured");
+    expect(
+      buildCodexChildEnvironment(config, { CODEX_API_KEY: "ambient" }).CODEX_API_KEY,
+    ).toBeUndefined();
+  });
+
+  it("still withholds unrelated host variables", () => {
+    const environment = buildCodexChildEnvironment(config, {
+      PATH: "/usr/bin",
+      AWS_SECRET_ACCESS_KEY: "secret",
+      SUPABASE_SERVICE_ROLE_KEY: "secret",
+    });
+    expect(environment.PATH).toBe("/usr/bin");
+    expect(environment.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(environment.SUPABASE_SERVICE_ROLE_KEY).toBeUndefined();
+  });
+
+  it("preserves the existing proxy and trust-store allowlist", () => {
+    const environment = buildCodexChildEnvironment(config, {
+      HTTPS_PROXY: "http://proxy.corp:8080",
+      NODE_EXTRA_CA_CERTS: "/etc/corp/ca.pem",
+      SSL_CERT_FILE: "/etc/corp/bundle.pem",
+    });
+    expect(environment.HTTPS_PROXY).toBe("http://proxy.corp:8080");
+    expect(environment.NODE_EXTRA_CA_CERTS).toBe("/etc/corp/ca.pem");
+    expect(environment.SSL_CERT_FILE).toBe("/etc/corp/bundle.pem");
   });
 });

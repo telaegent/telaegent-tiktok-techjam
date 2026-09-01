@@ -135,4 +135,45 @@ describe("normalizeRuntimeFailure", () => {
       statusCode: 502,
     });
   });
+
+  it("classifies TLS trust failures as an unavailable runtime", () => {
+    const messages = [
+      "error sending request for url (https://chatgpt.com/backend-api/codex/responses): client error (Connect): invalid peer certificate: UnknownIssuer",
+      "invalid peer certificate: UnknownIssuer",
+      "unable to get local issuer certificate",
+      "self-signed certificate in certificate chain",
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      "CERT_HAS_EXPIRED",
+      "certificate authority is not trusted",
+      "tls handshake eof",
+    ];
+    for (const message of messages) {
+      expect(classifyProviderFailure("codex", message).code).toBe("RUNTIME_UNAVAILABLE");
+    }
+  });
+
+  it("classifies generic transport failures as an unavailable runtime", () => {
+    for (const message of ["error sending request", "connection failure", "tcp connect error"]) {
+      expect(classifyProviderFailure("codex", message).code).toBe("RUNTIME_UNAVAILABLE");
+    }
+  });
+
+  it("keeps authentication ahead of transport wording", () => {
+    const error = classifyProviderFailure(
+      "codex",
+      "error sending request: 401 unauthorized invalid api key",
+    );
+    expect(error.code).toBe("RUNTIME_AUTHENTICATION_FAILED");
+  });
+
+  it("never exposes the certificate subject through a transport failure", () => {
+    const error = classifyProviderFailure(
+      "codex",
+      "invalid peer certificate: UnknownIssuer CN=corp-proxy.internal",
+    );
+    expect(normalizeRuntimeFailure(error).message).toBe(
+      "Agent provider is temporarily unavailable",
+    );
+  });
 });
