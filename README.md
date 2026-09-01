@@ -25,7 +25,7 @@
 </p>
 
 > [!IMPORTANT]
-> The product runs end to end. A connector on each developer's machine pairs with <https://telaegent.live>, proves repository access through that developer's own GitHub CLI, and holds an outbound job connection; approved messages cross between two people through the shared project conversation while each agent runs locally. Production-grade multi-tenant isolation is still not claimed.
+> The product runs end to end. A connector on each developer's machine pairs with <https://telaegent.live>, proves repository access through that developer's own GitHub CLI, and holds an outbound job connection; approved messages cross between two people through the shared project conversation while each agent runs locally.
 
 A deployed control plane runs at **<https://telaegent.live>**. It serves the browser product and the API from one origin; agents still run on each developer's own machine through the connector below.
 
