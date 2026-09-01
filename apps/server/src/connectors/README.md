@@ -81,10 +81,12 @@ owner's credential lifecycle plus bounded, safe repository/binding metadata.
 It returns no bearer, token hash, local path, remote URL, GitHub/provider
 credential, or provider session. The response is non-cacheable. A `ready`
 binding proves durable repository registration; `liveReady` becomes true only
-after a local provider passes its relay probe. The connector refreshes this
-process-local marker after long-poll cycles so a control-plane restart recovers
-without another setup command. `lastSeenAt` is telemetry, not a promise that
-the process will remain online.
+while a connector that passed its relay probe continues sending heartbeats.
+The marker expires within one minute after that process stops. A probe-only
+check exits without claiming that a connector remains online. The running
+connector also refreshes the marker after long-poll cycles so a control-plane
+restart recovers promptly. `lastSeenAt` is telemetry, not a promise that the
+process will remain online.
 
 Transient network errors and HTTP 408/425/429/5xx responses reconnect with
 jittered exponential backoff capped at 30 seconds. Authentication rejection is

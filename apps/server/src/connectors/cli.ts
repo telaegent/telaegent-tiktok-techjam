@@ -61,6 +61,7 @@ const pairingResponseSchema = z.strictObject({
     expiresAt: z.string().datetime({ offset: true }),
   }),
 });
+const LIVE_HEARTBEAT_INTERVAL_MS = 20_000;
 
 async function main(): Promise<void> {
   const options = parseConnectorCliOptions(process.argv.slice(2));
@@ -116,121 +117,132 @@ async function main(): Promise<void> {
 
   const processLock = await acquireConnectorProcessLock(registered.connectorBindingId);
   try {
-  const config = loadConfig({
-    ...process.env,
-    TELAEGENT_IDENTITY_PROVIDER: "disabled",
-    AUTHORIZATION_PERSISTENCE: "memory",
-    CONVERSATION_PERSISTENCE: "memory",
-    ENABLE_LEGACY_LOCAL_PLAYGROUND: "0",
-    CODEX_HOME: process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"),
-  });
-  const localRunners = [new ClaudeCodeRunner(config), new CodexRunner(config)].filter(
-    (runner) => providerSelection === "auto" || runner.provider === providerSelection,
-  );
-  const providers = new RuntimeProviderRegistry(
-    localRunners,
-    new FileOutputSchemaResolver(
-      fileURLToPath(new URL("../telagent/output-schemas", import.meta.url)),
-    ),
-  );
-  const sessions = new ProviderSessionManager(
-    providers,
-    new InMemoryProviderSessionStore(),
-    async (_scope, request) => request,
-  );
-  const transport = new HttpConnectorWorkerTransport(
-    serverOrigin,
-    registered.connectorBindingId,
-    credential,
-    fetch,
-    {
-      onRetry: ({ attempt, delayMs }) => {
-        process.stderr.write(`TELAEGENT RECONNECTING (attempt ${attempt}, ${delayMs}ms)\n`);
-      },
-    },
-  );
-  const worker = new ConnectorWorker(
-    {
-      connectorBindingId: registered.connectorBindingId,
-      authenticatedUserId: principal.authenticatedUserId,
-      githubRepositoryId: registered.githubRepositoryId,
-      workspacePath,
-    },
-    sessions,
-    transport,
-    {
-      cancel: (bindingId) => providers.cancel(bindingId),
-      resources: {
-        registry: createConnectorResourceRegistry(registered.connectorBindingId),
-      },
-    },
-  );
-
-  const capabilities = await providers.capabilities();
-  const selectedProviders = providerSelection === "auto"
-    ? (["claude", "codex"] as const)
-    : ([providerSelection] as const);
-  const availableProviders = selectedProviders.filter(
-    (provider) => capabilities[provider].authenticated,
-  );
-  if (availableProviders.length === 0) {
-    throw new Error(
-      "No authenticated Claude Code or Codex CLI is available; sign in locally and retry",
+    const config = loadConfig({
+      ...process.env,
+      TELAEGENT_IDENTITY_PROVIDER: "disabled",
+      AUTHORIZATION_PERSISTENCE: "memory",
+      CONVERSATION_PERSISTENCE: "memory",
+      ENABLE_LEGACY_LOCAL_PLAYGROUND: "0",
+      CODEX_HOME: process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"),
+    });
+    const localRunners = [new ClaudeCodeRunner(config), new CodexRunner(config)].filter(
+      (runner) => providerSelection === "auto" || runner.provider === providerSelection,
     );
-  }
-
-  let successfulProbes = 0;
-  for (const provider of availableProviders) {
-    // Pair one bounded cloud probe with one connector poll. The provider is a
-    // local capability selected by this authenticated connector, never an
-    // executable or command supplied by the browser or a collaborator.
-    const firstJob = worker.runOnce();
-    const probe = connectorRequest(
+    const providers = new RuntimeProviderRegistry(
+      localRunners,
+      new FileOutputSchemaResolver(
+        fileURLToPath(new URL("../telagent/output-schemas", import.meta.url)),
+      ),
+    );
+    const sessions = new ProviderSessionManager(
+      providers,
+      new InMemoryProviderSessionStore(),
+      async (_scope, request) => request,
+    );
+    const transport = new HttpConnectorWorkerTransport(
       serverOrigin,
+      registered.connectorBindingId,
       credential,
-      `/api/connectors/bindings/${registered.connectorBindingId}/probe`,
-      { provider },
+      fetch,
+      {
+        onRetry: ({ attempt, delayMs }) => {
+          process.stderr.write(`TELAEGENT RECONNECTING (attempt ${attempt}, ${delayMs}ms)\n`);
+        },
+      },
     );
-    try {
-      const [probeResponse] = await Promise.all([probe, firstJob]);
-      const probeResult = probeResponseSchema.parse(await probeResponse.json());
-      if (probeResult.provider !== provider) {
-        throw new Error("Connector provider probe returned the wrong provider");
-      }
-      successfulProbes += 1;
-      process.stdout.write(
-        `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
+    const worker = new ConnectorWorker(
+      {
+        connectorBindingId: registered.connectorBindingId,
+        authenticatedUserId: principal.authenticatedUserId,
+        githubRepositoryId: registered.githubRepositoryId,
+        workspacePath,
+      },
+      sessions,
+      transport,
+      {
+        cancel: (bindingId) => providers.cancel(bindingId),
+        resources: {
+          registry: createConnectorResourceRegistry(registered.connectorBindingId),
+        },
+      },
+    );
+
+    const capabilities = await providers.capabilities();
+    const selectedProviders = providerSelection === "auto"
+      ? (["claude", "codex"] as const)
+      : ([providerSelection] as const);
+    const availableProviders = selectedProviders.filter(
+      (provider) => capabilities[provider].authenticated,
+    );
+    if (availableProviders.length === 0) {
+      throw new Error(
+        "No authenticated Claude Code or Codex CLI is available; sign in locally and retry",
       );
-    } catch {
-      process.stderr.write(`TELAEGENT PROVIDER UNAVAILABLE (${provider})\n`);
     }
-  }
-  if (successfulProbes === 0) {
-    throw new Error("No local coding provider passed the Telaegent live probe");
-  }
 
-  await connectorRequest(
-    serverOrigin,
-    credential,
-    `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
-    {},
-  );
-
-  if (probeOnly) {
-    process.stdout.write("TELAEGENT LIVE READINESS VERIFIED\n");
-    return;
-  }
-
-    for (;;) {
-      await worker.runOnce();
-      // Re-announce after every long-poll cycle. This restores the process-local
-      // live marker automatically if the demo control plane restarts.
-      await connectorRequest(
+    let successfulProbes = 0;
+    for (const provider of availableProviders) {
+      // Pair one bounded cloud probe with one connector poll. The provider is a
+      // local capability selected by this authenticated connector, never an
+      // executable or command supplied by the browser or a collaborator.
+      const firstJob = worker.runOnce();
+      const probe = connectorRequest(
         serverOrigin,
         credential,
-        `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
-        {},
+        `/api/connectors/bindings/${registered.connectorBindingId}/probe`,
+        { provider },
       );
+      try {
+        const [probeResponse] = await Promise.all([probe, firstJob]);
+        const probeResult = probeResponseSchema.parse(await probeResponse.json());
+        if (probeResult.provider !== provider) {
+          throw new Error("Connector provider probe returned the wrong provider");
+        }
+        successfulProbes += 1;
+        process.stdout.write(
+          `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
+        );
+      } catch {
+        process.stderr.write(`TELAEGENT PROVIDER UNAVAILABLE (${provider})\n`);
+      }
+    }
+    if (successfulProbes === 0) {
+      throw new Error("No local coding provider passed the Telaegent live probe");
+    }
+
+    if (probeOnly) {
+      process.stdout.write("TELAEGENT LIVE READINESS VERIFIED\n");
+      return;
+    }
+
+    const announceReady = () => connectorRequest(
+      serverOrigin,
+      credential,
+      `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
+      {},
+    );
+    await announceReady();
+    let heartbeatInFlight = false;
+    const heartbeat = setInterval(() => {
+      if (heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      void announceReady()
+        .catch(() => undefined)
+        .finally(() => {
+          heartbeatInFlight = false;
+        });
+    }, LIVE_HEARTBEAT_INTERVAL_MS);
+    heartbeat.unref();
+
+    try {
+      for (;;) {
+        await worker.runOnce();
+        // Also re-announce after every long-poll cycle so a restarted control
+        // plane does not wait for the next heartbeat.
+        await announceReady();
+      }
+    } finally {
+      clearInterval(heartbeat);
     }
   } finally {
     await processLock.release();

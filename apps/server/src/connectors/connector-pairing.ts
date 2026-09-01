@@ -35,18 +35,22 @@ export type ConnectorPairing = {
 export class ConnectorPairingService {
   private readonly pending = new Map<string, PendingPairing>();
   private readonly pendingByUser = new Map<string, string>();
-  private readonly liveBindings = new Set<string>();
+  private readonly liveBindings = new Map<string, number>();
 
   constructor(
     private readonly ttlMs = 5 * 60_000,
     private readonly maximumPending = 10_000,
     private readonly now: () => Date = () => new Date(),
+    private readonly liveTtlMs = 60_000,
   ) {
     if (!Number.isInteger(ttlMs) || ttlMs < 30_000 || ttlMs > 15 * 60_000) {
       throw new Error("Connector pairing TTL is invalid");
     }
     if (!Number.isInteger(maximumPending) || maximumPending < 1) {
       throw new Error("Connector pairing capacity is invalid");
+    }
+    if (!Number.isInteger(liveTtlMs) || liveTtlMs < 30_000 || liveTtlMs > 5 * 60_000) {
+      throw new Error("Connector live TTL is invalid");
     }
   }
 
@@ -113,17 +117,18 @@ export class ConnectorPairingService {
     const bindingId = z.string().uuid().parse(connectorBindingId);
     const key = liveKey(userId, instanceId, bindingId);
     this.liveBindings.delete(key);
-    this.liveBindings.add(key);
+    this.liveBindings.set(key, this.now().getTime() + this.liveTtlMs);
     while (this.liveBindings.size > this.maximumPending) {
-      const oldest = this.liveBindings.values().next().value as string | undefined;
+      const oldest = this.liveBindings.keys().next().value;
       if (!oldest) break;
       this.liveBindings.delete(oldest);
     }
   }
 
   isLive(authenticatedUserId: string, connectorInstanceId: string): boolean {
+    this.pruneLive();
     const prefix = `${userIdSchema.parse(authenticatedUserId)}:${connectorInstanceIdSchema.parse(connectorInstanceId)}:`;
-    for (const key of this.liveBindings) {
+    for (const key of this.liveBindings.keys()) {
       if (key.startsWith(prefix)) return true;
     }
     return false;
@@ -131,7 +136,7 @@ export class ConnectorPairingService {
 
   clearLive(authenticatedUserId: string, connectorInstanceId: string): void {
     const prefix = `${userIdSchema.parse(authenticatedUserId)}:${connectorInstanceIdSchema.parse(connectorInstanceId)}:`;
-    for (const key of this.liveBindings) {
+    for (const key of this.liveBindings.keys()) {
       if (key.startsWith(prefix)) this.liveBindings.delete(key);
     }
   }
@@ -140,6 +145,13 @@ export class ConnectorPairingService {
     const nowMs = this.now().getTime();
     for (const [key, pairing] of this.pending) {
       if (pairing.expiresAtMs <= nowMs) this.deletePending(key);
+    }
+  }
+
+  private pruneLive(): void {
+    const nowMs = this.now().getTime();
+    for (const [key, expiresAtMs] of this.liveBindings) {
+      if (expiresAtMs <= nowMs) this.liveBindings.delete(key);
     }
   }
 

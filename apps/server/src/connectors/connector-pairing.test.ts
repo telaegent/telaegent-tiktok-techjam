@@ -67,4 +67,44 @@ describe("connector one-command pairing", () => {
     );
     expect(service.isLive(userId, currentPairing.connectorInstanceId)).toBe(true);
   });
+
+  it("stops reporting an installation as live when its heartbeat expires", () => {
+    let nowMs = Date.parse("2026-09-01T00:00:00.000Z");
+    const service = new ConnectorPairingService(
+      30_000,
+      10,
+      () => new Date(nowMs),
+      60_000,
+    );
+    const pairing = service.issue(userId);
+    service.markLive(
+      userId,
+      pairing.connectorInstanceId,
+      "20000000-0000-4000-8000-000000000001",
+    );
+
+    nowMs += 59_999;
+    expect(service.isLive(userId, pairing.connectorInstanceId)).toBe(true);
+    nowMs += 1;
+    expect(service.isLive(userId, pairing.connectorInstanceId)).toBe(false);
+  });
+
+  it("evicts the oldest live marker at bounded capacity", () => {
+    const service = new ConnectorPairingService(30_000, 1);
+    const firstInstance = `connector_${"a".repeat(32)}`;
+    const secondInstance = `connector_${"b".repeat(32)}`;
+    service.markLive(
+      userId,
+      firstInstance,
+      "20000000-0000-4000-8000-000000000001",
+    );
+    service.markLive(
+      secondUserId,
+      secondInstance,
+      "20000000-0000-4000-8000-000000000002",
+    );
+
+    expect(service.isLive(userId, firstInstance)).toBe(false);
+    expect(service.isLive(secondUserId, secondInstance)).toBe(true);
+  });
 });
