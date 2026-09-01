@@ -30,6 +30,7 @@ import {
   type ResourceExchangeRequest,
   type ResourceExchangeResponse,
 } from "./resource-exchange.js";
+import { projectRelativeDisplayLabel } from "./workspace-label.js";
 
 /**
  * The bound the connector result route enforces. Applied here too so an
@@ -176,8 +177,7 @@ export class ConnectorWorker {
       // Raw provider text is private working state. The cloud receives only
       // structural status; the bounded final result travels through `result`.
       (event) => {
-        if (event.type === "text_delta") return;
-        void this.transport.progress(job.jobId, event).catch(() => undefined);
+        this.forwardProgress(job.jobId, event);
       },
       undefined,
       undefined,
@@ -371,6 +371,33 @@ export class ConnectorWorker {
       correlationId: job.correlationId,
       maxTurns: job.maxTurns,
     };
+  }
+
+  /**
+   * The single point where provider progress crosses into cloud custody.
+   *
+   * Raw provider text never crosses. An activity target does, but only after
+   * the same containment check that governs resource delivery reduces it to a
+   * workspace-relative label; anything resolving outside the workspace loses
+   * its target and travels as the bare activity it is today.
+   */
+  private forwardProgress(jobId: string, event: RuntimeProgressEvent): void {
+    if (event.type === "text_delta") return;
+    const contained = this.containActivityTarget(event);
+    void this.transport.progress(jobId, contained).catch(() => undefined);
+  }
+
+  private containActivityTarget(event: RuntimeProgressEvent): RuntimeProgressEvent {
+    if (event.type !== "activity_started" && event.type !== "activity_completed") {
+      return event;
+    }
+    if (event.target === undefined) return event;
+    const label = projectRelativeDisplayLabel(this.binding.workspacePath, event.target);
+    if (label === null) {
+      const { target: _dropped, ...rest } = event;
+      return rest;
+    }
+    return { ...event, target: label };
   }
 }
 
