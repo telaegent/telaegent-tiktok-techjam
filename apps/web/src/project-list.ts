@@ -8,28 +8,7 @@ export type ProjectAvailability =
 
 export type ProjectAction = "Open" | "Connect" | null;
 
-// Mirrors the backend private-runtime authorization policy. Keep these values
-// aligned with repository-proof/lifetime.ts and private-runtime-authorization.ts.
-export const REPOSITORY_PROOF_MAX_AGE_MS = 15 * 60 * 1_000;
-export const REPOSITORY_PROOF_CLOCK_SKEW_MS = 60_000;
-
-export function repositoryProofIsFresh(
-  verifiedAt: string,
-  nowMs = Date.now(),
-): boolean {
-  const verifiedAtMs = Date.parse(verifiedAt);
-  return (
-    Number.isFinite(verifiedAtMs) &&
-    Number.isFinite(nowMs) &&
-    verifiedAtMs <= nowMs + REPOSITORY_PROOF_CLOCK_SKEW_MS &&
-    nowMs - verifiedAtMs <= REPOSITORY_PROOF_MAX_AGE_MS
-  );
-}
-
-export function projectAvailability(
-  project: ProjectSummary,
-  nowMs = Date.now(),
-): ProjectAvailability {
+export function projectAvailability(project: ProjectSummary): ProjectAvailability {
   if (
     project.projectStatus !== "active" ||
     project.membershipStatus !== "active"
@@ -42,7 +21,7 @@ export function projectAvailability(
   if (project.githubConnectionStatus !== "connected") {
     return "Needs verification";
   }
-  if (!repositoryProofIsFresh(project.repositoryVerifiedAt, nowMs)) {
+  if (!project.repositoryAccessFresh) {
     return "Needs verification";
   }
   if (project.binding.status !== "ready" || !project.connectorLive) {
@@ -51,11 +30,8 @@ export function projectAvailability(
   return "Open";
 }
 
-export function projectAction(
-  project: ProjectSummary,
-  nowMs = Date.now(),
-): ProjectAction {
-  if (projectAvailability(project, nowMs) === "Open") return "Open";
+export function projectAction(project: ProjectSummary): ProjectAction {
+  if (projectAvailability(project) === "Open") return "Open";
   if (
     project.projectStatus !== "active" ||
     project.membershipStatus === "revoked" ||
@@ -68,17 +44,14 @@ export function projectAction(
   return "Connect";
 }
 
-export function partitionProjects(
-  projects: readonly ProjectSummary[],
-  nowMs = Date.now(),
-): {
+export function partitionProjects(projects: readonly ProjectSummary[]): {
   active: ProjectSummary[];
   historical: ProjectSummary[];
 } {
   const active: ProjectSummary[] = [];
   const historical: ProjectSummary[] = [];
   for (const project of projects) {
-    (projectAvailability(project, nowMs) === "Open" ? active : historical).push(
+    (projectAvailability(project) === "Open" ? active : historical).push(
       project,
     );
   }
