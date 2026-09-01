@@ -81,6 +81,8 @@ describe("createConversationApi", () => {
       expect(response.statusCode).toBe(403);
       expect(response.json()).toEqual({
         error: "Private runtime is not authorized",
+        code: "PRIVATE_RUNTIME_FORBIDDEN",
+        retryable: false,
       });
     } finally {
       await instance.close();

@@ -45,7 +45,7 @@ legacy shared API token is not connector authentication.
 4. Run the cross-platform command rendered by the browser:
 
    ```text
-   npx --yes @telaegent/connector@0.1.10 connect . --url ORIGIN --pair ONE_TIME_CODE
+   npx --yes @telaegent/connector@0.1.11 connect . --url ORIGIN --pair ONE_TIME_CODE
    ```
 
 The npm artifact is built from the canonical compiled connector with
@@ -86,7 +86,11 @@ The marker expires within one minute after that process stops. A probe-only
 check exits without claiming that a connector remains online. The running
 connector also refreshes the marker after long-poll cycles so a control-plane
 restart recovers promptly. `lastSeenAt` is telemetry, not a promise that the
-process will remain online.
+process will remain online. Repository authorization is a separate 15-minute
+lease: the connector re-runs the allowlisted local `gh`/`git` proof every five
+minutes and immediately after transport recovery. Each local command and cloud
+request is bounded; a transient refresh failure retries after 15 seconds
+without pausing authenticated job polling.
 
 Transient network errors and HTTP 408/425/429/5xx responses reconnect with
 jittered exponential backoff capped at 30 seconds. Authentication rejection is

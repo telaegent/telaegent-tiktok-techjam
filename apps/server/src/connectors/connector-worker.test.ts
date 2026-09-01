@@ -689,6 +689,65 @@ describe("HttpConnectorWorkerTransport", () => {
     expect(fetchImplementation).toHaveBeenCalledTimes(3);
   });
 
+  it("abandons a stalled network attempt and recovers without a terminal restart", async () => {
+    const recoveries: number[] = [];
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async (_input, init) => {
+        return await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      })
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+      {
+        initialDelayMs: 10,
+        maximumDelayMs: 10,
+        requestTimeoutMs: 10,
+        jitterRatio: 0,
+        sleep: async () => undefined,
+        onRecovered: ({ attempts }) => recoveries.push(attempts),
+      },
+    );
+
+    await expect(transport.poll()).resolves.toBeNull();
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    expect(recoveries).toEqual([1]);
+  });
+
+  it("does not let a diagnostic callback break reconnection", async () => {
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+      {
+        initialDelayMs: 10,
+        maximumDelayMs: 10,
+        jitterRatio: 0,
+        sleep: async () => undefined,
+        onRetry: () => { throw new Error("broken terminal"); },
+        onRecovered: () => { throw new Error("broken terminal"); },
+      },
+    );
+
+    await expect(transport.poll()).resolves.toBeNull();
+  });
+
   it("bounds retry jitter even if the injected random source is invalid", () => {
     expect(retryDelayMs(3, 100, 250, 0.2, () => -10)).toBe(200);
     expect(retryDelayMs(3, 100, 250, 0.2, () => 10)).toBe(250);

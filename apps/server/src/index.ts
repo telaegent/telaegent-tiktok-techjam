@@ -31,11 +31,13 @@ import { RepositoryProofService } from "./repository-proof/service.js";
 import { SupabaseRepositoryProofRepository } from "./repository-proof/supabase-repository.js";
 import { createConfiguredAuthorizationRepository } from "./authorization/authorization-repository-factory.js";
 import { PrivateRuntimeAuthorizationService } from "./authorization/private-runtime-authorization.js";
+import { REPOSITORY_ACCESS_MAX_AGE_MS } from "./repository-proof/lifetime.js";
 import { createConfiguredConversationRepository } from "./conversations/conversation-repository-factory.js";
 import type { ConversationApiFactoryOptions } from "./conversations/conversation-api-factory.js";
 import { AuthorizedProtocolDraftRuntime } from "./conversations/authorized-runtime-adapter.js";
 import { SupabaseProtocolContextLoader } from "./conversations/supabase-protocol-context-loader.js";
 import { createAuthorizedProtocolTurnRuntime } from "./telagent/protocol/authorized-turn-service.js";
+import { connectorJobTimeoutMs } from "./connectors/connector-turn-executor.js";
 import type { ProjectRouteDependencies } from "./projects/routes.js";
 import { ProjectService } from "./projects/service.js";
 import { SupabaseProjectRepository } from "./projects/supabase-repository.js";
@@ -128,7 +130,13 @@ if (config.telaegentIdentityProvider === "github") {
     credentialService,
   );
   const relay = new LongPollConnectorJobRelay({
-    jobTimeoutMs: Math.max(config.claudeTimeoutMs, config.codexTimeoutMs),
+    // A connector job now contains a bounded research pass followed by the
+    // ordinary provider turn. The cloud lease must cover both plus enough time
+    // to return the bounded result; otherwise a healthy tool-using connector is
+    // declared lost while it is still working locally.
+    jobTimeoutMs: connectorJobTimeoutMs(
+      Math.max(config.claudeTimeoutMs, config.codexTimeoutMs),
+    ),
   });
   connectorTransportApi = {
     relay,
@@ -190,7 +198,10 @@ if (config.telaegentIdentityProvider === "github") {
     const authorizationRepository = createConfiguredAuthorizationRepository(config);
     const authorizer = new PrivateRuntimeAuthorizationService(
       authorizationRepository,
-      { repositoryAccessMaxAgeMs: 900_000, repositoryReadTimeoutMs: 5_000 },
+      {
+        repositoryAccessMaxAgeMs: REPOSITORY_ACCESS_MAX_AGE_MS,
+        repositoryReadTimeoutMs: 5_000,
+      },
     );
     const conversationRepository = createConfiguredConversationRepository(config);
     const contextLoader = new SupabaseProtocolContextLoader(

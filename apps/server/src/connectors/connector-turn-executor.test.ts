@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ManagedAgentTurnRequest } from "../provider-session-manager.js";
-import { ConnectorTurnExecutor, type ConnectorJobRelay } from "./connector-turn-executor.js";
+import {
+  ConnectorTurnExecutor,
+  connectorJobTimeoutMs,
+  type ConnectorJobRelay,
+} from "./connector-turn-executor.js";
 
 const scope = {
   userId: "user-1",
@@ -26,6 +30,11 @@ function request(): ManagedAgentTurnRequest {
 }
 
 describe("ConnectorTurnExecutor", () => {
+  it("gives the cloud lease enough time for research, drafting, and delivery", () => {
+    expect(connectorJobTimeoutMs(300_000)).toBe(420_000);
+    expect(() => connectorJobTimeoutMs(999)).toThrow("timeout is invalid");
+  });
+
   it("dispatches a path-free job and keeps provider sessions local", async () => {
     const dispatch = vi.fn<ConnectorJobRelay["dispatch"]>(async () => ({
       provider: "codex",

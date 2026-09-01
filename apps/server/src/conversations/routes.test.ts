@@ -722,8 +722,49 @@ describe("canonical conversation API", () => {
 
     const denied = await createDraft(app);
     expect(denied.statusCode).toBe(403);
-    expect(denied.json()).toEqual({ error: "Private runtime is not authorized" });
+    expect(denied.json()).toEqual({
+      error: "Private runtime is not authorized",
+      code: "PRIVATE_RUNTIME_FORBIDDEN",
+      retryable: false,
+    });
     expect(denied.body).not.toContain("project_connection_unavailable");
+    await app.close();
+  });
+
+  it("makes a stale repository proof safely retryable", async () => {
+    const test = harness();
+    const deniedService = new ConversationService(
+      new InMemoryConversationRepository(),
+      {
+        async authorize() {
+          throw new PrivateRuntimeAuthorizationError(
+            "PRIVATE_RUNTIME_FORBIDDEN",
+            "repository_access_stale",
+          );
+        },
+      },
+      {
+        async start() {
+          throw new Error("must not run");
+        },
+        async cancel() {
+          return false;
+        },
+      },
+    );
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: deniedService,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+
+    const denied = await createDraft(app);
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toEqual({
+      error: "Private runtime is not authorized",
+      code: "PRIVATE_RUNTIME_FORBIDDEN",
+      retryable: true,
+    });
+    expect(denied.body).not.toContain("repository_access_stale");
     await app.close();
   });
 });
