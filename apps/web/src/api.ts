@@ -99,9 +99,9 @@ export type TelaegentSession =
   | { enabled: true; authenticated: false }
   | { enabled: true; authenticated: true; user: TelaegentWebUser };
 
-/** A one-time-display local connector credential. Never persist this in browser storage. */
-export type ConnectorCredential = {
-  credential: string;
+/** A short-lived, single-use bootstrap code. The durable bearer never reaches the browser. */
+export type ConnectorPairing = {
+  pairingCode: string;
   connectorInstanceId: string;
   expiresAt: string;
 };
@@ -109,6 +109,8 @@ export type ConnectorCredential = {
 /** Owner-scoped, non-secret state used to verify connector onboarding. */
 export type ConnectorSetupStatus = {
   connectorInstanceId: string;
+  /** True only after a local provider has passed its live probe. */
+  liveReady: boolean;
   credential: {
     status: "active" | "expired" | "revoked";
     expiresAt: string;
@@ -297,10 +299,9 @@ export const api = {
   auth: () => request<{ required: boolean; provider: "github" | "disabled" }>("/api/auth"),
   session: () => request<TelaegentSession>("/api/auth/session"),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
-  issueConnectorCredential: (connectorInstanceId: string) =>
-    request<{ connector: ConnectorCredential }>("/api/connectors/credentials", {
+  createConnectorPairing: () =>
+    request<{ pairing: ConnectorPairing }>("/api/connectors/pairings", {
       method: "POST",
-      body: JSON.stringify({ connectorInstanceId }),
     }),
   connectorSetupStatus: (connectorInstanceId: string) =>
     request<{ connector: ConnectorSetupStatus }>(

@@ -174,6 +174,7 @@ describe("connector credentials", () => {
         },
         bindings: [],
         bindingsTruncated: false,
+        liveReady: false,
       },
     });
     expect(repository.lastStatusInput).toEqual(principal);

@@ -10,6 +10,7 @@ export interface ConnectorCliOptions {
   serverOrigin?: string;
   connectorInstanceId?: string;
   credential?: string;
+  pairingCode?: string;
 }
 
 const providerSchema = z.enum(["auto", "codex", "claude"]);
@@ -25,6 +26,7 @@ export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliO
   let serverOrigin: string | undefined;
   let connectorInstanceId: string | undefined;
   let credential: string | undefined;
+  let pairingCode: string | undefined;
   for (let index = 1; index < argv.length; index += 1) {
     const value = argv[index]!;
     if (value === "--provider") {
@@ -49,6 +51,11 @@ export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliO
       index += 1;
       continue;
     }
+    if (value === "--pair") {
+      pairingCode = requiredOptionValue(argv, index);
+      index += 1;
+      continue;
+    }
     if (value === "--probe-only") {
       probeOnly = true;
       continue;
@@ -57,6 +64,9 @@ export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliO
     workspaceCandidate = value;
     workspaceSeen = true;
   }
+  if (pairingCode !== undefined && (connectorInstanceId || credential)) {
+    throw usageError();
+  }
   return {
     workspaceCandidate,
     provider,
@@ -64,6 +74,7 @@ export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliO
     ...(serverOrigin === undefined ? {} : { serverOrigin }),
     ...(connectorInstanceId === undefined ? {} : { connectorInstanceId }),
     ...(credential === undefined ? {} : { credential }),
+    ...(pairingCode === undefined ? {} : { pairingCode }),
   };
 }
 
@@ -75,6 +86,6 @@ function requiredOptionValue(argv: readonly string[], index: number): string {
 
 function usageError(): Error {
   return new Error(
-    "Usage: telaegent connect [workspace] [--url origin] [--instance-id id] [--credential bearer] [--provider auto|codex|claude] [--probe-only]",
+    "Usage: telaegent connect [workspace] [--url origin] [--pair code | --instance-id id --credential bearer] [--provider auto|codex|claude] [--probe-only]",
   );
 }

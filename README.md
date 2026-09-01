@@ -95,8 +95,9 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 
 The cloud host runs only the control plane and connector relay. A publishable
 connector package, outbound transport, local binding enforcement, and provider
-probes exist in the source tree; registry publication, secure pairing/update,
-and the two-machine live proof remain release gates.
+probes exist in the source tree. Secure one-time pairing is implemented;
+registry publication, secure update delivery, and the two-machine live proof
+remain release gates.
 
 ## What Telaegent remembers - and what it does not
 
@@ -164,8 +165,8 @@ or Codex login already present on that machine, and makes only outbound
 connections. The setup creates safe local defaults, installs locked
 dependencies, builds the application, and reports every missing external
 static prerequisite. It never hides provider, GitHub, or Supabase sign-in, and
-never mistakes installed/configured for live-ready. Use `npm run doctor:live`
-for the real connector-mediated repository/provider/relay probe.
+never mistakes installed/configured for live-ready. The browser-generated
+one-command connector performs the real repository/provider/relay probe.
 
 See [the cross-platform setup guide](docs/setup.md) for full two-user connector
 setup, exact environment values, diagnostics, and the boundary between

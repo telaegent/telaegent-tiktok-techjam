@@ -219,6 +219,46 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
 
   if (url === "/api/auth/session" && method === "GET") return copy(session);
   if (url === "/api/auth/logout" && method === "POST") return {};
+  if (url === "/api/connectors/pairings" && method === "POST") {
+    return {
+      pairing: {
+        pairingCode: "P".repeat(43),
+        connectorInstanceId: "preview_connector_instance_0001",
+        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      },
+    };
+  }
+  if (url.match(/^\/api\/connectors\/installations\/[^/]+\/status$/) && method === "GET") {
+    return {
+      connector: {
+        connectorInstanceId: "preview_connector_instance_0001",
+        credential: {
+          status: "active",
+          expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+          lastSeenAt: new Date().toISOString(),
+        },
+        bindings: [{
+          connectorBindingId: project.binding.connectorBindingId,
+          projectId: project.projectId,
+          githubRepositoryId: project.githubRepositoryId,
+          repositoryFullName: project.repositoryFullName,
+          visibility: project.visibility,
+          defaultBranch: project.defaultBranch,
+          currentBranch: project.binding.currentBranch,
+          commitSha: project.binding.commitSha,
+          repositoryPermission: project.binding.repositoryPermission,
+          repositoryAccessStatus: "verified",
+          membershipStatus: "active",
+          bindingStatus: "ready",
+          verifiedAt: project.binding.lastVerifiedAt,
+          bindingLastSeenAt: project.binding.lastSeenAt,
+          unavailableReason: null,
+        }],
+        bindingsTruncated: false,
+        liveReady: true,
+      },
+    };
+  }
   if (url.startsWith("/api/projects?") && method === "GET") {
     return { projects: [copy(project)], nextCursor: null };
   }

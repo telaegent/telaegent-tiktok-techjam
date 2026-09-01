@@ -10,6 +10,7 @@ const packageJson = JSON.parse(
   await readFile(path.join(packageRoot, "package.json"), "utf8"),
 );
 const binPath = path.join(packageRoot, packageJson.bin.telaegent);
+const webCommandPath = path.resolve(packageRoot, "../../apps/web/src/connector-command.ts");
 
 test("the package exposes an executable Telaegent connector", async () => {
   const contents = await readFile(binPath, "utf8");
@@ -25,7 +26,7 @@ test("the package exposes an executable Telaegent connector", async () => {
   assert.match(result.stderr, /Usage: telaegent connect/);
 });
 
-test("the packaged CLI accepts the current repository and command-line connection settings", async () => {
+test("the packaged CLI accepts a one-time pairing code without a connector bearer", async () => {
   const { parseConnectorCliOptions } = await import(
     "../dist/connectors/connector-cli-options.js"
   );
@@ -35,18 +36,23 @@ test("the packaged CLI accepts the current repository and command-line connectio
       ".",
       "--url",
       "https://telaegent.live",
-      "--instance-id",
-      "connector-instance-id",
-      "--credential",
-      "connector-credential",
+      "--pair",
+      "pairing-code",
     ]),
     {
       workspaceCandidate: ".",
       provider: "auto",
       probeOnly: false,
       serverOrigin: "https://telaegent.live",
-      connectorInstanceId: "connector-instance-id",
-      credential: "connector-credential",
+      pairingCode: "pairing-code",
     },
+  );
+});
+
+test("the website command pins the exact package release", async () => {
+  const source = await readFile(webCommandPath, "utf8");
+  assert.match(
+    source,
+    new RegExp(`${packageJson.name.replace("/", "\\/")}@${packageJson.version.replaceAll(".", "\\.")}`),
   );
 });

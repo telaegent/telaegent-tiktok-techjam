@@ -8,15 +8,16 @@ an outbound connection to the Telaegent control plane.
 From the repository you want to connect:
 
 ```bash
-npx @telaegent/connector connect . \
+npx --yes @telaegent/connector@0.1.0 connect . \
   --url https://telaegent.live \
-  --instance-id CONNECTOR_INSTANCE_ID \
-  --credential CONNECTOR_CREDENTIAL
+  --pair ONE_TIME_PAIRING_CODE
 ```
 
-The Telaegent website generates the installation ID and credential. The
-repository checkout, its local path, GitHub/provider credentials, and provider
-sessions remain on this machine.
+The Telaegent website generates a short-lived, single-use pairing code. The
+connector exchanges it directly for its connector credential, so the durable
+bearer never appears in the browser, clipboard, shell history, or process
+arguments. The repository checkout, its local path, GitHub/provider
+credentials, and provider sessions remain on this machine.
 
 Requirements:
 

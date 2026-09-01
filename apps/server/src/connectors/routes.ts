@@ -6,6 +6,7 @@ import type { RuntimeProgressEvent } from "../runtime-contract.js";
 import type { AuthenticatedUserResolver } from "../conversations/routes.js";
 import { setPrivateNoStore } from "../http-cache.js";
 import type { ConnectorCredentialService } from "./connector-credentials.js";
+import type { ConnectorPairingService } from "./connector-pairing.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
 import {
@@ -24,6 +25,9 @@ const credentialBodySchema = z.strictObject({
   connectorInstanceId: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/),
 });
 const credentialParamsSchema = credentialBodySchema;
+const pairingExchangeSchema = z.strictObject({
+  pairingCode: z.string().length(43).regex(/^[A-Za-z0-9_-]+$/),
+});
 const bindingParamsSchema = z.strictObject({ connectorBindingId: bindingIdSchema });
 const relativeChangedPath = z
   .string()
@@ -109,6 +113,7 @@ export interface ConnectorTransportRouteDependencies {
   relay: LongPollConnectorJobRelay;
   resolveConnectorPrincipal: ConnectorPrincipalResolver;
   credentials?: ConnectorCredentialService | undefined;
+  pairings?: ConnectorPairingService | undefined;
   authenticatedUserId?: AuthenticatedUserResolver | undefined;
 }
 
@@ -120,8 +125,11 @@ export const connectorTransportRoutes = new Set([
   "/api/connectors/jobs/:jobId/resources",
   "/api/connectors/credentials",
   "/api/connectors/credentials/:connectorInstanceId",
+  "/api/connectors/pairings",
+  "/api/connectors/pairings/exchange",
   "/api/connectors/installations/:connectorInstanceId/status",
   "/api/connectors/bindings/:connectorBindingId/probe",
+  "/api/connectors/bindings/:connectorBindingId/ready",
   "/api/connectors/session",
 ]);
 
@@ -137,6 +145,32 @@ export function registerConnectorTransportRoutes(
   });
 
   if (dependencies.credentials && dependencies.authenticatedUserId) {
+    if (dependencies.pairings) {
+      app.post("/api/connectors/pairings", async (request, reply) => {
+        setPrivateNoStore(reply);
+        const authenticatedUserId = await dependencies.authenticatedUserId!(request);
+        return reply.code(201).send({
+          pairing: dependencies.pairings!.issue(authenticatedUserId),
+        });
+      });
+
+      app.post(
+        "/api/connectors/pairings/exchange",
+        async (request, reply) => {
+          setPrivateNoStore(reply);
+          const { pairingCode } = pairingExchangeSchema.parse(request.body);
+          const pairing = dependencies.pairings!.consume(pairingCode);
+          await dependencies.relay.unregisterPrincipal(pairing);
+          return reply.code(201).send({
+            connector: await dependencies.credentials!.issue(
+              pairing.authenticatedUserId,
+              pairing.connectorInstanceId,
+            ),
+          });
+        },
+      );
+    }
+
     app.post("/api/connectors/credentials", async (request, reply) => {
       setPrivateNoStore(reply);
       const authenticatedUserId = await dependencies.authenticatedUserId!(request);
@@ -159,11 +193,18 @@ export function registerConnectorTransportRoutes(
         setPrivateNoStore(reply);
         const authenticatedUserId = await dependencies.authenticatedUserId!(request);
         const params = credentialParamsSchema.parse(request.params);
-        return reply.send({
-          connector: await dependencies.credentials!.setupStatus(
+        const connector = await dependencies.credentials!.setupStatus(
             authenticatedUserId,
             params.connectorInstanceId,
-          ),
+          );
+        return reply.send({
+          connector: {
+            ...connector,
+            liveReady: dependencies.pairings?.isLive(
+              authenticatedUserId,
+              params.connectorInstanceId,
+            ) ?? false,
+          },
         });
       },
     );
@@ -181,6 +222,10 @@ export function registerConnectorTransportRoutes(
           authenticatedUserId,
           connectorInstanceId: params.connectorInstanceId,
         });
+        dependencies.pairings?.clearLive(
+          authenticatedUserId,
+          params.connectorInstanceId,
+        );
         return reply.code(204).send();
       },
     );
@@ -231,6 +276,22 @@ export function registerConnectorTransportRoutes(
         provider,
         durationMs: result.durationMs,
       });
+    },
+  );
+
+  app.post(
+    "/api/connectors/bindings/:connectorBindingId/ready",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const principal = await dependencies.resolveConnectorPrincipal(request);
+      const { connectorBindingId } = bindingParamsSchema.parse(request.params);
+      await ensureRegisteredRepository(dependencies, principal, connectorBindingId);
+      dependencies.pairings?.markLive(
+        principal.authenticatedUserId,
+        principal.connectorInstanceId,
+        connectorBindingId,
+      );
+      return reply.code(204).send();
     },
   );
 

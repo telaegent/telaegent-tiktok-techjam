@@ -52,6 +52,23 @@ describe("connector CLI options", () => {
     });
   });
 
+  it("accepts a one-time pairing code without exposing a connector bearer", () => {
+    expect(parseConnectorCliOptions([
+      "connect",
+      ".",
+      "--url",
+      "https://telaegent.live",
+      "--pair",
+      "pairing-code",
+    ])).toEqual({
+      workspaceCandidate: ".",
+      provider: "auto",
+      probeOnly: false,
+      serverOrigin: "https://telaegent.live",
+      pairingCode: "pairing-code",
+    });
+  });
+
   it.each([
     [],
     ["start"],
@@ -61,6 +78,8 @@ describe("connector CLI options", () => {
     ["connect", "--url"],
     ["connect", "--instance-id", "--probe-only"],
     ["connect", "--credential"],
+    ["connect", "--pair"],
+    ["connect", "--pair", "pair", "--credential", "bearer"],
     ["connect", "--unknown"],
   ])("fails closed for invalid arguments: %j", (argv) => {
     expect(() => parseConnectorCliOptions(argv)).toThrow();
