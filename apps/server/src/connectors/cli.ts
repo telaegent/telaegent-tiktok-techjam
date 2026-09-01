@@ -27,7 +27,10 @@ import { acquireConnectorProcessLock } from "./connector-process-lock.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
 import { refreshEstablishedReadiness } from "./connector-readiness.js";
 import { runConnectorProbePump } from "./connector-probe-pump.js";
-import { probeFailureReason } from "./connector-probe-failure.js";
+import {
+  probeFailureReason,
+  probeFailureSource,
+} from "./connector-probe-failure.js";
 import {
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
@@ -215,8 +218,14 @@ async function main(): Promise<void> {
           `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
         );
       } catch (error) {
+        // Name the side that actually failed. A stopped long poll says nothing
+        // about the provider, and reporting it as the provider's verdict sent
+        // developers to debug a CLI that had never been asked to run.
+        const label = probeFailureSource(error) === "connector"
+          ? "TELAEGENT CONNECTOR POLLING FAILED"
+          : "TELAEGENT PROVIDER UNAVAILABLE";
         process.stderr.write(
-          `TELAEGENT PROVIDER UNAVAILABLE (${provider}): ${probeFailureReason(error)}\n`,
+          `${label} (${provider}): ${probeFailureReason(error)}\n`,
         );
       }
     }

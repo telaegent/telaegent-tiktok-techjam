@@ -423,6 +423,33 @@ describe("ConnectorWorker", () => {
     expect(transport.failures).toHaveLength(0);
   });
 
+  it("keeps the turn outcome when joining the cancellation watcher fails", async () => {
+    // Cleanup is not a verdict. The watcher is deliberately aborted as this
+    // turn winds down, so its rejection used to escape the finally block and
+    // replace an already settled outcome -- surfacing to the caller as an
+    // AbortError attributed to the provider, which is how a healthy CLI came
+    // to be reported as unavailable in production.
+    let rejectRun!: (error: unknown) => void;
+    const runtime = sessions(
+      async () => await new Promise<NormalizedRunResult>((_resolve, reject) => {
+        rejectRun = reject;
+      }),
+    );
+    const transport = new FakeTransport(
+      { kind: "job", job },
+      { kind: "cancel", jobId: job.jobId },
+    );
+    const cancel = vi.fn(async () => {
+      rejectRun(new RunCancelledError());
+      throw new DOMException("This operation was aborted", "AbortError");
+    });
+    const worker = new ConnectorWorker(binding, runtime, transport, { cancel });
+
+    await expect(worker.runOnce()).resolves.toBe("cancelled");
+    expect(transport.results).toHaveLength(0);
+    expect(transport.failures).toHaveLength(0);
+  });
+
   it("serves resource requests while watching an active provider turn", async () => {
     let rejectRun!: (error: unknown) => void;
     const runtime = sessions(
