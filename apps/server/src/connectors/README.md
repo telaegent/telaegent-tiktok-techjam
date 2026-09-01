@@ -39,15 +39,19 @@ legacy shared API token is not connector authentication.
 ## Current proof workflow
 
 1. Sign in through the website.
-2. `POST /api/connectors/credentials` with a stable, random installation ID.
-   Save the returned credential locally; the backend stores only its hash. The
-   response is explicitly non-cacheable and the browser must not persist it.
-3. Put `TELAEGENT_URL`, `TELAEGENT_CONNECTOR_INSTANCE_ID`, and
-   `TELAEGENT_CONNECTOR_CREDENTIAL` in the ignored, connector-only `connector.env`.
-   Do not put the bearer in the root `.env`, which application processes load.
-4. Run `npm.cmd run connector:connect -- connect .` from the Telaegent source
-   root in PowerShell. The script builds the connector before starting it, so
-   it does not depend on the development-time TypeScript loader.
+2. `POST /api/connectors/pairings` from the authenticated browser. It returns a
+   high-entropy, five-minute, single-use pairing code, never a connector bearer.
+3. Open a terminal in the deliberately selected repository.
+4. Run the cross-platform command rendered by the browser:
+
+   ```text
+   npx --yes @telaegent/connector@0.1.0 connect . --url ORIGIN --pair ONE_TIME_CODE
+   ```
+
+The npm artifact is built from the canonical compiled connector with
+`npm run connector:package`; it does not contain a second implementation. A
+source-checkout developer may continue to put the three values in the ignored
+`connector.env` and run `npm run connector:connect -- connect .`.
 
 Use `--provider codex` or `--provider claude` to allow only one locally chosen
 provider for this connector process. The default, `--provider auto`, allows all
@@ -57,13 +61,18 @@ Add `--probe-only` to exercise the real repository/provider/relay path and exit
 after `TELAEGENT LIVE READINESS VERIFIED`; unlike the static `npm run doctor`,
 this may spend a provider call.
 
-The connector canonicalizes the Git root, collects an allowlisted `gh`/`git`
-repository proof, receives an opaque binding, detects locally authenticated
-Claude Code and Codex CLIs, and runs one fixed read-only relay probe for each
-available provider. Claude-only, Codex-only, and dual-provider installations
-are valid. It prints `TELAEGENT IS CONNECTED` only after a normalized result
-returns through the relay. Local paths, GitHub/provider credentials, raw CLI
-output, and provider session IDs remain local.
+The connector requires the selected directory to be the canonical Git root;
+it never silently climbs from a misleading nested folder into an ancestor
+checkout. It collects an allowlisted `gh`/`git` repository proof and prints the
+canonical local root plus exact GitHub `owner/name`. Only an explicit `y`
+continues, and pairing exchange happens after that confirmation so rejection
+does not consume the single-use code. It then receives an opaque binding,
+detects locally authenticated Claude Code and Codex CLIs, and runs one fixed
+read-only relay probe for each available provider. Claude-only, Codex-only, and
+dual-provider installations are valid. It prints `TELAEGENT IS CONNECTED` only
+after a normalized result returns through the relay. Local paths,
+GitHub/provider credentials, raw CLI output, and provider session IDs remain
+local.
 
 The signed-in browser can poll
 `GET /api/connectors/installations/:connectorInstanceId/status`. The backend
@@ -71,8 +80,11 @@ derives the user from the HttpOnly Telaegent session and returns only that
 owner's credential lifecycle plus bounded, safe repository/binding metadata.
 It returns no bearer, token hash, local path, remote URL, GitHub/provider
 credential, or provider session. The response is non-cacheable. A `ready`
-binding proves durable repository registration; `lastSeenAt` is telemetry, not
-a promise that the process will remain online.
+binding proves durable repository registration; `liveReady` becomes true only
+after a local provider passes its relay probe. The connector refreshes this
+process-local marker after long-poll cycles so a control-plane restart recovers
+without another setup command. `lastSeenAt` is telemetry, not a promise that
+the process will remain online.
 
 Transient network errors and HTTP 408/425/429/5xx responses reconnect with
 jittered exponential backoff capped at 30 seconds. Authentication rejection is
@@ -84,12 +96,16 @@ ready binding from durable authorization state. Revoked, suspended, stale, and
 unavailable bindings fail closed. This costs one bounded status lookup per
 binding recovery, not one database call per poll.
 
-This is still a source-tree proof command, not finished `npx telaegent`
-packaging. OS credential-vault integration, installer/update signing, and
-durable presence telemetry remain follow-up work. Credential issuance already
-rotates the server-side hash and unregisters the old process-local principal,
-but the local replacement must remain a deliberate user action until a secure
-vault-backed installer owns it.
+The `@telaegent/connector` artifact and cross-platform `npx` command are
+implemented, but registry publication and a two-machine packaged live proof
+remain release work. Version 0.1 passes only a short-lived, single-use pairing
+code as a local command argument. The connector exchanges it directly for its
+longer-lived bearer, which never enters browser state, the clipboard, shell
+history, or process arguments. OS credential-vault integration,
+installer/update signing, and durable presence telemetry remain follow-up work.
+Credential issuance already rotates the server-side hash and unregisters the
+old process-local principal, but local replacement remains a deliberate user
+action.
 
 ## Resource requests (loop closed end to end)
 

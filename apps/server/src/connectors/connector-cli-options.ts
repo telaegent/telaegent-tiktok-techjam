@@ -7,6 +7,10 @@ export interface ConnectorCliOptions {
   workspaceCandidate: string;
   provider: ConnectorProviderSelection;
   probeOnly: boolean;
+  serverOrigin?: string;
+  connectorInstanceId?: string;
+  credential?: string;
+  pairingCode?: string;
 }
 
 const providerSchema = z.enum(["auto", "codex", "claude"]);
@@ -19,12 +23,36 @@ export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliO
   let workspaceSeen = false;
   let provider: ConnectorProviderSelection = "auto";
   let probeOnly = false;
+  let serverOrigin: string | undefined;
+  let connectorInstanceId: string | undefined;
+  let credential: string | undefined;
+  let pairingCode: string | undefined;
   for (let index = 1; index < argv.length; index += 1) {
     const value = argv[index]!;
     if (value === "--provider") {
       const selected = argv[index + 1];
       if (!selected) throw usageError();
       provider = providerSchema.parse(selected);
+      index += 1;
+      continue;
+    }
+    if (value === "--url") {
+      serverOrigin = requiredOptionValue(argv, index);
+      index += 1;
+      continue;
+    }
+    if (value === "--instance-id") {
+      connectorInstanceId = requiredOptionValue(argv, index);
+      index += 1;
+      continue;
+    }
+    if (value === "--credential") {
+      credential = requiredOptionValue(argv, index);
+      index += 1;
+      continue;
+    }
+    if (value === "--pair") {
+      pairingCode = requiredOptionValue(argv, index);
       index += 1;
       continue;
     }
@@ -36,11 +64,28 @@ export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliO
     workspaceCandidate = value;
     workspaceSeen = true;
   }
-  return { workspaceCandidate, provider, probeOnly };
+  if (pairingCode !== undefined && (connectorInstanceId || credential)) {
+    throw usageError();
+  }
+  return {
+    workspaceCandidate,
+    provider,
+    probeOnly,
+    ...(serverOrigin === undefined ? {} : { serverOrigin }),
+    ...(connectorInstanceId === undefined ? {} : { connectorInstanceId }),
+    ...(credential === undefined ? {} : { credential }),
+    ...(pairingCode === undefined ? {} : { pairingCode }),
+  };
+}
+
+function requiredOptionValue(argv: readonly string[], index: number): string {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) throw usageError();
+  return value;
 }
 
 function usageError(): Error {
   return new Error(
-    "Usage: telaegent connect [workspace] [--provider auto|codex|claude] [--probe-only]",
+    "Usage: telaegent connect [workspace] [--url origin] [--pair code | --instance-id id --credential bearer] [--provider auto|codex|claude] [--probe-only]",
   );
 }

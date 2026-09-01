@@ -1,0 +1,33 @@
+{
+  "name": "@telaegent/connector",
+  "version": "0.1.0",
+  "description": "Local repository and coding-agent connector for Telaegent",
+  "type": "module",
+  "bin": {
+    "telaegent": "dist/connectors/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test scripts/package.test.mjs",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/telaegent/telaegent-tiktok-techjam.git",
+    "directory": "packages/connector"
+  },
+  "license": "MIT"
+}

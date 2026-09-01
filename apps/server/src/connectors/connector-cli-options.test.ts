@@ -32,12 +32,54 @@ describe("connector CLI options", () => {
     ])).toEqual({ workspaceCandidate: "/repo", provider: "codex", probeOnly: true });
   });
 
+  it("accepts one-command connector settings without requiring shell-specific environment syntax", () => {
+    expect(parseConnectorCliOptions([
+      "connect",
+      ".",
+      "--url",
+      "https://telaegent.live",
+      "--instance-id",
+      "connector-instance-id",
+      "--credential",
+      "connector-credential",
+    ])).toEqual({
+      workspaceCandidate: ".",
+      provider: "auto",
+      probeOnly: false,
+      serverOrigin: "https://telaegent.live",
+      connectorInstanceId: "connector-instance-id",
+      credential: "connector-credential",
+    });
+  });
+
+  it("accepts a one-time pairing code without exposing a connector bearer", () => {
+    expect(parseConnectorCliOptions([
+      "connect",
+      ".",
+      "--url",
+      "https://telaegent.live",
+      "--pair",
+      "pairing-code",
+    ])).toEqual({
+      workspaceCandidate: ".",
+      provider: "auto",
+      probeOnly: false,
+      serverOrigin: "https://telaegent.live",
+      pairingCode: "pairing-code",
+    });
+  });
+
   it.each([
     [],
     ["start"],
     ["connect", "one", "two"],
     ["connect", "--provider"],
     ["connect", "--provider", "other"],
+    ["connect", "--url"],
+    ["connect", "--instance-id", "--probe-only"],
+    ["connect", "--credential"],
+    ["connect", "--pair"],
+    ["connect", "--pair", "pair", "--credential", "bearer"],
     ["connect", "--unknown"],
   ])("fails closed for invalid arguments: %j", (argv) => {
     expect(() => parseConnectorCliOptions(argv)).toThrow();

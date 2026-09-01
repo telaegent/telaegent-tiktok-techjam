@@ -4,8 +4,36 @@ import { createApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import type { ProjectRepository } from "./repository.js";
 import { ProjectService } from "./service.js";
+import type { ProjectSummary } from "./types.js";
 
 const userId = "10000000-0000-4000-8000-000000000001";
+const bindingId = "30000000-0000-4000-8000-000000000001";
+
+const readyProject: ProjectSummary = {
+  projectId: "20000000-0000-4000-8000-000000000001",
+  githubRepositoryId: "123456789",
+  repositoryFullName: "thai-example/tiktok-techjam-test",
+  visibility: "private",
+  defaultBranch: "main",
+  projectStatus: "active",
+  membershipStatus: "active",
+  membershipJoinedAt: "2026-09-01T00:00:00.000Z",
+  githubConnectionStatus: "connected",
+  repositoryAccessStatus: "verified",
+  repositoryVerifiedAt: "2026-09-01T00:00:00.000Z",
+  connectedCollaboratorCount: 0,
+  binding: {
+    connectorBindingId: bindingId,
+    connectorInstanceId: "connector_instance_thai_0001",
+    status: "ready",
+    currentBranch: "main",
+    commitSha: "a".repeat(40),
+    repositoryPermission: "write",
+    lastVerifiedAt: "2026-09-01T00:00:00.000Z",
+    lastSeenAt: "2026-09-01T00:00:00.000Z",
+    unavailableReason: null,
+  },
+};
 
 /** Refuses every connection operation unless a test opts one in. */
 function stubRepository(overrides: Partial<ProjectRepository> = {}): ProjectRepository {
@@ -102,5 +130,34 @@ describe("project discovery routes", () => {
     });
     expect(invalid.statusCode).toBe(400);
     await authenticatedApp.close();
+  });
+
+  it("adds owner-scoped live presence instead of trusting durable ready status", async () => {
+    const isBindingOnline = vi.fn(() => false);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        service: new ProjectService(stubRepository({
+          listForUser: async () => [readyProject],
+        })),
+        authenticatedUserId: async () => userId,
+        isBindingOnline,
+      },
+    );
+
+    const response = await app.inject({ method: "GET", url: "/api/projects" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().projects[0]).toMatchObject({
+      projectId: readyProject.projectId,
+      connectorLive: false,
+    });
+    expect(isBindingOnline).toHaveBeenCalledWith(userId, bindingId);
+    await app.close();
   });
 });

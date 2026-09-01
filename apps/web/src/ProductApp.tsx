@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import telaegentLogo from "../../../ui/logo/telaegent-logo-transparent-dark.png";
 import telaegentLogoBright from "../../../ui/logo/telaegent-logo-transparent-bright.png";
 import telaegentMark from "../../../ui/logo/telaegent-logo-symbol-transparent.png";
@@ -11,7 +17,8 @@ import {
   type AgentProvider,
   type CapabilityScopeDecision,
   type CapabilityScopeRequest,
-  type ConnectorCredential,
+  type ConnectorPairing,
+  type ConnectorSetupStatus,
   type ConversationMessage,
   type PrivateDraftView,
   type ProjectCollaborator,
@@ -26,15 +33,32 @@ import {
 } from "./project-conversation";
 import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
 import {
+  APP_PATH,
   productLocationFromUrl,
   productPath,
   type ProductRoute,
 } from "./app-routing";
+import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
+import { buildConnectorCommand } from "./connector-command";
+import { partitionProjects, projectAvailability } from "./project-list";
+import {
+  initialProductEntryRoute,
+  productEntryRouteAfterDiscovery,
+} from "./product-entry";
 import "./product-app.css";
 
 type Theme = "light" | "dark";
 type OnboardingStep = "identity" | "github" | "agent" | "ready";
 type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
+
+function connectorSetupIsReady(connector: ConnectorSetupStatus): boolean {
+  return connector.liveReady && connector.credential?.status === "active" && connector.bindings.some(
+    (binding) =>
+      binding.bindingStatus === "ready" &&
+      binding.membershipStatus === "active" &&
+      binding.repositoryAccessStatus === "verified",
+  );
+}
 type WorkspaceTab = "chat" | "people" | "settings";
 type AsyncLoadState = "idle" | "loading" | "ready" | "error";
 
@@ -191,19 +215,6 @@ function repositoryParts(fullName: string): { owner: string; name: string } {
     : { owner: "GitHub", name: fullName };
 }
 
-function projectAvailability(project: ProjectSummary): string {
-  if (
-    project.projectStatus !== "active" ||
-    project.membershipStatus !== "active"
-  ) {
-    return "Unavailable";
-  }
-  if (project.repositoryAccessStatus !== "verified")
-    return "Needs verification";
-  if (project.binding.status !== "ready") return "Connector offline";
-  return "Open";
-}
-
 function TypingDots({ label = "Working" }: { label?: string }) {
   return (
     <span className="app-typing-dots" role="status" aria-label={label}>
@@ -233,13 +244,14 @@ function Onboarding({
 }) {
   const [step, setStep] = useState<OnboardingStep>("identity");
   const [githubStage, setGithubStage] = useState<GithubStage>("idle");
-  const [connectorCredential, setConnectorCredential] =
-    useState<ConnectorCredential | null>(null);
+  const [connectorPairing, setConnectorPairing] =
+    useState<ConnectorPairing | null>(null);
   const [connectorError, setConnectorError] = useState<ApiError | null>(null);
   const [checkingConnector, setCheckingConnector] = useState(false);
   const [connectedAgents, setConnectedAgents] = useState<string[]>([]);
-  const [connectorSourcePath, setConnectorSourcePath] = useState("");
-  const [repositoryPath, setRepositoryPath] = useState("");
+  const [connectorCommandCopied, setConnectorCommandCopied] = useState(false);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
   const steps: OnboardingStep[] = ["identity", "github", "agent", "ready"];
   const stepIndex = steps.indexOf(step);
 
@@ -251,13 +263,13 @@ function Onboarding({
     );
   }
 
-  async function createConnectorCredential() {
-    const connectorInstanceId = crypto.randomUUID().replaceAll("-", "");
+  async function createConnectorPairing() {
     setGithubStage("issuing");
     setConnectorError(null);
     try {
-      const result = await api.issueConnectorCredential(connectorInstanceId);
-      setConnectorCredential(result.connector);
+      const result = await api.createConnectorPairing();
+      setConnectorPairing(result.pairing);
+      setConnectorCommandCopied(false);
       setGithubStage("connector");
     } catch (error) {
       setConnectorError(normalizeApiError(error));
@@ -265,39 +277,21 @@ function Onboarding({
     }
   }
 
-  function connectorCommand(credential: ConnectorCredential): string {
-    const quotePowerShell = (value: string) =>
-      `'${value.replaceAll("'", "''")}'`;
-    const source = connectorSourcePath.trim() || "<Telaegent source folder>";
-    const workspace = repositoryPath.trim() || "<repository folder>";
-    return [
-      `Set-Location -LiteralPath ${quotePowerShell(source)}`,
-      `$env:TELAEGENT_URL='${window.location.origin}'`,
-      `$env:TELAEGENT_CONNECTOR_INSTANCE_ID='${credential.connectorInstanceId}'`,
-      `$env:TELAEGENT_CONNECTOR_CREDENTIAL='${credential.credential}'`,
-      `npm.cmd run connector:connect -- connect ${quotePowerShell(workspace)}`,
-    ].join("; ");
-  }
-
   async function copyConnectorCommand() {
-    if (
-      connectorCredential &&
-      connectorSourcePath.trim() &&
-      repositoryPath.trim()
-    ) {
-      await navigator.clipboard.writeText(
-        connectorCommand(connectorCredential),
-      );
-    }
+    if (!connectorPairing) return;
+    await navigator.clipboard.writeText(
+      buildConnectorCommand(window.location.origin, connectorPairing),
+    );
+    setConnectorCommandCopied(true);
   }
 
   async function verifyConnectorSetup() {
-    if (!connectorCredential || checkingConnector) return;
+    if (!connectorPairing || checkingConnector) return;
     setCheckingConnector(true);
     setConnectorError(null);
     try {
       const { connector } = await api.connectorSetupStatus(
-        connectorCredential.connectorInstanceId,
+        connectorPairing.connectorInstanceId,
       );
       if (connector.credential?.status !== "active") {
         throw new ApiError(
@@ -306,12 +300,7 @@ function Onboarding({
           "CONNECTOR_CREDENTIAL_INACTIVE",
         );
       }
-      const verifiedBinding = connector.bindings.some(
-        (binding) =>
-          binding.bindingStatus === "ready" &&
-          binding.membershipStatus === "active" &&
-          binding.repositoryAccessStatus === "verified",
-      );
+      const verifiedBinding = connectorSetupIsReady(connector);
       if (!verifiedBinding) {
         throw new ApiError(
           "The connector has not finished verifying this repository yet. Keep it running and check again.",
@@ -320,21 +309,52 @@ function Onboarding({
           true,
         );
       }
-      // Remove the one-time bearer from React state as soon as onboarding no
-      // longer needs to render or copy it.
-      setConnectorCredential(null);
+      // Remove the already-consumed pairing code from React state as soon as
+      // onboarding no longer needs to render it.
+      setConnectorPairing(null);
       setGithubStage("connected");
+      onCompleteRef.current();
     } catch (error) {
       const normalized = normalizeApiError(error);
       setConnectorError(normalized);
       if (normalized.code === "CONNECTOR_CREDENTIAL_INACTIVE") {
-        setConnectorCredential(null);
+        setConnectorPairing(null);
         setGithubStage("error");
       }
     } finally {
       setCheckingConnector(false);
     }
   }
+
+  useEffect(() => {
+    if (githubStage !== "connector" || !connectorPairing) return;
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const { connector } = await api.connectorSetupStatus(
+          connectorPairing.connectorInstanceId,
+        );
+        if (!active) return;
+        if (connectorSetupIsReady(connector)) {
+          setConnectorError(null);
+          setConnectorPairing(null);
+          setGithubStage("connected");
+          onCompleteRef.current();
+          return;
+        }
+      } catch {
+        // Before the CLI exchanges the code there is intentionally no durable
+        // credential/status row. Keep waiting without showing a false error.
+      }
+      if (active) timer = window.setTimeout(() => void poll(), 1_500);
+    };
+    void poll();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [githubStage, connectorPairing]);
 
   return (
     <main className="onboarding-shell">
@@ -413,7 +433,7 @@ function Onboarding({
                   </div>
                   <button
                     type="button"
-                    onClick={() => void createConnectorCredential()}
+                    onClick={() => void createConnectorPairing()}
                   >
                     Connect
                   </button>
@@ -423,70 +443,44 @@ function Onboarding({
               {githubStage === "issuing" && (
                 <div className="setup-row">
                   <div>
-                    <strong>Preparing a connector credential</strong>
+                    <strong>Preparing a secure one-time command</strong>
                     <small>
                       Bound to this Telaegent account and installation only
                     </small>
                   </div>
-                  <TypingDots label="Preparing connector credential" />
+                  <TypingDots label="Preparing secure connector command" />
                 </div>
               )}
 
-              {githubStage === "connector" && connectorCredential && (
+              {githubStage === "connector" && connectorPairing && (
                 <div className="device-flow">
                   <div>
-                    <span>Configure paths on this device</span>
-                    <strong>Connect this installation</strong>
+                    <span>Run from your repository</span>
+                    <strong>Connect this repository</strong>
                   </div>
                   <div>
                     <span>What remains local</span>
                     <code>repo · gh · Claude/Codex · sessions</code>
                   </div>
                   <p>
-                    Run the command, then continue once the terminal confirms
-                    the connector is connected.
+                    Open a terminal in the repository you want to connect, then
+                    run this command. It works on Windows, macOS, and Linux.
                   </p>
-                  <div className="connector-path-fields">
-                    <label>
-                      <span>Local Telaegent checkout</span>
-                      <input
-                        type="text"
-                        value={connectorSourcePath}
-                        onChange={(event) =>
-                          setConnectorSourcePath(event.target.value)
-                        }
-                        placeholder="Enter its path on this device"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </label>
-                    <label>
-                      <span>Local repository checkout</span>
-                      <input
-                        type="text"
-                        value={repositoryPath}
-                        onChange={(event) =>
-                          setRepositoryPath(event.target.value)
-                        }
-                        placeholder="Enter its path on this device"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </label>
-                  </div>
                   <div className="connector-command-block">
                     <code className="connector-command">
-                      {connectorCommand(connectorCredential)}
+                      {buildConnectorCommand(
+                        window.location.origin,
+                        connectorPairing,
+                      )}
                     </code>
                     <p>
-                      The command changes to the Telaegent source folder before
-                      launching the connector and passes the separate repository
-                      folder as its workspace. Neither path is uploaded. The
-                      credential expires{" "}
+                      The connector uses the current Git repository. Its local
+                      path, checkout, GitHub login, and coding-agent sessions
+                      stay on this device. This one-time command expires{" "}
                       {new Intl.DateTimeFormat(undefined, {
                         hour: "numeric",
                         minute: "2-digit",
-                      }).format(new Date(connectorCredential.expiresAt))}
+                      }).format(new Date(connectorPairing.expiresAt))}
                       .
                     </p>
                   </div>
@@ -494,12 +488,9 @@ function Onboarding({
                     <button
                       className="app-secondary-action"
                       type="button"
-                      disabled={
-                        !connectorSourcePath.trim() || !repositoryPath.trim()
-                      }
                       onClick={() => void copyConnectorCommand()}
                     >
-                      Copy command
+                      {connectorCommandCopied ? "Command copied" : "Copy command"}
                     </button>
                     <button
                       className="app-primary-action"
@@ -508,6 +499,14 @@ function Onboarding({
                       onClick={() => void verifyConnectorSetup()}
                     >
                       {checkingConnector ? "Checking…" : "Check connection"}
+                    </button>
+                    <button
+                      className="app-text-button"
+                      type="button"
+                      disabled={checkingConnector}
+                      onClick={() => void createConnectorPairing()}
+                    >
+                      New command
                     </button>
                   </div>
                   {connectorError && (
@@ -530,7 +529,7 @@ function Onboarding({
                   <button
                     className="app-secondary-action"
                     type="button"
-                    onClick={() => void createConnectorCredential()}
+                    onClick={() => void createConnectorPairing()}
                   >
                     Try again
                   </button>
@@ -682,6 +681,49 @@ function ProjectsScreen({
   error: ApiError | null;
   onRetry: () => void;
 }) {
+  const grouped = partitionProjects(projects);
+
+  function projectRow(project: ProjectSummary) {
+    const repository = repositoryParts(project.repositoryFullName);
+    const availability = projectAvailability(project);
+    const available = availability === "Open";
+    return (
+      <button
+        type="button"
+        key={project.projectId}
+        disabled={!available}
+        onClick={() => onOpenProject(project)}
+      >
+        <span className="repo-mark" aria-hidden="true">
+          {repository.name.slice(0, 2).toUpperCase()}
+        </span>
+        <span className="repo-title">
+          <small>{repository.owner}</small>
+          <strong>{repository.name}</strong>
+          <p>
+            <span>{project.visibility} repository</span>
+            <span>Default branch {project.defaultBranch}</span>
+          </p>
+        </span>
+        <span className="repo-meta">
+          <small>
+            {project.connectedCollaboratorCount} connected collaborator
+            {project.connectedCollaboratorCount === 1 ? "" : "s"}
+          </small>
+          <strong>
+            {project.binding.currentBranch ?? project.defaultBranch}
+          </strong>
+          <small>
+            {project.connectorLive
+              ? "Connector online"
+              : "Connector not currently online"}
+          </small>
+        </span>
+        <span className="repo-open">{availability}</span>
+      </button>
+    );
+  }
+
   return (
     <div className="app-page projects-page">
       <header className="app-page-heading">
@@ -711,55 +753,29 @@ function ProjectsScreen({
               )}
             </div>
           )}
-          {!loading && !error && projects.length === 0 && (
+          {!loading && !error && grouped.active.length === 0 && (
             <div className="api-state">
-              <strong>No verified repositories yet</strong>
+              <strong>No active repositories</strong>
               <p>
-                Run the local connector from a GitHub repository, then refresh
-                this page.
+                Run the local connector from the intended Git repository root,
+                confirm its GitHub name, then refresh this page.
               </p>
             </div>
           )}
-          {projects.map((project) => {
-            const repository = repositoryParts(project.repositoryFullName);
-            const availability = projectAvailability(project);
-            const available = availability === "Open";
-            return (
-              <button
-                type="button"
-                key={project.projectId}
-                disabled={!available}
-                onClick={() => onOpenProject(project)}
-              >
-                <span className="repo-mark" aria-hidden="true">
-                  {repository.name.slice(0, 2).toUpperCase()}
-                </span>
-                <span className="repo-title">
-                  <small>{repository.owner}</small>
-                  <strong>{repository.name}</strong>
-                  <p>
-                    <span>{project.visibility} repository</span>
-                    <span>Default branch {project.defaultBranch}</span>
-                  </p>
-                </span>
-                <span className="repo-meta">
-                  <small>
-                    {project.connectedCollaboratorCount} connected collaborator
-                    {project.connectedCollaboratorCount === 1 ? "" : "s"}
-                  </small>
-                  <strong>
-                    {project.binding.currentBranch ?? project.defaultBranch}
-                  </strong>
-                  <small>
-                    {project.binding.lastSeenAt
-                      ? "Connector seen recently"
-                      : "Awaiting connector presence"}
-                  </small>
-                </span>
-                <span className="repo-open">{availability}</span>
-              </button>
-            );
-          })}
+          {!loading && !error && grouped.active.length > 0 && (
+            <div className="project-group-heading">
+              <strong>Active projects</strong>
+              <small>Verified repositories with a connector online now</small>
+            </div>
+          )}
+          {!loading && !error && grouped.active.map(projectRow)}
+          {!loading && !error && grouped.historical.length > 0 && (
+            <div className="project-group-heading historical">
+              <strong>Previous connections</strong>
+              <small>Offline, stopped, or no longer verified</small>
+            </div>
+          )}
+          {!loading && !error && grouped.historical.map(projectRow)}
         </section>
 
         <aside className="connection-request-card">
@@ -1883,13 +1899,31 @@ function ProjectChat({
   function submitRoughMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextMessage = composer.trim();
-    if (!nextMessage || configurationError || !conversationId) return;
+    if (
+      !nextMessage ||
+      busy ||
+      privateRoomOpen ||
+      configurationError ||
+      !conversationId ||
+      conversationState !== "ready"
+    ) return;
     setRoughMessage(nextMessage);
     setAnswering(null);
     setClarification("");
     setApprovedContent("");
     setEditingCandidate(false);
     void createAndRunDraft(nextMessage);
+  }
+
+  function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (!shouldSubmitComposerOnKeyDown({
+      key: event.key,
+      shiftKey: event.shiftKey,
+      isComposing: event.nativeEvent.isComposing,
+    })) return;
+    event.preventDefault();
+    if (busy || privateRoomOpen || !composer.trim()) return;
+    event.currentTarget.form?.requestSubmit();
   }
 
   async function clarifyDraft(event: FormEvent<HTMLFormElement>) {
@@ -2230,6 +2264,7 @@ function ProjectChat({
             rows={2}
             value={composer}
             onChange={(event) => setComposer(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
             placeholder={`Ask ${selected?.name ?? "a connected collaborator"} about this project…`}
             disabled={
               !!configurationError ||
@@ -2639,21 +2674,45 @@ export default function ProductApp({
     window.location.search,
     preview,
   );
-  const [route, setRoute] = useState<ProductRoute>(initialLocation.route);
+  const isDefaultProductEntry =
+    window.location.pathname === APP_PATH ||
+    !window.location.pathname.startsWith(`${APP_PATH}/`);
+  const requestedPreviewRoute = new URLSearchParams(
+    window.location.search,
+  ).get("route");
+  const initialRoute = isDefaultProductEntry
+    ? initialProductEntryRoute({
+        authenticated: user !== null,
+        preview,
+        requestedPreviewRoute,
+      })
+    : initialLocation.route;
+  const [route, setRoute] = useState<ProductRoute>(initialRoute);
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string | null>(
     initialLocation.projectId,
   );
   const [discoveredProjects, setDiscoveredProjects] = useState<
     ProjectSummary[]
   >([]);
-  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsLoading, setProjectsLoading] = useState(
+    () => !preview && user !== null,
+  );
   const [projectsError, setProjectsError] = useState<ApiError | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(
     null,
   );
+  const projectsRequestInFlightRef = useRef(false);
+  const entryProjectDiscoveryRef = useRef<"pending" | "loading" | "resolved">(
+    !preview && user && isDefaultProductEntry && initialRoute === "projects"
+      ? "pending"
+      : "resolved",
+  );
 
   async function loadProjects() {
-    if (!user || projectsLoading) return;
+    if (!user || projectsRequestInFlightRef.current) return;
+    const resolvesProductEntry = entryProjectDiscoveryRef.current === "pending";
+    projectsRequestInFlightRef.current = true;
+    if (resolvesProductEntry) entryProjectDiscoveryRef.current = "loading";
     setProjectsLoading(true);
     setProjectsError(null);
     try {
@@ -2666,9 +2725,21 @@ export default function ProductApp({
             ) ?? null)
           : null,
       );
+      if (
+        resolvesProductEntry &&
+        entryProjectDiscoveryRef.current === "loading"
+      ) {
+        navigateProduct(
+          productEntryRouteAfterDiscovery(result.projects.length),
+          null,
+          true,
+        );
+      }
     } catch (error) {
       setProjectsError(normalizeApiError(error));
     } finally {
+      projectsRequestInFlightRef.current = false;
+      if (resolvesProductEntry) entryProjectDiscoveryRef.current = "resolved";
       setProjectsLoading(false);
     }
   }
@@ -2709,6 +2780,7 @@ export default function ProductApp({
     projectId: string | null = null,
     replace = false,
   ) {
+    entryProjectDiscoveryRef.current = "resolved";
     const nextPath = productPath(nextRoute, projectId, preview);
     if (`${window.location.pathname}${window.location.search}` !== nextPath) {
       window.history[replace ? "replaceState" : "pushState"](

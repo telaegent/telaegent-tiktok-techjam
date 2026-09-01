@@ -1,5 +1,6 @@
+#!/usr/bin/env node
+
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -23,6 +24,10 @@ import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worke
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
 import { createConnectorResourceRegistry } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
+import {
+  confirmRepositorySelection,
+  resolveExactRepositoryRoot,
+} from "./connector-repository-selection.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -49,18 +54,47 @@ const probeResponseSchema = z.strictObject({
   provider: z.enum(["codex", "claude"]),
   durationMs: z.number().nonnegative(),
 });
+const pairingResponseSchema = z.strictObject({
+  connector: z.strictObject({
+    credential: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    connectorInstanceId: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/),
+    expiresAt: z.string().datetime({ offset: true }),
+  }),
+});
 
 async function main(): Promise<void> {
-  const { workspaceCandidate, provider: providerSelection, probeOnly } =
-    parseConnectorCliOptions(process.argv.slice(2));
-  const serverOrigin = validateServerOrigin(requiredEnvironment("TELAEGENT_URL"));
-  const credential = requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL");
-  const connectorInstanceId = requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID");
+  const options = parseConnectorCliOptions(process.argv.slice(2));
+  const {
+    workspaceCandidate,
+    provider: providerSelection,
+    probeOnly,
+  } = options;
+  const serverOrigin = validateServerOrigin(
+    options.serverOrigin ?? requiredEnvironment("TELAEGENT_URL"),
+  );
+  const workspacePath = await resolveExactRepositoryRoot(workspaceCandidate);
+  const proof = await collectRepositoryProof(workspacePath);
+  await confirmRepositorySelection(
+    `${proof.repository.owner}/${proof.repository.name}`,
+    workspacePath,
+  );
+  // Pairing is deliberately exchanged only after the human confirms the exact
+  // GitHub repository. A wrong folder, origin, or declined prompt therefore
+  // cannot consume the single-use browser code or mint a connector bearer.
+  const bootstrap = options.pairingCode
+    ? await exchangePairing(serverOrigin, options.pairingCode)
+    : {
+        credential:
+          options.credential ?? requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL"),
+        connectorInstanceId:
+          options.connectorInstanceId ??
+          requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID"),
+      };
+  const { credential, connectorInstanceId } = bootstrap;
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(connectorInstanceId)) {
     throw new Error("TELAEGENT_CONNECTOR_INSTANCE_ID is invalid");
   }
 
-  const workspacePath = await resolveRepositoryRoot(workspaceCandidate);
   const principalResponse = await connectorGet(
     serverOrigin,
     credential,
@@ -72,7 +106,6 @@ async function main(): Promise<void> {
   if (principal.connectorInstanceId !== connectorInstanceId) {
     throw new Error("Connector credential belongs to another installation");
   }
-  const proof = await collectRepositoryProof(workspacePath);
   const response = await connectorRequest(
     serverOrigin,
     credential,
@@ -176,21 +209,55 @@ async function main(): Promise<void> {
     throw new Error("No local coding provider passed the Telaegent live probe");
   }
 
+  await connectorRequest(
+    serverOrigin,
+    credential,
+    `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
+    {},
+  );
+
   if (probeOnly) {
     process.stdout.write("TELAEGENT LIVE READINESS VERIFIED\n");
     return;
   }
 
-    for (;;) await worker.runOnce();
+    for (;;) {
+      await worker.runOnce();
+      // Re-announce after every long-poll cycle. This restores the process-local
+      // live marker automatically if the demo control plane restarts.
+      await connectorRequest(
+        serverOrigin,
+        credential,
+        `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
+        {},
+      );
+    }
   } finally {
     await processLock.release();
   }
 }
 
-async function resolveRepositoryRoot(candidate: string): Promise<string> {
-  const selected = await realpath(path.resolve(candidate));
-  const root = (await run("git", ["-C", selected, "rev-parse", "--show-toplevel"])).trim();
-  return await realpath(root);
+async function exchangePairing(
+  serverOrigin: string,
+  pairingCode: string,
+): Promise<{ credential: string; connectorInstanceId: string }> {
+  const origin = new URL(serverOrigin);
+  const response = await fetch(origin.origin + "/api/connectors/pairings/exchange", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ pairingCode }),
+    cache: "no-store",
+    credentials: "omit",
+    redirect: "error",
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error("Telaegent connector pairing failed; create a new command in the website");
+  }
+  return pairingResponseSchema.parse(await response.json()).connector;
 }
 
 async function collectRepositoryProof(workspacePath: string) {
