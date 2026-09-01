@@ -784,102 +784,152 @@ function ProjectsScreen({
   );
 }
 
-function LiveConnectionsScreen({ projects }: { projects: ProjectSummary[] }) {
-  const [groups, setGroups] = useState<
-    Array<{
-      project: ProjectSummary;
-      collaborators: ProjectCollaborator[];
-      error: ApiError | null;
-    }>
-  >([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [actionKey, setActionKey] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<ApiError | null>(null);
+type ConnectionMutation = "request" | "accept" | "decline" | "revoke";
+
+type ProjectConnectionGroup = {
+  project: ProjectSummary;
+  collaborators: ProjectCollaborator[];
+  error: ApiError | null;
+};
+
+function connectionStatusLabel(status: ProjectCollaborator["connectionStatus"]): string {
+  switch (status) {
+    case "none":
+      return "Available";
+    case "pending_outgoing":
+      return "Request sent";
+    case "pending_incoming":
+      return "Your decision";
+    case "connected":
+      return "Connected";
+    case "revoked":
+      return "Revoked";
+  }
+}
+
+function connectionStatusDetail(status: ProjectCollaborator["connectionStatus"]): string {
+  switch (status) {
+    case "none":
+      return "Both of you independently proved access to this repository.";
+    case "pending_outgoing":
+      return "Waiting for this person to accept the project connection.";
+    case "pending_incoming":
+      return "They asked to exchange approved messages about this repository.";
+    case "connected":
+      return "Approved messages can cross; repositories and private drafts stay separate.";
+    case "revoked":
+      return "This relationship is closed. Either person can request a new one.";
+  }
+}
+
+function LiveConnectionsScreen({
+  projects,
+  projectsLoading,
+  projectsError,
+  onRetryProjects,
+}: {
+  projects: ProjectSummary[];
+  projectsLoading: boolean;
+  projectsError: ApiError | null;
+  onRetryProjects: () => void;
+}) {
+  const [groups, setGroups] = useState<ProjectConnectionGroup[]>([]);
+  const [state, setState] = useState<AsyncLoadState>("idle");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [mutatingKey, setMutatingKey] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<ApiError | null>(null);
+  const projectScopeKey = projects.map((project) => project.projectId).join(":");
 
   useEffect(() => {
+    if (projectsLoading || projectsError) return;
+    if (projects.length === 0) {
+      setGroups([]);
+      setState("ready");
+      return;
+    }
     let active = true;
-    setLoading(true);
+    setState("loading");
     void Promise.all(
-      projects.map(async (project) => {
+      projects.map(async (project): Promise<ProjectConnectionGroup> => {
         try {
           const result = await api.projectCollaborators(project.projectId, {
             limit: 50,
           });
-          return { project, collaborators: result.collaborators, error: null };
-        } catch (error) {
+          return {
+            project,
+            collaborators: result.collaborators,
+            error: null,
+          };
+        } catch (nextError) {
           return {
             project,
             collaborators: [],
-            error: normalizeApiError(error),
+            error: normalizeApiError(nextError),
           };
         }
       }),
     ).then((nextGroups) => {
       if (!active) return;
       setGroups(nextGroups);
-      setLoading(false);
+      setState("ready");
     });
     return () => {
       active = false;
     };
-  }, [projects, refreshKey]);
+    // The key deliberately reloads when the set of verified projects changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectScopeKey, projectsLoading, projectsError, loadAttempt]);
 
-  async function changeConnection(
+  async function mutateConnection(
     project: ProjectSummary,
     collaborator: ProjectCollaborator,
-    action: "request" | "accept" | "decline" | "revoke",
+    mutation: ConnectionMutation,
   ) {
-    const key = `${project.projectId}:${collaborator.userId}:${action}`;
-    setActionKey(key);
-    setActionError(null);
+    const key = `${project.projectId}:${collaborator.userId}`;
+    if (mutatingKey !== null) return;
+    setMutatingKey(key);
+    setMutationError(null);
     try {
-      if (action === "request") {
-        await api.requestProjectConnection(
-          project.projectId,
-          collaborator.userId,
-        );
-      } else if (action === "accept" || action === "decline") {
-        if (!collaborator.projectConnectionId) {
-          throw new ApiError(
-            "This connection request no longer has a valid identifier.",
-            409,
-            "CONNECTION_CHANGED",
-            true,
-          );
-        }
-        await api.respondToProjectConnection(
-          project.projectId,
-          collaborator.projectConnectionId,
-          action,
-        );
+      if (mutation === "request") {
+        await api.requestProjectConnection(project.projectId, collaborator.userId);
       } else {
         if (!collaborator.projectConnectionId) {
           throw new ApiError(
-            "This connection no longer has a valid identifier.",
+            "This connection changed while the page was open. Refresh and try again.",
             409,
-            "CONNECTION_CHANGED",
+            "PROJECT_CONNECTION_STALE",
             true,
           );
         }
-        await api.revokeProjectConnection(
-          project.projectId,
-          collaborator.projectConnectionId,
-        );
+        if (mutation === "accept" || mutation === "decline") {
+          await api.respondToProjectConnection(
+            project.projectId,
+            collaborator.projectConnectionId,
+            mutation,
+          );
+        } else {
+          await api.revokeProjectConnection(
+            project.projectId,
+            collaborator.projectConnectionId,
+          );
+        }
       }
-      setRefreshKey((value) => value + 1);
-    } catch (error) {
-      setActionError(normalizeApiError(error));
+      const refreshed = await api.projectCollaborators(project.projectId, {
+        limit: 50,
+      });
+      setGroups((current) =>
+        current.map((group) =>
+          group.project.projectId === project.projectId
+            ? { ...group, collaborators: refreshed.collaborators, error: null }
+            : group,
+        ),
+      );
+    } catch (nextError) {
+      setMutationError(normalizeApiError(nextError));
     } finally {
-      setActionKey(null);
+      setMutatingKey(null);
     }
   }
-
-  const collaboratorCount = groups.reduce(
-    (count, group) => count + group.collaborators.length,
-    0,
-  );
-
   return (
     <div className="app-page compact-page">
       <header className="app-page-heading">
@@ -889,171 +939,145 @@ function LiveConnectionsScreen({ projects }: { projects: ProjectSummary[] }) {
           A connection belongs to one repository and can be revoked at any time.
         </p>
       </header>
-      {actionError && (
-        <div className="api-state error connection-action-error" role="alert">
-          <strong>{actionError.code ?? "Connection update failed"}</strong>
-          <p>{apiErrorGuidance(actionError)}</p>
-          {actionError.retryable && (
-            <button
-              type="button"
-              onClick={() => setRefreshKey((value) => value + 1)}
-            >
-              Refresh connections
-            </button>
-          )}
+      {projectsLoading && (
+        <div className="api-state connections-state">
+          <TypingDots label="Loading projects" />
+          <p>Loading repositories verified by your connector.</p>
         </div>
       )}
-      <section className="settings-section connections-list">
-        <header>
-          <h2>Repository connections</h2>
-          <span>{loading ? "Checking" : `${collaboratorCount} available`}</span>
-        </header>
-        {loading && (
-          <div className="api-state">
-            <TypingDots label="Loading connections" />
-            <p>Checking independently verified members for each project.</p>
-          </div>
-        )}
-        {!loading && projects.length === 0 && (
-          <div className="api-state">
-            <strong>Connect a repository first</strong>
-            <p>
-              A project must be verified before you can connect with another
-              member.
-            </p>
-          </div>
-        )}
-        {!loading &&
-          projects.length > 0 &&
-          collaboratorCount === 0 &&
-          groups.every((group) => !group.error) && (
-            <div className="api-state">
-              <strong>No verified collaborators yet</strong>
-              <p>
-                Another Telaegent user must independently prove the same GitHub
-                repository before either side can request a connection.
-              </p>
+      {!projectsLoading && projectsError && (
+        <div className="api-state error connections-state" role="alert">
+          <strong>{projectsError.code ?? "Projects unavailable"}</strong>
+          <p>{apiErrorGuidance(projectsError)}</p>
+          <button type="button" onClick={onRetryProjects}>Retry</button>
+        </div>
+      )}
+      {!projectsLoading && !projectsError && state === "loading" && (
+        <div className="api-state connections-state">
+          <TypingDots label="Loading connections" />
+          <p>Checking project-scoped relationships.</p>
+        </div>
+      )}
+      {!projectsLoading && !projectsError && state === "ready" && groups.length === 0 && (
+        <div className="api-state connections-state">
+          <strong>No verified repositories yet</strong>
+          <p>Connect a local repository before requesting project trust.</p>
+        </div>
+      )}
+      {mutationError && (
+        <div className="api-state error connection-mutation-error" role="alert">
+          <strong>{mutationError.code ?? "Connection update failed"}</strong>
+          <p>{apiErrorGuidance(mutationError)}</p>
+        </div>
+      )}
+      {!projectsLoading && !projectsError && state === "ready" && groups.map(({ project, collaborators, error }) => (
+        <section className="settings-section connection-project" key={project.projectId}>
+          <header>
+            <div>
+              <span>Repository</span>
+              <h2>{project.repositoryFullName}</h2>
+            </div>
+            <span>{collaborators.length} eligible</span>
+          </header>
+          {error && (
+            <div className="api-state error" role="alert">
+              <strong>{error.code ?? "Collaborators unavailable"}</strong>
+              <p>{apiErrorGuidance(error)}</p>
+              <button
+                type="button"
+                onClick={() => setLoadAttempt((value) => value + 1)}
+              >
+                Retry
+              </button>
             </div>
           )}
-        {!loading &&
-          groups.map((group) => (
-            <div className="connection-project" key={group.project.projectId}>
-              <div className="connection-project-heading">
-                <strong>{group.project.repositoryFullName}</strong>
-                <span>Repository ID {group.project.githubRepositoryId}</span>
-              </div>
-              {group.error && (
-                <div className="api-state error" role="alert">
-                  <strong>
-                    {group.error.code ?? "Collaborators unavailable"}
-                  </strong>
-                  <p>{apiErrorGuidance(group.error)}</p>
+          {!error && collaborators.length === 0 && (
+            <p className="empty-line">
+              No other Telaegent user has independently proved this repository yet.
+            </p>
+          )}
+          {collaborators.map((collaborator) => {
+            const key = `${project.projectId}:${collaborator.userId}`;
+            const busy = mutatingKey === key;
+            return (
+              <article className="connection-row" key={collaborator.userId}>
+                <span className="app-avatar" aria-hidden="true">
+                  {collaborator.githubLogin.slice(0, 2).toUpperCase()}
+                </span>
+                <div>
+                  <strong>@{collaborator.githubLogin}</strong>
+                  <small>{connectionStatusDetail(collaborator.connectionStatus)}</small>
                 </div>
-              )}
-              {group.collaborators.map((collaborator) => {
-                const status = collaborator.connectionStatus;
-                const busy =
-                  actionKey?.startsWith(
-                    `${group.project.projectId}:${collaborator.userId}:`,
-                  ) ?? false;
-                return (
-                  <article className="connection-row" key={collaborator.userId}>
-                    <span className="app-avatar" aria-hidden="true">
-                      {collaborator.githubLogin.slice(0, 2).toUpperCase()}
-                    </span>
-                    <div>
-                      <strong>@{collaborator.githubLogin}</strong>
-                      <small>{group.project.repositoryFullName}</small>
-                    </div>
-                    <span className="connection-state">
-                      <StatusMark
-                        tone={
-                          status === "connected"
-                            ? "ok"
-                            : status.startsWith("pending")
-                              ? "warn"
-                              : "quiet"
-                        }
-                      />
-                      {status.replaceAll("_", " ")}
-                    </span>
-                    <div className="connection-actions">
-                      {(status === "none" || status === "revoked") && (
-                        <button
-                          className="app-primary-action"
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void changeConnection(
-                              group.project,
-                              collaborator,
-                              "request",
-                            )
-                          }
-                        >
-                          {busy ? "Requesting…" : "Request connection"}
-                        </button>
-                      )}
-                      {status === "pending_incoming" && (
-                        <>
-                          <button
-                            className="app-secondary-action"
-                            type="button"
-                            disabled={busy}
-                            onClick={() =>
-                              void changeConnection(
-                                group.project,
-                                collaborator,
-                                "decline",
-                              )
-                            }
-                          >
-                            Decline
-                          </button>
-                          <button
-                            className="app-primary-action"
-                            type="button"
-                            disabled={busy}
-                            onClick={() =>
-                              void changeConnection(
-                                group.project,
-                                collaborator,
-                                "accept",
-                              )
-                            }
-                          >
-                            {busy ? "Accepting…" : "Accept connection"}
-                          </button>
-                        </>
-                      )}
-                      {(status === "pending_outgoing" ||
-                        status === "connected") && (
-                        <button
-                          className="app-secondary-action"
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void changeConnection(
-                              group.project,
-                              collaborator,
-                              "revoke",
-                            )
-                          }
-                        >
-                          {busy
-                            ? "Updating…"
-                            : status === "connected"
-                              ? "Revoke connection"
-                              : "Withdraw request"}
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ))}
-      </section>
+                <span className={`connection-state ${collaborator.connectionStatus}`}>
+                  <StatusMark
+                    tone={
+                      collaborator.connectionStatus === "connected"
+                        ? "ok"
+                        : collaborator.connectionStatus === "pending_incoming"
+                          ? "warn"
+                          : "quiet"
+                    }
+                  />
+                  {connectionStatusLabel(collaborator.connectionStatus)}
+                </span>
+                <div className="connection-actions">
+                  {(collaborator.connectionStatus === "none" ||
+                    collaborator.connectionStatus === "revoked") && (
+                    <button
+                      className="app-primary-action"
+                      type="button"
+                      disabled={mutatingKey !== null}
+                      onClick={() => void mutateConnection(project, collaborator, "request")}
+                    >
+                      {busy ? "Requesting…" : "Request connection"}
+                    </button>
+                  )}
+                  {collaborator.connectionStatus === "pending_incoming" && (
+                    <>
+                      <button
+                        className="app-secondary-action"
+                        type="button"
+                        disabled={mutatingKey !== null}
+                        onClick={() => void mutateConnection(project, collaborator, "decline")}
+                      >
+                        Decline
+                      </button>
+                      <button
+                        className="app-primary-action"
+                        type="button"
+                        disabled={mutatingKey !== null}
+                        onClick={() => void mutateConnection(project, collaborator, "accept")}
+                      >
+                        {busy ? "Accepting…" : "Accept"}
+                      </button>
+                    </>
+                  )}
+                  {collaborator.connectionStatus === "pending_outgoing" && (
+                    <button
+                      className="app-secondary-action"
+                      type="button"
+                      disabled={mutatingKey !== null}
+                      onClick={() => void mutateConnection(project, collaborator, "revoke")}
+                    >
+                      {busy ? "Withdrawing…" : "Withdraw"}
+                    </button>
+                  )}
+                  {collaborator.connectionStatus === "connected" && (
+                    <button
+                      className="app-secondary-action danger"
+                      type="button"
+                      disabled={mutatingKey !== null}
+                      onClick={() => void mutateConnection(project, collaborator, "revoke")}
+                    >
+                      {busy ? "Revoking…" : "Revoke"}
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      ))}
     </div>
   );
 }
@@ -2727,7 +2751,12 @@ export default function ProductApp({
             />
           )}
           {route === "connections" && (
-            <LiveConnectionsScreen projects={discoveredProjects} />
+            <LiveConnectionsScreen
+              projects={discoveredProjects}
+              projectsLoading={projectsLoading}
+              projectsError={projectsError}
+              onRetryProjects={() => void loadProjects()}
+            />
           )}
           {route === "settings" && (
             <LiveToolsSettings projects={discoveredProjects} />
