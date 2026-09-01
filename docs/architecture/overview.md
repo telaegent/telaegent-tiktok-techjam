@@ -22,7 +22,7 @@ flowchart TB
     B --> BP["Local Claude Code and/or Codex CLI"]
 ```
 
-Frontend hosting is provisionally Vercel. The control plane is provisionally AWS EC2 behind Caddy/HTTPS. Supabase is provisionally in Southeast Asia/Singapore. The control plane is not an agent execution platform; it hosts coordination and relay services only.
+The control plane is deployed on AWS EC2 behind Caddy, which terminates HTTPS and serves the browser product and the API from one origin at telaegent.live. Supabase is in Southeast Asia/Singapore. The control plane is not an agent execution platform; it hosts coordination and relay services only, and holds no repository content, provider credential or local path.
 
 ## Isolation boundary
 
