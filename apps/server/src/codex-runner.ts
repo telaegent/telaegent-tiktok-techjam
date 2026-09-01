@@ -259,6 +259,63 @@ export function parseCodexEventLine(
   }
 }
 
+/** Codex variables Telaegent derives from its own configuration. */
+const managedCodexVariables = new Set(["CODEX_HOME", "CODEX_API_KEY"]);
+
+/** Host variables the CLI needs that carry no Telaegent secrets. */
+const inheritedVariableNames = [
+  "PATH",
+  "PATHEXT",
+  "SystemRoot",
+  "WINDIR",
+  "ComSpec",
+  "HOME",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "LANG",
+  "LC_ALL",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "NODE_EXTRA_CA_CERTS",
+  "TERM",
+] as const;
+
+/**
+ * Builds the environment Codex is spawned with. Every operator-supplied CODEX_*
+ * variable is forwarded, so a CLI that works in their terminal keeps working
+ * here: CODEX_CA_CERTIFICATE is the only trust anchor the Rust client reads on
+ * an intercepted network, and the workload-identity and CODEX_SQLITE_HOME
+ * settings reach the CLI through no other channel. CODEX_HOME stays
+ * Telaegent-owned because it is the sandbox this process writes config.toml
+ * into, and the API key arrives through AppConfig, which already sources it
+ * from the environment.
+ */
+export function buildCodexChildEnvironment(
+  config: Pick<AppConfig, "codexHome" | "codexApiKey">,
+  parentEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    CODEX_HOME: config.codexHome,
+    NO_COLOR: "1",
+  };
+  for (const name of inheritedVariableNames) {
+    if (parentEnv[name] !== undefined) environment[name] = parentEnv[name];
+  }
+  for (const [name, value] of Object.entries(parentEnv)) {
+    if (!name.startsWith("CODEX_")) continue;
+    if (managedCodexVariables.has(name)) continue;
+    if (value !== undefined) environment[name] = value;
+  }
+  if (config.codexApiKey) {
+    environment.CODEX_API_KEY = config.codexApiKey;
+  }
+  return environment;
+}
+
 export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
   readonly provider = "codex" as const;
   private readonly active = new Map<string, ActiveCodexProcess>();
@@ -562,36 +619,6 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
   }
 
   private childEnvironment(): NodeJS.ProcessEnv {
-    const inheritedNames = [
-      "PATH",
-      "PATHEXT",
-      "SystemRoot",
-      "WINDIR",
-      "ComSpec",
-      "HOME",
-      "TMPDIR",
-      "TEMP",
-      "TMP",
-      "LANG",
-      "LC_ALL",
-      "SSL_CERT_FILE",
-      "SSL_CERT_DIR",
-      "HTTP_PROXY",
-      "HTTPS_PROXY",
-      "NO_PROXY",
-      "NODE_EXTRA_CA_CERTS",
-      "TERM",
-    ] as const;
-    const environment: NodeJS.ProcessEnv = {
-      CODEX_HOME: this.config.codexHome,
-      NO_COLOR: "1",
-    };
-    if (this.config.codexApiKey) {
-      environment.CODEX_API_KEY = this.config.codexApiKey;
-    }
-    for (const name of inheritedNames) {
-      if (process.env[name] !== undefined) environment[name] = process.env[name];
-    }
-    return environment;
+    return buildCodexChildEnvironment(this.config);
   }
 }
