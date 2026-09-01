@@ -722,12 +722,14 @@ function ProductNav({
         <button
           className={
             route === item.route ||
-            (item.route === "projects" && route === "workspace")
+            (item.route === "projects" &&
+              (route === "workspace" || route === "add-project"))
               ? "selected"
               : ""
           }
           type="button"
           key={item.route}
+          data-route={item.route}
           onClick={() => onNavigate(item.route)}
         >
           <img src={item.icon} alt="" aria-hidden="true" />
@@ -740,12 +742,14 @@ function ProductNav({
 
 function ProjectsScreen({
   onOpenProject,
+  onAddProject,
   projects,
   loading,
   error,
   onRetry,
 }: {
   onOpenProject: (project: ProjectSummary) => void;
+  onAddProject: () => void;
   projects: ProjectSummary[];
   loading: boolean;
   error: ApiError | null;
@@ -802,6 +806,13 @@ function ProjectsScreen({
         <p>
           Choose a repository. Everything inside stays scoped to that project.
         </p>
+        <button
+          className="app-primary-action projects-add-action"
+          type="button"
+          onClick={onAddProject}
+        >
+          Add project
+        </button>
       </header>
 
       <div className="projects-layout">
@@ -865,6 +876,232 @@ function ProjectsScreen({
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function AddProjectScreen({
+  onBack,
+  onConnected,
+}: {
+  onBack: () => void;
+  onConnected: () => void;
+}) {
+  const [stage, setStage] = useState<GithubStage>("idle");
+  const [pairing, setPairing] = useState<ConnectorPairing | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function createCommand() {
+    setStage("issuing");
+    setError(null);
+    try {
+      const result = await api.createConnectorPairing();
+      setPairing(result.pairing);
+      setCopied(false);
+      setStage("connector");
+    } catch (nextError) {
+      setError(normalizeApiError(nextError));
+      setStage("error");
+    }
+  }
+
+  async function copyCommand() {
+    if (!pairing) return;
+    await navigator.clipboard.writeText(
+      buildConnectorCommand(window.location.origin, pairing),
+    );
+    setCopied(true);
+  }
+
+  async function checkConnection() {
+    if (!pairing || checking) return;
+    setChecking(true);
+    setError(null);
+    try {
+      const { connector } = await api.connectorSetupStatus(
+        pairing.connectorInstanceId,
+      );
+      if (!connectorSetupIsReady(connector)) {
+        throw new ApiError(
+          "The connector has not finished verifying this repository yet. Keep it running and check again.",
+          409,
+          "CONNECTOR_NOT_READY",
+          true,
+        );
+      }
+      setPairing(null);
+      setStage("connected");
+    } catch (nextError) {
+      setError(normalizeApiError(nextError));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  useEffect(() => {
+    if (stage !== "connector" || !pairing) return;
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const { connector } = await api.connectorSetupStatus(
+          pairing.connectorInstanceId,
+        );
+        if (!active) return;
+        if (connectorSetupIsReady(connector)) {
+          setError(null);
+          setPairing(null);
+          setStage("connected");
+          return;
+        }
+      } catch {
+        // No durable status exists until the one-time command is exchanged.
+      }
+      if (active) timer = window.setTimeout(() => void poll(), 1_500);
+    };
+    void poll();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [stage, pairing]);
+
+  return (
+    <div className="app-page compact-page add-project-page">
+      <button
+        className="app-text-button add-project-back"
+        type="button"
+        onClick={onBack}
+      >
+        ← Back to projects
+      </button>
+      <header className="app-page-heading">
+        <span className="app-eyebrow">Repository connection</span>
+        <h1>Add a project</h1>
+        <p>
+          Run Telaegent from the local Git repository you want to add. The
+          repository path and credentials stay on your computer.
+        </p>
+      </header>
+
+      {stage === "idle" && (
+        <section className="add-project-card">
+          <strong>Generate a secure one-time command</strong>
+          <p>
+            Open a terminal in your repository folder. Telaegent will verify
+            that exact GitHub repository before adding it to your projects.
+          </p>
+          <button
+            className="app-primary-action"
+            type="button"
+            onClick={() => void createCommand()}
+          >
+            Generate command
+          </button>
+        </section>
+      )}
+
+      {stage === "issuing" && (
+        <section className="add-project-card" aria-live="polite">
+          <TypingDots label="Generating secure connector command" />
+          <p>Generating your secure one-time command…</p>
+        </section>
+      )}
+
+      {stage === "connector" && pairing && (
+        <section className="device-flow add-project-card">
+          <div>
+            <span>Run from your repository</span>
+            <strong>Connect this repository</strong>
+          </div>
+          <p>
+            Open a terminal in the repository you want to add, then run this
+            command on Windows, macOS, or Linux.
+          </p>
+          <div className="connector-command-block">
+            <code className="connector-command">
+              {buildConnectorCommand(window.location.origin, pairing)}
+            </code>
+            <p>
+              This command expires{" "}
+              {new Intl.DateTimeFormat(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+              }).format(new Date(pairing.expiresAt))}
+              .
+            </p>
+          </div>
+          <div className="inline-actions">
+            <button
+              className="app-secondary-action"
+              type="button"
+              onClick={() => void copyCommand()}
+            >
+              {copied ? "Command copied" : "Copy command"}
+            </button>
+            <button
+              className="app-primary-action"
+              type="button"
+              disabled={checking}
+              onClick={() => void checkConnection()}
+            >
+              {checking ? "Checking…" : "Check connection"}
+            </button>
+            <button
+              className="app-text-button"
+              type="button"
+              disabled={checking}
+              onClick={() => void createCommand()}
+            >
+              New command
+            </button>
+          </div>
+          {error && (
+            <div className="api-state error" role="alert">
+              <strong>{error.code ?? "Connector not ready"}</strong>
+              <p>{apiErrorGuidance(error)}</p>
+            </div>
+          )}
+        </section>
+      )}
+
+      {stage === "error" && error && (
+        <section className="api-state error add-project-card" role="alert">
+          <strong>{error.code ?? "Connector setup unavailable"}</strong>
+          <p>{apiErrorGuidance(error)}</p>
+          <button
+            className="app-secondary-action"
+            type="button"
+            onClick={() => void createCommand()}
+          >
+            Try again
+          </button>
+        </section>
+      )}
+
+      {stage === "connected" && (
+        <section
+          className="add-project-card add-project-complete"
+          aria-live="polite"
+        >
+          <strong>
+            <StatusMark /> Repository added
+          </strong>
+          <p>
+            The connector verified this repository and added it to your project
+            list.
+          </p>
+          <button
+            className="app-primary-action"
+            type="button"
+            onClick={onConnected}
+          >
+            View projects
+          </button>
+        </section>
+      )}
     </div>
   );
 }
@@ -3008,10 +3245,17 @@ export default function ProductApp({
           {route === "projects" && (
             <ProjectsScreen
               onOpenProject={openProject}
+              onAddProject={() => navigateProduct("add-project")}
               projects={discoveredProjects}
               loading={projectsLoading}
               error={projectsError}
               onRetry={() => void loadProjects()}
+            />
+          )}
+          {route === "add-project" && (
+            <AddProjectScreen
+              onBack={() => navigateProduct("projects")}
+              onConnected={() => navigateProduct("projects")}
             />
           )}
           {route === "connections" && (

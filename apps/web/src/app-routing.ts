@@ -3,6 +3,7 @@ export type AppSurface = "landing" | "product";
 export type ProductRoute =
   | "onboarding"
   | "projects"
+  | "add-project"
   | "connections"
   | "settings"
   | "workspace";
@@ -52,6 +53,9 @@ export function productLocationFromUrl(
   if (pathname === `${APP_PATH}/settings`) {
     return { route: "settings", projectId: null };
   }
+  if (pathname === `${APP_PATH}/projects/new`) {
+    return { route: "add-project", projectId: null };
+  }
   const projectMatch = pathname.match(/^\/app\/projects\/([^/]+)\/?$/);
   if (projectMatch?.[1]) {
     try {
@@ -82,6 +86,8 @@ export function productPath(
   const pathname =
     route === "onboarding"
       ? ONBOARDING_PATH
+      : route === "add-project"
+        ? `${APP_PATH}/projects/new`
       : route === "connections"
         ? `${APP_PATH}/connections`
         : route === "settings"

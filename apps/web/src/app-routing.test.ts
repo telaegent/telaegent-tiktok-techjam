@@ -32,6 +32,9 @@ describe("browser app routing", () => {
       productLocationFromUrl("/app/onboarding", "", false).route,
     ).toBe("onboarding");
     expect(
+      productLocationFromUrl("/app/projects/new", "", false).route,
+    ).toBe("add-project");
+    expect(
       productLocationFromUrl("/app/connections", "", false).route,
     ).toBe("connections");
     expect(productLocationFromUrl("/app/settings", "", false).route).toBe(
@@ -44,6 +47,7 @@ describe("browser app routing", () => {
 
   it("builds durable paths and keeps local preview mode query-gated", () => {
     expect(productPath("projects")).toBe("/app");
+    expect(productPath("add-project")).toBe("/app/projects/new");
     expect(productPath("onboarding", null, true)).toBe(
       "/app/onboarding?preview=1",
     );
