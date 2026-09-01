@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectSummary } from "./api";
-import { partitionProjects, projectAvailability } from "./project-list";
+import {
+  partitionProjects,
+  projectAction,
+  projectAvailability,
+} from "./project-list";
 
 function project(
   id: string,
@@ -55,5 +59,22 @@ describe("project list grouping", () => {
       active: [active],
       historical: [offline, revoked, stopped],
     });
+  });
+
+  it("offers a fresh connection command whenever a project cannot be opened", () => {
+    expect(projectAction(project("1"))).toBe("Open");
+    expect(projectAction(project("2", { connectorLive: false }))).toBe(
+      "Connect",
+    );
+    expect(
+      projectAction(
+        project("3", {
+          repositoryAccessStatus: "revalidation_required",
+        }),
+      ),
+    ).toBe("Connect");
+    expect(
+      projectAction(project("4", { membershipStatus: "revoked" })),
+    ).toBe("Connect");
   });
 });
