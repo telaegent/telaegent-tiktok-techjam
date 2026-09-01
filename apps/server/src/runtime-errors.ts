@@ -79,7 +79,7 @@ const authenticationPattern =
   /(?:401|unauthori[sz]ed|authentication|invalid\s+(?:api\s*)?key|api[_ -]?key|login required|not logged in)/i;
 
 const missingSessionPattern =
-  /(?:(?:session|thread)\s+(?:id\s+)?(?:was\s+)?not\s+found|no\s+(?:session|thread)\s+found|no\s+rollout\s+found\s+for\s+thread\s+id|unknown\s+(?:session|thread)|failed\s+to\s+(?:load|resume)\s+(?:session|thread)|(?:session|thread)\s+(?:is\s+)?(?:missing|unavailable|does\s+not\s+exist))/i;
+  /(?:(?:session|thread)\s+(?:id\s+)?(?:was\s+)?not\s+found|no\s+(?:session|thread)\s+found|no\s+conversation\s+found\s+with\s+session\s+id|no\s+rollout\s+found\s+for\s+thread\s+id|unknown\s+(?:session|thread)|failed\s+to\s+(?:load|resume)\s+(?:session|thread)|(?:session|thread)\s+(?:is\s+)?(?:missing|unavailable|does\s+not\s+exist))/i;
 
 const timeoutPattern = /(?:ETIMEDOUT|timed?\s*out|timeout)/i;
 

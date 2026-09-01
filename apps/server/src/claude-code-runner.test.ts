@@ -179,6 +179,25 @@ describe("Claude Code runner protocol", () => {
     );
   });
 
+  it("preserves current Claude stream errors for local failure classification", () => {
+    const parsed = emptyParsed();
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: [
+          "No conversation found with session ID: 00000000-0000-0000-0000-000000000000",
+        ],
+      }),
+      parsed,
+    );
+
+    expect(classifyClaudeFailure(parsed.errors.at(-1)).code).toBe(
+      "RUNTIME_SESSION_NOT_FOUND",
+    );
+  });
+
   it("classifies authentication failures without leaking provider detail", () => {
     const error = classifyClaudeFailure("401 invalid API key sk-private-value");
     expect(error.code).toBe("RUNTIME_AUTHENTICATION_FAILED");

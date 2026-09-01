@@ -161,9 +161,16 @@ export function parseClaudeStreamLine(
     parsed.resultText = event.result;
   }
   if (event.is_error === true) {
-    parsed.errors.push(
-      typeof event.result === "string" ? event.result : "Claude Code reported an error",
-    );
+    const eventErrors = Array.isArray(event.errors)
+      ? event.errors.filter((value): value is string => typeof value === "string")
+      : [];
+    if (typeof event.result === "string") {
+      parsed.errors.push(event.result);
+    } else if (eventErrors.length > 0) {
+      parsed.errors.push(...eventErrors);
+    } else {
+      parsed.errors.push("Claude Code reported an error");
+    }
   }
   emitProgress(onProgress, { type: "turn_completed", provider: "claude" });
 }
