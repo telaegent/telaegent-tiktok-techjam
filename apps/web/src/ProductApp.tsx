@@ -436,7 +436,7 @@ function Onboarding({
               {githubStage === "connector" && connectorCredential && (
                 <div className="device-flow">
                   <div>
-                    <span>Configure local paths</span>
+                    <span>Configure paths on this device</span>
                     <strong>Connect this installation</strong>
                   </div>
                   <div>
@@ -449,27 +449,27 @@ function Onboarding({
                   </p>
                   <div className="connector-path-fields">
                     <label>
-                      <span>Telaegent source folder</span>
+                      <span>Local Telaegent checkout</span>
                       <input
                         type="text"
                         value={connectorSourcePath}
                         onChange={(event) =>
                           setConnectorSourcePath(event.target.value)
                         }
-                        placeholder="D:\\Projects\\telaegent\\telaegent-tiktok-techjam"
+                        placeholder="Enter its path on this device"
                         autoComplete="off"
                         spellCheck={false}
                       />
                     </label>
                     <label>
-                      <span>Repository to connect</span>
+                      <span>Local repository checkout</span>
                       <input
                         type="text"
                         value={repositoryPath}
                         onChange={(event) =>
                           setRepositoryPath(event.target.value)
                         }
-                        placeholder="D:\\Projects\\Testing\\my-repository"
+                        placeholder="Enter its path on this device"
                         autoComplete="off"
                         spellCheck={false}
                       />

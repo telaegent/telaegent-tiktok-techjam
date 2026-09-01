@@ -188,7 +188,7 @@
   margin-bottom: 19px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 15px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
@@ -900,7 +900,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--quiet);
   font-family: var(--mono);
   font-size: 9px;
-  letter-spacing: .05em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
