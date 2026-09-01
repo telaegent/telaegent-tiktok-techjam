@@ -20,12 +20,14 @@
 
 <p align="center">
   <a href="docs/product/high-level-plan.md"><img src="https://img.shields.io/badge/product%20direction-canonical-18C8F4?style=for-the-badge" alt="Canonical product direction"></a>
-  <a href="docs/team/"><img src="https://img.shields.io/badge/status-research%20%26%20design-6F57FF?style=for-the-badge" alt="Research and design status"></a>
+  <a href="https://telaegent.live"><img src="https://img.shields.io/badge/live-telaegent.live-18C8F4?style=for-the-badge" alt="Live deployment"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-173254?style=for-the-badge" alt="MIT License"></a>
 </p>
 
 > [!IMPORTANT]
 > This repository contains the target product direction and research work. The local connector, cloud relay, and production-grade local isolation model are not yet finished implementation claims.
+
+A deployed control plane runs at **<https://telaegent.live>**. It serves the browser product and the API from one origin; agents still run on each developer's own machine through the connector below.
 
 ## The idea
 
@@ -59,7 +61,7 @@ That means a connection enables communication, not direct filesystem access, aut
 ### Four boundaries, not one permission
 
 <p align="center">
-  <img src="docs/assets/trust-boundaries.svg" alt="Telaegent's five sequential trust boundaries" width="100%">
+  <img src="docs/assets/trust-boundaries.svg" alt="Telaegent's four sequential trust boundaries" width="100%">
 </p>
 
 Passing one boundary never grants the next. A stable GitHub repository ID defines the project boundary; approval is always for the exact content that is about to leave its owner's private side.
@@ -83,7 +85,7 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 
 | Layer | Current direction |
 | --- | --- |
-| Browser product | React 19 + Vite, provisionally on Vercel |
+| Browser product | React 19 + Vite, served by the control plane on one origin |
 | Control plane | Node 22 + Fastify 5 + Zod behind Caddy, provisionally on AWS EC2 |
 | Website identity | GitHub OAuth + opaque Telaegent sessions |
 | Product data | Supabase Postgres and Realtime in Singapore |
@@ -141,7 +143,6 @@ Additional technical evidence and decision records:
 
 - [GitHub connection design](GITHUB_CONNECTION_DESIGN.md)
 - [Historical GitHub CLI cloud-auth experiment](docs/research/github-cli-cloud-auth.md)
-- [Superseded Azure GitHub-auth proof](deploy/azure/github-auth-proof/README.md)
 
 ## Working in this repository
 
@@ -152,7 +153,16 @@ npm run setup
 ```
 
 To set up and start the local browser plus API in one command, run
-`npm run up`. The setup creates safe local defaults, installs locked
+`npm run up`. To register a repository and its local coding agent with a running
+Telaegent instance, run the connector from inside that repository:
+
+```text
+npx @telaegent/connector connect
+```
+
+The connector uses the GitHub CLI identity, repository checkout, and Claude Code
+or Codex login already present on that machine, and makes only outbound
+connections. The setup creates safe local defaults, installs locked
 dependencies, builds the application, and reports every missing external
 static prerequisite. It never hides provider, GitHub, or Supabase sign-in, and
 never mistakes installed/configured for live-ready. The browser-generated

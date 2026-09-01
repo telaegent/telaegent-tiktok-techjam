@@ -33,12 +33,12 @@ architecture keeps GitHub CLI authentication on the developer's own machine, so
 there is nothing left for a cloud run to prove. Telaegent's control plane is
 assigned to AWS EC2, which hosts no GitHub CLI identity.
 
-The reproducible proof package is documented at
-[`deploy/azure/github-auth-proof/README.md`](../../deploy/azure/github-auth-proof/README.md).
-It provisions one short-lived Ubuntu VM and restricted network resources in a
-new, dedicated resource group. Khoa supplies only an SSH public key, then uses
-the matching private key locally to perform GitHub device authorization with
-Khoa's own GitHub account.
+A reproduction package existed for this: Bicep and cloud-init provisioning one
+short-lived Ubuntu VM and restricted network resources in a dedicated resource
+group, where an operator supplied only an SSH public key and performed GitHub
+device authorization with their own GitHub account. It was never run against a
+live subscription, and was removed from the repository once the local connector
+became canonical.
 
 Before it was retired, the package passed local PowerShell, YAML, embedded Bash,
 and Bicep compilation checks. This validates only the preserved package's syntax
