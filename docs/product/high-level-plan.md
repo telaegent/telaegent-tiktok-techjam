@@ -126,10 +126,10 @@ The deployed shape is:
 | Coding providers | developer's locally authenticated Claude Code CLI and/or Codex CLI |
 
 The connector transport is outbound long-polling. The control plane does not
-provision provider runtimes. Connector pairing, local repository proof and job
-delivery have been exercised against the live deployment; production-grade path
-binding, revocation under adversarial conditions, and multi-tenant isolation
-remain unproven and should not be claimed.
+provision provider runtimes. Connector pairing, local repository proof, job
+delivery and the human-gated message flow have been exercised against the live
+deployment. Production-grade multi-tenant isolation and revocation under
+adversarial conditions remain unproven and should not be claimed.
 
 ---
 

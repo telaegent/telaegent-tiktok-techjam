@@ -25,7 +25,7 @@
 </p>
 
 > [!IMPORTANT]
-> The control plane, the cloud relay and the local connector are deployed and running: a connector on a developer machine pairs with <https://telaegent.live>, proves repository access through that developer's own GitHub CLI, and holds an outbound job connection. What is **not** claimed is production-grade multi-tenant isolation, or a two-user conversation proven end to end under load.
+> The product runs end to end. A connector on each developer's machine pairs with <https://telaegent.live>, proves repository access through that developer's own GitHub CLI, and holds an outbound job connection; approved messages cross between two people through the shared project conversation while each agent runs locally. Production-grade multi-tenant isolation is still not claimed.
 
 A deployed control plane runs at **<https://telaegent.live>**. It serves the browser product and the API from one origin; agents still run on each developer's own machine through the connector below.
 
