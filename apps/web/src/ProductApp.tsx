@@ -2843,16 +2843,18 @@ export default function ProductApp({
           >
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <button
-            className="account-button"
-            type="button"
-            onClick={() => void onLogout()}
-            title="Sign out"
-          >
+          <div className="account-summary">
             <span>
               {(user?.githubLogin ?? "Demo").slice(0, 2).toUpperCase()}
             </span>
             <strong>{user?.githubLogin ?? "Demo"}</strong>
+          </div>
+          <button
+            className="app-text-button logout-button"
+            type="button"
+            onClick={() => void onLogout()}
+          >
+            Log out
           </button>
         </div>
       </header>

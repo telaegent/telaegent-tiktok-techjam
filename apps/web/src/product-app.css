@@ -480,17 +480,14 @@
   gap: 18px;
 }
 
-.account-button {
+.account-summary {
   padding: 0;
-  border: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: transparent;
-  cursor: pointer;
 }
 
-.account-button span {
+.account-summary span {
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -502,9 +499,13 @@
   font-size: 10px;
 }
 
-.account-button strong {
+.account-summary strong {
   font-size: 13px;
   font-weight: 600;
+}
+
+.logout-button {
+  white-space: nowrap;
 }
 
 .app-body {
@@ -2464,7 +2465,7 @@ html[data-theme="dark"] .app-rail button > img {
   }
 
   .app-topbar-context,
-  .account-button strong {
+  .account-summary strong {
     display: none;
   }
 
