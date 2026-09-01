@@ -1,57 +1,101 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
-  <title id="title">Telaegent cloud coordination around local execution</title>
-  <desc id="desc">The browser connects to the control plane, which stores shared state in Supabase and relays approved jobs to two local connectors. Each developer machine keeps its own GitHub CLI, repository, provider CLI, and credentials, and opens the connection outbound.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="660" viewBox="0 0 1440 660" role="img" aria-labelledby="t d">
+  <title id="t">Cloud coordination around locally running agents</title>
+  <desc id="d">The browser talks to a control plane that keeps identity and the shared conversation in Supabase. Each developer's connector dials outbound to the job relay. Repositories, GitHub CLI identity, provider CLIs and credentials never leave the developer's machine.</desc>
+  <style>
+    text { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Helvetica,sans-serif }
+    .page  { fill:#FFFFFF }
+    .band  { fill:#FBF9F3 }
+    .bandl { fill:#F5F8FC }
+    .zone  { fill:none; stroke:#CFC9B8 }
+    .zonel { fill:none; stroke:#C3CFDF }
+    .tag   { fill:#FFE08A; stroke:#111111 }
+    .tagt  { font-size:12px; font-weight:700; fill:#111111; letter-spacing:.06em }
+    .node  { fill:#FFFFFF; stroke:#111111; stroke-width:1.6 }
+    .proc  { fill:#111111 }
+    .proct { font-size:14px; fill:#FFFFFF }
+    .procs { font-size:11.5px; fill:#B9BDC4; font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
+    .n     { font-size:14px; font-weight:700; fill:#111111 }
+    .s     { font-size:12px; fill:#555555 }
+    .m     { font-size:11.5px; fill:#777777; font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
+    .wire  { fill:none; stroke:#333333; stroke-width:1.6 }
+    .out   { fill:none; stroke:#D93A3A; stroke-width:2 }
+    .outt  { font-size:12.5px; font-weight:700; fill:#D93A3A }
+    .wl    { font-size:12px; fill:#444444 }
+    .foot  { font-size:13px; fill:#444444 }
+  </style>
   <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07152F"/><stop offset="1" stop-color="#10234B"/></linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#16C8F3"/><stop offset="1" stop-color="#6F57FF"/></linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="13" stdDeviation="17" flood-color="#010817" flood-opacity=".35"/></filter>
-    <marker id="arrow" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto"><path d="M0 0 L11 5.5 L0 11 Z" fill="#44D8FF"/></marker>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#333333"/></marker>
+    <marker id="rd" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#D93A3A"/></marker>
   </defs>
-  <rect width="1440" height="760" rx="28" fill="url(#background)"/>
-  <g opacity=".18" fill="none" stroke="#5EBAF6"><circle cx="90" cy="104" r="172"/><circle cx="1360" cy="676" r="214"/><path d="M0 624 C252 535 387 757 675 653 S1142 548 1440 655"/></g>
-  <text x="720" y="66" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="31" font-weight="700">Cloud coordination around locally running agents.</text>
 
-  <g fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)">
-    <path d="M720 166 V203"/>
-    <path d="M570 248 C486 248 452 284 421 316"/>
-    <path d="M720 293 V316"/>
-    <path d="M651 420 C608 446 500 449 418 488"/>
-    <path d="M789 420 C832 446 940 449 1022 488"/>
-    <path d="M340 598 V634"/>
-    <path d="M1100 598 V634"/>
-  </g>
+  <rect class="page" width="1440" height="660"/>
 
-  <g filter="url(#shadow)">
-    <rect x="570" y="84" width="300" height="82" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
-    <text x="720" y="116" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Browser product</text><text x="720" y="143" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="17">React / Vite</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="570" y="205" width="300" height="88" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
-    <text x="720" y="238" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Control plane</text><text x="720" y="265" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="17">Caddy + Fastify</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="120" y="316" width="300" height="104" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
-    <text x="270" y="350" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Supabase</text><text x="270" y="378" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="16">Identity · project data ·</text><text x="270" y="400" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="16">shared conversation</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="570" y="316" width="300" height="104" rx="18" fill="#E9F8FF" stroke="#18C8F4" stroke-width="2"/>
-    <text x="720" y="357" text-anchor="middle" fill="#102747" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700">Connector job relay</text><text x="720" y="387" text-anchor="middle" fill="#294B68" font-family="Arial, Helvetica, sans-serif" font-size="16">Routes approved jobs to connectors</text>
-  </g>
-  <text x="720" y="468" text-anchor="middle" fill="#B9D9ED" font-family="Arial, Helvetica, sans-serif" font-size="16">Each connector opens this connection outbound</text>
-  <g filter="url(#shadow)">
-    <rect x="160" y="488" width="360" height="110" rx="20" fill="#1B2854" stroke="#8B72FF" stroke-width="2"/>
-    <text x="340" y="531" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">User A × Repository X</text><text x="340" y="561" text-anchor="middle" fill="#CFC7FF" font-family="Arial, Helvetica, sans-serif" font-size="17">local connector · outbound only</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="920" y="488" width="360" height="110" rx="20" fill="#1B2854" stroke="#8B72FF" stroke-width="2"/>
-    <text x="1100" y="531" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">User B × Repository X</text><text x="1100" y="561" text-anchor="middle" fill="#CFC7FF" font-family="Arial, Helvetica, sans-serif" font-size="17">local connector · outbound only</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="130" y="634" width="420" height="76" rx="18" fill="#102747" stroke="#2F608B" stroke-width="2"/>
-    <text x="340" y="665" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">A's machine · GitHub CLI · repository</text><text x="340" y="691" text-anchor="middle" fill="#B9D9ED" font-family="Arial, Helvetica, sans-serif" font-size="16">Claude Code and/or Codex CLI · local login</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="890" y="634" width="420" height="76" rx="18" fill="#102747" stroke="#2F608B" stroke-width="2"/>
-    <text x="1100" y="665" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">B's machine · GitHub CLI · repository</text><text x="1100" y="691" text-anchor="middle" fill="#B9D9ED" font-family="Arial, Helvetica, sans-serif" font-size="16">Claude Code and/or Codex CLI · local login</text>
-  </g>
+  <!-- cloud band -->
+  <rect class="band" x="36" y="52" width="1368" height="222" rx="6"/>
+  <rect class="zone" x="36" y="52" width="1368" height="222" rx="6"/>
+  <rect class="tag"  x="52" y="38" width="176" height="26" rx="3"/>
+  <text class="tagt" x="64" y="56">TELAEGENT CLOUD</text>
+
+  <rect class="node" x="580" y="82" width="280" height="52" rx="4"/>
+  <text class="n" x="600" y="106">Browser product</text>
+  <text class="s" x="600" y="124">React 19 + Vite</text>
+
+  <path class="wire" d="M720 134 V158" marker-end="url(#ar)"/>
+
+  <rect class="proc" x="580" y="164" width="280" height="60" rx="4"/>
+  <text class="proct" x="600" y="190">Control plane</text>
+  <text class="procs" x="600" y="210">Caddy + Fastify 5 · AWS EC2</text>
+
+  <rect class="node" x="140" y="164" width="280" height="76" rx="4"/>
+  <text class="n" x="160" y="190">Supabase</text>
+  <text class="s" x="160" y="210">identity · project data</text>
+  <text class="s" x="160" y="228">shared conversation · approvals</text>
+  <path class="wire" d="M580 194 H428" marker-end="url(#ar)"/>
+
+  <rect class="node" x="1020" y="164" width="280" height="76" rx="4"/>
+  <text class="n" x="1040" y="190">Connector job relay</text>
+  <text class="s" x="1040" y="210">bounded jobs · presence</text>
+  <text class="m" x="1040" y="228">no path · no command · no credential</text>
+  <path class="wire" d="M860 194 H1012" marker-end="url(#ar)"/>
+
+  <!-- outbound -->
+  <path class="out" d="M300 400 V330 H1160 V248" marker-end="url(#rd)"/>
+  <path class="out" d="M1140 400 V330" marker-end="url(#rd)"/>
+  <text class="outt" x="470" y="322">each connector opens this connection outbound</text>
+  <text class="wl"   x="470" y="352">long-poll · no inbound port on any developer machine</text>
+
+  <!-- machine A -->
+  <rect class="bandl" x="36" y="400" width="640" height="180" rx="6"/>
+  <rect class="zonel" x="36" y="400" width="640" height="180" rx="6"/>
+  <rect class="tag"  x="52" y="386" width="212" height="26" rx="3"/>
+  <text class="tagt" x="64" y="404">DEVELOPER A · MACHINE</text>
+
+  <rect class="proc" x="60" y="424" width="592" height="52" rx="4"/>
+  <text class="proct" x="80" y="448">Connector — binding: user A × repository X</text>
+  <text class="procs" x="80" y="466">outbound only</text>
+  <rect class="node" x="60" y="490" width="288" height="66" rx="4"/>
+  <text class="s" x="80" y="516">Repository checkout</text>
+  <text class="m" x="80" y="538">GitHub CLI identity</text>
+  <rect class="node" x="364" y="490" width="288" height="66" rx="4"/>
+  <text class="s" x="384" y="516">Codex / Claude Code</text>
+  <text class="m" x="384" y="538">existing local login</text>
+
+  <!-- machine B -->
+  <rect class="bandl" x="764" y="400" width="640" height="180" rx="6"/>
+  <rect class="zonel" x="764" y="400" width="640" height="180" rx="6"/>
+  <rect class="tag"  x="780" y="386" width="212" height="26" rx="3"/>
+  <text class="tagt" x="792" y="404">DEVELOPER B · MACHINE</text>
+
+  <rect class="proc" x="788" y="424" width="592" height="52" rx="4"/>
+  <text class="proct" x="808" y="448">Connector — binding: user B × repository X</text>
+  <text class="procs" x="808" y="466">outbound only</text>
+  <rect class="node" x="788" y="490" width="288" height="66" rx="4"/>
+  <text class="s" x="808" y="516">Repository checkout</text>
+  <text class="m" x="808" y="538">GitHub CLI identity</text>
+  <rect class="node" x="1092" y="490" width="288" height="66" rx="4"/>
+  <text class="s" x="1112" y="516">Codex / Claude Code</text>
+  <text class="m" x="1112" y="538">existing local login</text>
+
+  <line x1="36" y1="606" x2="1404" y2="606" stroke="#DDDDDD"/>
+  <text class="foot" x="36" y="634">Isolation unit is user × repository. The cloud holds no repository content, no provider credential and no local path — it selects an opaque binding and the connector resolves it.</text>
 </svg>

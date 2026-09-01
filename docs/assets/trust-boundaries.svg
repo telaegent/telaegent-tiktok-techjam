@@ -1,44 +1,90 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="390" viewBox="0 0 1440 390" role="img" aria-labelledby="title desc">
-  <title id="title">Telaegent's five trust boundaries</title>
-  <desc id="desc">Telaegent identity, GitHub authorization, project connection, human approval, and the shared project conversation are separate sequential boundaries.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="440" viewBox="0 0 1440 440" role="img" aria-labelledby="t d">
+  <title id="t">Four sequential trust boundaries</title>
+  <desc id="d">Telaegent identity, GitHub repository authorization, the project collaborator connection, and human approval of exact content are four separate boundaries. Passing one never grants the next.</desc>
+  <style>
+    text { font-family: ui-sans-serif,-apple-system,"Segoe UI",Inter,Helvetica,sans-serif }
+    .page { fill:#FFFFFF }
+    .card { fill:#FFFFFF; stroke:#111111; stroke-width:1.6 }
+    .cap  { fill:#111111 }
+    .capn { font-size:12px; font-weight:700; fill:#FFFFFF; font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
+    .name { font-size:15px; font-weight:700; fill:#111111 }
+    .q    { font-size:12.5px; fill:#444444 }
+    .hr   { stroke:#DDDDDD }
+    .noh  { font-size:10.5px; font-weight:700; fill:#D93A3A; letter-spacing:.08em }
+    .no   { font-size:12px; fill:#555555 }
+    .out  { fill:#DCE7F5; stroke:#9DB4D4 }
+    .outn { font-size:14px; font-weight:700; fill:#111111 }
+    .outs { font-size:12px; fill:#444444 }
+    .wire { fill:none; stroke:#333333; stroke-width:1.6 }
+    .foot { font-size:13px; fill:#444444 }
+  </style>
   <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07152F"/><stop offset="1" stop-color="#10234B"/></linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#16C8F3"/><stop offset="1" stop-color="#6F57FF"/></linearGradient>
-    <filter id="shadow" x="-20%" y="-25%" width="140%" height="170%"><feDropShadow dx="0" dy="11" stdDeviation="13" flood-color="#010817" flood-opacity=".35"/></filter>
-    <marker id="arrow" markerWidth="11" markerHeight="11" refX="8" refY="5.5" orient="auto"><path d="M0 0 L11 5.5 L0 11 Z" fill="#44D8FF"/></marker>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#333333"/></marker>
   </defs>
-  <rect width="1440" height="390" rx="28" fill="url(#background)"/>
-  <g opacity=".18" fill="none" stroke="#5EBAF6"><circle cx="55" cy="90" r="135"/><circle cx="1380" cy="334" r="185"/><path d="M80 360 C355 250 555 450 825 345 S1185 232 1400 316"/></g>
-  <text x="720" y="67" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="31" font-weight="700">Trust is built one boundary at a time.</text>
-  <text x="720" y="99" text-anchor="middle" fill="#A9CBE2" font-family="Arial, Helvetica, sans-serif" font-size="17">Passing one never grants the next.</text>
 
-  <g fill="none" stroke="#44D8FF" stroke-width="4" marker-end="url(#arrow)">
-    <path d="M285 229 H323"/><path d="M555 229 H593"/><path d="M825 229 H863"/><path d="M1095 229 H1133"/>
-  </g>
+  <rect class="page" width="1440" height="440"/>
 
-  <g filter="url(#shadow)">
-    <rect x="75" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
-    <circle cx="105" cy="188" r="15" fill="#16C8F3"/><text x="105" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">1</text>
-    <text x="180" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Telaegent</text><text x="180" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">identity</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="345" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
-    <circle cx="375" cy="188" r="15" fill="#16C8F3"/><text x="375" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">2</text>
-    <text x="450" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">GitHub repository</text><text x="450" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">authorization</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="615" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
-    <circle cx="645" cy="188" r="15" fill="#16C8F3"/><text x="645" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">3</text>
-    <text x="720" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Project collaborator</text><text x="720" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">connection</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="885" y="154" width="210" height="150" rx="20" fill="#102747" stroke="#2F608B" stroke-width="2"/>
-    <circle cx="915" cy="188" r="15" fill="#16C8F3"/><text x="915" y="194" text-anchor="middle" fill="#07152F" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">4</text>
-    <text x="990" y="238" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Human approval</text><text x="990" y="264" text-anchor="middle" fill="#EAF7FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">of exact content</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="1155" y="154" width="210" height="150" rx="20" fill="#1B2854" stroke="#8B72FF" stroke-width="2"/>
-    <circle cx="1185" cy="188" r="15" fill="url(#accent)"/><text x="1185" y="194" text-anchor="middle" fill="#FFF" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700">5</text>
-    <text x="1260" y="238" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Durable shared</text><text x="1260" y="264" text-anchor="middle" fill="#F5F1FF" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">project conversation</text>
-  </g>
+  <!-- 1 -->
+  <rect class="card" x="36" y="36" width="300" height="252" rx="4"/>
+  <rect class="cap"  x="36" y="36" width="300" height="30"/>
+  <text class="capn" x="52" y="56">BOUNDARY 01</text>
+  <text class="name" x="52" y="94">Telaegent identity</text>
+  <text class="q"    x="52" y="118">Who is this person?</text>
+  <line class="hr" x1="52" y1="140" x2="320" y2="140"/>
+  <text class="noh"  x="52" y="164">DOES NOT GRANT</text>
+  <text class="no"   x="52" y="190">access to any repository</text>
+  <text class="no"   x="52" y="214">the right to contact anyone</text>
+  <text class="no"   x="52" y="238">a running agent</text>
+
+  <path class="wire" d="M336 162 H370" marker-end="url(#ar)"/>
+
+  <!-- 2 -->
+  <rect class="card" x="378" y="36" width="300" height="252" rx="4"/>
+  <rect class="cap"  x="378" y="36" width="300" height="30"/>
+  <text class="capn" x="394" y="56">BOUNDARY 02</text>
+  <text class="name" x="394" y="94">Repository authorization</text>
+  <text class="q"    x="394" y="118">Which repository is this about?</text>
+  <line class="hr" x1="394" y1="140" x2="662" y2="140"/>
+  <text class="noh"  x="394" y="164">DOES NOT GRANT</text>
+  <text class="no"   x="394" y="190">a second repository</text>
+  <text class="no"   x="394" y="214">another person's checkout</text>
+  <text class="no"   x="394" y="238">read access for collaborators</text>
+
+  <path class="wire" d="M678 162 H712" marker-end="url(#ar)"/>
+
+  <!-- 3 -->
+  <rect class="card" x="720" y="36" width="300" height="252" rx="4"/>
+  <rect class="cap"  x="720" y="36" width="300" height="30"/>
+  <text class="capn" x="736" y="56">BOUNDARY 03</text>
+  <text class="name" x="736" y="94">Collaborator connection</text>
+  <text class="q"    x="736" y="118">Who may talk to me here?</text>
+  <line class="hr" x1="736" y1="140" x2="1004" y2="140"/>
+  <text class="noh"  x="736" y="164">DOES NOT GRANT</text>
+  <text class="no"   x="736" y="190">filesystem or shell access</text>
+  <text class="no"   x="736" y="214">automatic replies</text>
+  <text class="no"   x="736" y="238">the same person on another repo</text>
+
+  <path class="wire" d="M1020 162 H1054" marker-end="url(#ar)"/>
+
+  <!-- 4 -->
+  <rect class="card" x="1062" y="36" width="300" height="252" rx="4"/>
+  <rect class="cap"  x="1062" y="36" width="300" height="30"/>
+  <text class="capn" x="1078" y="56">BOUNDARY 04</text>
+  <text class="name" x="1078" y="94">Approval of exact content</text>
+  <text class="q"    x="1078" y="118">Do I want to send this text?</text>
+  <line class="hr" x1="1078" y1="140" x2="1346" y2="140"/>
+  <text class="noh"  x="1078" y="164">DOES NOT GRANT</text>
+  <text class="no"   x="1078" y="190">the next message</text>
+  <text class="no"   x="1078" y="214">a wider scope than approved</text>
+  <text class="no"   x="1078" y="238">anything hard policy forbids</text>
+
+  <!-- outcome -->
+  <path class="wire" d="M1212 288 V318" marker-end="url(#ar)"/>
+  <rect class="out" x="1062" y="324" width="300" height="52" rx="4"/>
+  <text class="outn" x="1078" y="346">Durable shared conversation</text>
+  <text class="outs" x="1078" y="366">the result of the four gates, not a fifth permission</text>
+
+  <text class="foot" x="36" y="346">Passing one boundary never grants the next.</text>
+  <text class="foot" x="36" y="372">Each is revocable on its own, and revoking one never silently leaves another open.</text>
+  <text class="foot" x="36" y="410">A stable GitHub repository ID defines the project scope. Approval always names the exact content about to leave its owner's machine.</text>
 </svg>
