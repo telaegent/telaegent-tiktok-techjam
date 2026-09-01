@@ -40,7 +40,7 @@ const project: ProjectSummary = {
   membershipJoinedAt: "2026-08-28T09:00:00.000Z",
   githubConnectionStatus: "connected",
   repositoryAccessStatus: "verified",
-  repositoryVerifiedAt: "2026-09-01T00:30:00.000Z",
+  repositoryVerifiedAt: new Date().toISOString(),
   connectedCollaboratorCount: 1,
   connectorLive: true,
   binding: {

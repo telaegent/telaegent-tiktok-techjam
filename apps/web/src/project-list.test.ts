@@ -4,7 +4,12 @@ import {
   partitionProjects,
   projectAction,
   projectAvailability,
+  REPOSITORY_PROOF_CLOCK_SKEW_MS,
+  REPOSITORY_PROOF_MAX_AGE_MS,
 } from "./project-list";
+
+const nowMs = Date.parse("2026-09-02T00:00:00.000Z");
+const freshVerifiedAt = new Date().toISOString();
 
 function project(
   id: string,
@@ -21,7 +26,7 @@ function project(
     membershipJoinedAt: "2026-09-01T00:00:00.000Z",
     githubConnectionStatus: "connected",
     repositoryAccessStatus: "verified",
-    repositoryVerifiedAt: "2026-09-01T00:00:00.000Z",
+    repositoryVerifiedAt: freshVerifiedAt,
     connectedCollaboratorCount: 0,
     connectorLive: true,
     binding: {
@@ -45,6 +50,45 @@ describe("project list grouping", () => {
     expect(projectAvailability(project("2", { connectorLive: false }))).toBe(
       "Connector offline",
     );
+  });
+
+  it("matches the backend repository-proof freshness boundary", () => {
+    expect(
+      projectAvailability(
+        project("1", {
+          repositoryVerifiedAt: new Date(
+            nowMs - REPOSITORY_PROOF_MAX_AGE_MS,
+          ).toISOString(),
+        }),
+        nowMs,
+      ),
+    ).toBe("Open");
+    expect(
+      projectAvailability(
+        project("2", {
+          repositoryVerifiedAt: new Date(
+            nowMs - REPOSITORY_PROOF_MAX_AGE_MS - 1,
+          ).toISOString(),
+        }),
+        nowMs,
+      ),
+    ).toBe("Needs verification");
+    expect(
+      projectAvailability(
+        project("3", {
+          repositoryVerifiedAt: new Date(
+            nowMs + REPOSITORY_PROOF_CLOCK_SKEW_MS + 1,
+          ).toISOString(),
+        }),
+        nowMs,
+      ),
+    ).toBe("Needs verification");
+    expect(
+      projectAvailability(
+        project("4", { repositoryVerifiedAt: "invalid" }),
+        nowMs,
+      ),
+    ).toBe("Needs verification");
   });
 
   it("separates active projects from historical and stopped records", () => {
@@ -87,6 +131,13 @@ describe("project list grouping", () => {
     ).toBeNull();
     expect(
       projectAction(project("4", { githubConnectionStatus: "revoked" })),
+    ).toBeNull();
+    expect(
+      projectAction(
+        project("5", {
+          binding: { ...project("5").binding, status: "revoked" },
+        }),
+      ),
     ).toBeNull();
   });
 });
