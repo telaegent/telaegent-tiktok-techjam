@@ -56,6 +56,24 @@ const MAX_LIFTED_RESOURCE_REQUESTS = 16;
 const INVESTIGATION_MAX_TURNS = 12;
 const INVESTIGATION_SCHEMA_NAME = "investigation-note.schema.json";
 
+/**
+ * The research pass's share of the cloud's job budget.
+ *
+ * `LongPollConnectorJobRelay` times a job out at `max(CLAUDE_TIMEOUT_MS,
+ * CODEX_TIMEOUT_MS)`, and that budget covers the whole job while the provider
+ * timeout of the same name bounds one run. Before two passes those two limits
+ * described the same interval. They no longer do: an investigation that runs
+ * long spends budget the drafting pass still needs, and the owner sees the job
+ * time out — indistinguishable, from the outside, from a dropped connector.
+ *
+ * A turn cap is not a time cap. Twelve turns of `Grep` over a large repository
+ * can outlast twelve turns of anything else, so the bound has to be wall clock.
+ * Crossing it aborts the research pass alone; the drafting pass then runs with
+ * the original prompt and the rest of the budget, exactly as it did before this
+ * existed.
+ */
+const INVESTIGATION_DEADLINE_MS = 90_000;
+
 const idPart = z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/);
 const jobSchema = z.strictObject({
   jobId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
@@ -390,13 +408,21 @@ export class ConnectorWorker {
    * The research pass. Its note never leaves this process.
    *
    * Failure is not an error: a turn that could not investigate is still a turn
-   * the owner is waiting for, so every failure path returns an empty note and
-   * lets the drafting pass run exactly as it did before two passes existed.
+   * the owner is waiting for, so a failed or overrunning research pass returns
+   * an empty note and lets the drafting pass run exactly as it did before two
+   * passes existed. Cancellation is the one exception — see the catch.
    */
   private async investigate(
     job: Readonly<ConnectorJobRequest>,
     signal: AbortSignal,
   ): Promise<string> {
+    const deadline = new AbortController();
+    const stopInvestigating = (): void => {
+      deadline.abort();
+    };
+    signal.addEventListener("abort", stopInvestigating, { once: true });
+    const timer = setTimeout(stopInvestigating, INVESTIGATION_DEADLINE_MS);
+    timer.unref?.();
     try {
       const result = await this.sessions.run(
         this.scope(job),
@@ -421,13 +447,21 @@ export class ConnectorWorker {
         },
         undefined,
         undefined,
-        signal,
+        deadline.signal,
       );
       const note = (result.final as { note?: unknown } | null)?.note;
       return typeof note === "string" ? note : "";
-    } catch {
-      // Investigation is an enhancement. Degrade to the single-pass turn.
+    } catch (error) {
+      // A cancelled job is not a failed investigation. The owner asked the whole
+      // turn to stop, so this must not be swallowed into a drafting pass nobody
+      // is waiting for.
+      if (signal.aborted) throw error;
+      // Anything else — the deadline included — is an enhancement that did not
+      // arrive. Degrade to the single-pass turn.
       return "";
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", stopInvestigating);
     }
   }
 

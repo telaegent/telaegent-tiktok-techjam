@@ -1,5 +1,5 @@
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   InMemoryProviderSessionStore,
   ProviderSessionManager,
@@ -92,6 +92,7 @@ function sessions(
   run: (
     request: MiddlewareRunRequest,
     onProgress?: RuntimeProgressSink,
+    signal?: AbortSignal,
   ) => Promise<NormalizedRunResult>,
 ) {
   return new ProviderSessionManager(
@@ -288,6 +289,79 @@ describe("deployment compatibility", () => {
 
     expect(await worker.runOnce()).toBe("completed");
     expect(transport.results).toHaveLength(1);
+    expect(transport.failures).toEqual([]);
+  });
+});
+
+describe("job budget", () => {
+  /**
+   * The cloud's `LongPollConnectorJobRelay` times the whole job out at
+   * `max(CLAUDE_TIMEOUT_MS, CODEX_TIMEOUT_MS)`. Two passes now share that one
+   * budget, so the research pass must not be able to spend all of it.
+   */
+  it("abandons a research pass that outruns its deadline and still drafts", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new FakeTransport();
+      const requests: MiddlewareRunRequest[] = [];
+      const worker = new ConnectorWorker(
+        binding,
+        sessions(async (request, _onProgress, signal) => {
+          requests.push(request);
+          if (request.outputSchemaName !== "investigation-note.schema.json") {
+            return ok(draftFinal);
+          }
+          // A provider that reads and reads. It ends only when told to.
+          return await new Promise<NormalizedRunResult>((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => reject(new Error("aborted")),
+              { once: true },
+            );
+          });
+        }),
+        transport,
+        { cancel: async () => true },
+      );
+
+      const running = worker.runOnce();
+      await vi.advanceTimersByTimeAsync(90_000);
+
+      expect(await running).toBe("completed");
+      expect(requests).toHaveLength(2);
+      // The drafting pass got the whole prompt and none of the note.
+      expect(requests[1]?.outputSchemaName).toBe("recipient-turn.schema.json");
+      expect(requests[1]?.runtimePrompt).toBe(job.runtimePrompt);
+      expect(transport.results).toHaveLength(1);
+      expect(transport.failures).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not draft a turn the owner cancelled mid-investigation", async () => {
+    const owner = new AbortController();
+    const transport = new FakeTransport();
+    const requests: MiddlewareRunRequest[] = [];
+    const worker = new ConnectorWorker(
+      binding,
+      sessions(async (request) => {
+        requests.push(request);
+        if (request.outputSchemaName === "investigation-note.schema.json") {
+          owner.abort();
+          throw new Error("provider stopped");
+        }
+        return ok(draftFinal);
+      }),
+      transport,
+      { cancel: async () => true },
+    );
+
+    expect(await worker.runOnce(owner.signal)).toBe("cancelled");
+    // A cancelled research pass must not fall through into a draft nobody is
+    // waiting for, and must never post a result for an abandoned job.
+    expect(requests).toHaveLength(1);
+    expect(transport.results).toEqual([]);
     expect(transport.failures).toEqual([]);
   });
 });
