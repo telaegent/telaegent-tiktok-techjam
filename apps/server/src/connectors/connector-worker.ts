@@ -79,8 +79,8 @@ export interface LocalConnectorBinding {
 export interface ConnectorWorkerTransport {
   poll(signal?: AbortSignal): Promise<ConnectorDelivery | null>;
   progress(jobId: string, event: RuntimeProgressEvent): Promise<void>;
-  result(jobId: string, result: ConnectorJobResult): Promise<void>;
-  failure(jobId: string, code: string): Promise<void>;
+  result(jobId: string, result: ConnectorJobResult, signal?: AbortSignal): Promise<void>;
+  failure(jobId: string, code: string, signal?: AbortSignal): Promise<void>;
   resourceResponse(response: ResourceExchangeResponse): Promise<void>;
 }
 
@@ -145,9 +145,9 @@ export class ConnectorWorker {
     this.binding = { ...binding, workspacePath: path.resolve(binding.workspacePath) };
   }
 
-  async runOnce(): Promise<"idle" | "completed" | "cancelled"> {
+  async runOnce(signal?: AbortSignal): Promise<"idle" | "completed" | "cancelled"> {
     await this.pruneExpiredResources();
-    const untrustedDelivery = await this.transport.poll();
+    const untrustedDelivery = await this.transport.poll(signal);
     if (untrustedDelivery === null) return "idle";
     const delivery = deliverySchema.parse(untrustedDelivery);
     if (delivery.kind === "cancel") return "idle";
@@ -161,7 +161,15 @@ export class ConnectorWorker {
     const cancellationController = new AbortController();
     const executionController = new AbortController();
     let cancelled = false;
+    let externallyAborted = signal?.aborted ?? false;
     let credentialRejection: ConnectorCredentialRejectedError | undefined;
+    const abortExecution = () => {
+      externallyAborted = true;
+      cancellationController.abort();
+      executionController.abort();
+    };
+    signal?.addEventListener("abort", abortExecution, { once: true });
+    if (externallyAborted) abortExecution();
     const execution = this.sessions.run(
       this.scope(job),
       this.request(job),
@@ -202,11 +210,12 @@ export class ConnectorWorker {
       await this.transport.result(job.jobId, {
         ...result,
         ...(asks.length > 0 ? { resourceRequests: asks } : {}),
-      });
+      }, signal);
       return "completed";
     } catch (error) {
       if (credentialRejection) throw credentialRejection;
       if (error instanceof ConnectorCredentialRejectedError) throw error;
+      if (externallyAborted) return "cancelled";
       const failure = normalizeRuntimeFailure(error);
       if (failure.code === "RUNTIME_CANCELLED" || cancelled) return "cancelled";
       try {
@@ -227,9 +236,10 @@ export class ConnectorWorker {
       } catch {
         // Diagnostics must never prevent the durable failure update.
       }
-      await this.transport.failure(job.jobId, failure.code);
+      await this.transport.failure(job.jobId, failure.code, signal);
       return "completed";
     } finally {
+      signal?.removeEventListener("abort", abortExecution);
       cancellationController.abort();
       await cancellation.catch((error: unknown) => {
         if (!(error instanceof ConnectorCredentialRejectedError)) throw error;
@@ -306,6 +316,13 @@ export class ConnectorWorker {
           throw error;
         }
         await waitForRetry(signal, this.options.pollRetryDelayMs ?? 1_000);
+        continue;
+      }
+      if (delivery?.kind === "resource_request") {
+        // The relay prioritizes resource exchange over new jobs. Serving it
+        // here prevents an active provider turn from consuming and silently
+        // discarding a request intended for that same connector binding.
+        await this.serveResourceRequest(delivery.request);
         continue;
       }
       if (delivery?.kind !== "cancel" || delivery.jobId !== jobId) continue;
@@ -404,12 +421,16 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
     await this.send(jobId, "progress", event, 2);
   }
 
-  async result(jobId: string, result: ConnectorJobResult): Promise<void> {
-    await this.send(jobId, "result", result);
+  async result(
+    jobId: string,
+    result: ConnectorJobResult,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.send(jobId, "result", result, Number.POSITIVE_INFINITY, signal);
   }
 
-  async failure(jobId: string, code: string): Promise<void> {
-    await this.send(jobId, "failure", { code });
+  async failure(jobId: string, code: string, signal?: AbortSignal): Promise<void> {
+    await this.send(jobId, "failure", { code }, Number.POSITIVE_INFINITY, signal);
   }
 
   async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
@@ -421,6 +442,7 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
     action: string,
     body: unknown,
     maximumReconnectAttempts = Number.POSITIVE_INFINITY,
+    signal?: AbortSignal,
   ): Promise<void> {
     const safeJobId = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/).parse(jobId);
     const response = await this.request(
@@ -429,6 +451,7 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+        ...(signal ? { signal } : {}),
       },
       maximumReconnectAttempts,
     );

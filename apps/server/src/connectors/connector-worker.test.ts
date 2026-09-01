@@ -423,6 +423,90 @@ describe("ConnectorWorker", () => {
     expect(transport.failures).toHaveLength(0);
   });
 
+  it("serves resource requests while watching an active provider turn", async () => {
+    let rejectRun!: (error: unknown) => void;
+    const runtime = sessions(
+      async () => await new Promise<NormalizedRunResult>((_resolve, reject) => {
+        rejectRun = reject;
+      }),
+    );
+    const transport = new FakeTransport(
+      { kind: "job", job },
+      {
+        kind: "resource_request",
+        request: {
+          requestId: "resource-during-turn",
+          taskId: "task-1",
+          connectorBindingId: binding.connectorBindingId,
+          peerUserId: "10000000-0000-4000-8000-000000000002",
+          requests: [{
+            kind: "resource",
+            resourceId: `resource_${"a".repeat(24)}`,
+            reason: "Needed for the approved task",
+          }],
+          grants: [],
+        },
+      },
+      { kind: "cancel", jobId: job.jobId },
+    );
+    const cancel = vi.fn(async () => {
+      rejectRun(new RunCancelledError());
+      return true;
+    });
+    const worker = new ConnectorWorker(binding, runtime, transport, { cancel });
+
+    await expect(worker.runOnce()).resolves.toBe("cancelled");
+    expect(transport.resourceResponses).toEqual([{
+      requestId: "resource-during-turn",
+      outcomes: [{ status: "refused" }],
+    }]);
+    expect(cancel).toHaveBeenCalledWith(binding.connectorBindingId);
+    expect(transport.results).toHaveLength(0);
+    expect(transport.failures).toHaveLength(0);
+  });
+
+  it("aborts and joins an active provider turn when its caller stops", async () => {
+    let receivedSignal: AbortSignal | undefined;
+    let markRuntimeStarted!: () => void;
+    const runtimeStarted = new Promise<void>((resolve) => {
+      markRuntimeStarted = resolve;
+    });
+    const runtime = new ProviderSessionManager(
+      {
+        run: async (
+          _request: MiddlewareRunRequest,
+          _onProgress: unknown,
+          signal?: AbortSignal,
+        ): Promise<NormalizedRunResult> => {
+          receivedSignal = signal;
+          markRuntimeStarted();
+          return await new Promise<NormalizedRunResult>((_resolve, reject) => {
+            if (signal?.aborted) return reject(new RunCancelledError());
+            signal?.addEventListener("abort", () => reject(new RunCancelledError()), {
+              once: true,
+            });
+          });
+        },
+      },
+      new InMemoryProviderSessionStore(),
+      async (_scope, request) => request,
+    );
+    const transport = new FakeTransport({ kind: "job", job });
+    const worker = new ConnectorWorker(binding, runtime, transport, {
+      cancel: async () => false,
+    });
+    const controller = new AbortController();
+
+    const running = worker.runOnce(controller.signal);
+    await runtimeStarted;
+    controller.abort();
+
+    await expect(running).resolves.toBe("cancelled");
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(transport.results).toHaveLength(0);
+    expect(transport.failures).toHaveLength(0);
+  });
+
   it.each(["claude", "codex"] as const)(
     "cancels an active %s process and stops after credential revocation",
     async (provider) => {
