@@ -111,6 +111,27 @@ describe("Claude Code runner protocol", () => {
     expect(extractClaudeFinalResult(parsed)).toEqual({ publicSummary: "Ready" });
   });
 
+  it("classifies every Claude error when a generic terminal error follows a missing session", () => {
+    const parsed = emptyParsed();
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "result",
+        is_error: true,
+        result: "Claude Code reported an error",
+        errors: ["No conversation found with session ID: stale-session"],
+      }),
+      parsed,
+    );
+
+    expect(parsed.errors).toEqual([
+      "Claude Code reported an error",
+      "No conversation found with session ID: stale-session",
+    ]);
+    expect(classifyClaudeFailure(parsed.errors)).toMatchObject({
+      code: "RUNTIME_SESSION_NOT_FOUND",
+    });
+  });
+
   it("normalizes live Claude session, text, retry, and completion events", () => {
     const parsed = emptyParsed();
     const progress: RuntimeProgressEvent[] = [];
