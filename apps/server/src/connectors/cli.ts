@@ -26,6 +26,7 @@ import { createConnectorResourceRegistry } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
 import { refreshEstablishedReadiness } from "./connector-readiness.js";
+import { runConnectorProbePump } from "./connector-probe-pump.js";
 import {
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
@@ -190,18 +191,20 @@ async function main(): Promise<void> {
 
     let successfulProbes = 0;
     for (const provider of availableProviders) {
-      // Pair one bounded cloud probe with one connector poll. The provider is a
-      // local capability selected by this authenticated connector, never an
-      // executable or command supplied by the browser or a collaborator.
-      const firstJob = worker.runOnce();
-      const probe = connectorRequest(
-        serverOrigin,
-        credential,
-        `/api/connectors/bindings/${registered.connectorBindingId}/probe`,
-        { provider },
-      );
       try {
-        const [probeResponse] = await Promise.all([probe, firstJob]);
+        // Cancellations and resource requests have priority over jobs in the
+        // relay, so keep polling until this provider's bounded cloud probe
+        // actually settles. The shared signal also joins both sides on error.
+        const probeResponse = await runConnectorProbePump(
+          (signal) => worker.runOnce(signal),
+          (signal) => connectorRequest(
+            serverOrigin,
+            credential,
+            `/api/connectors/bindings/${registered.connectorBindingId}/probe`,
+            { provider },
+            signal,
+          ),
+        );
         const probeResult = probeResponseSchema.parse(await probeResponse.json());
         if (probeResult.provider !== provider) {
           throw new Error("Connector provider probe returned the wrong provider");
@@ -344,6 +347,7 @@ async function connectorRequest(
   credential: string,
   pathname: string,
   body: unknown,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const origin = new URL(serverOrigin);
   const response = await fetch(origin.origin + pathname, {
@@ -357,6 +361,7 @@ async function connectorRequest(
     cache: "no-store",
     credentials: "omit",
     redirect: "error",
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) {
     throw await connectorHttpResponseError(response, "request");
