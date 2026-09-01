@@ -673,6 +673,10 @@ html[data-theme="dark"] .app-rail button > img {
   font-weight: 500;
 }
 
+.app-rail button[data-route="connections"] > strong {
+  font-size: 9px;
+}
+
 .app-rail button > i {
   position: absolute;
   top: 6px;
@@ -719,6 +723,46 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.projects-add-action {
+  margin-top: 20px;
+}
+
+.add-project-back {
+  margin-bottom: 30px;
+}
+
+.add-project-card {
+  margin-top: 34px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.add-project-card > strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.add-project-card > p {
+  max-width: 620px;
+  margin: 10px 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.add-project-card.device-flow {
+  margin-top: 34px;
+}
+
+.add-project-complete > strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Project picker */
