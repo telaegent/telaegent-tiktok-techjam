@@ -566,6 +566,54 @@
   gap: 18px;
 }
 
+.connector-presence {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+button.connector-presence {
+  font: inherit;
+  cursor: pointer;
+}
+
+button.connector-presence:hover {
+  border-color: var(--caution);
+}
+
+.connector-presence > span:last-child {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+
+.connector-presence small {
+  color: var(--quiet);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.connector-presence strong {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.connector-presence.checking .app-typing-dots {
+  min-width: 16px;
+}
+
+.connector-presence.checking .app-typing-dots i {
+  width: 3px;
+  height: 3px;
+}
+
 .account-summary {
   padding: 0;
   display: flex;
@@ -727,6 +775,52 @@ html[data-theme="dark"] .app-rail button > img {
 
 .projects-add-action {
   margin-top: 20px;
+}
+
+.connector-recovery {
+  margin-top: 30px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--caution) 45%, var(--line));
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: color-mix(in srgb, var(--caution) 7%, var(--surface));
+}
+
+.connector-recovery > div {
+  min-width: 0;
+}
+
+.connector-recovery-state {
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--caution);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.connector-recovery strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.connector-recovery p {
+  max-width: 650px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.connector-recovery .app-primary-action {
+  flex: 0 0 auto;
 }
 
 .add-project-back {
@@ -2618,6 +2712,18 @@ html[data-theme="dark"] .app-rail button > img {
     display: none;
   }
 
+  .connector-presence {
+    padding: 0 9px;
+  }
+
+  .app-topbar-actions {
+    gap: 10px;
+  }
+
+  .connector-presence small {
+    display: none;
+  }
+
   .app-wordmark {
     width: 116px;
   }
@@ -2667,6 +2773,16 @@ html[data-theme="dark"] .app-rail button > img {
 
   .app-page-heading h1 {
     font-size: 34px;
+  }
+
+  .connector-recovery {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .connector-recovery .app-primary-action {
+    width: 100%;
   }
 
   .onboarding-layout {
@@ -2813,6 +2929,11 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 @media (max-width: 450px) {
+  .app-topbar-actions > .app-text-button:not(.logout-button),
+  .account-summary {
+    display: none;
+  }
+
   .onboarding-card {
     border-right: 0;
     border-left: 0;

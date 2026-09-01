@@ -42,6 +42,10 @@ import {
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import {
+  connectorPresence,
+  type ConnectorPresence,
+} from "./connector-presence";
+import {
   partitionProjects,
   projectAction,
   projectAvailability,
@@ -749,6 +753,8 @@ function ProjectsScreen({
   onOpenProject,
   onConnectProject,
   onAddProject,
+  onReconnect,
+  connectionState,
   projects,
   loading,
   error,
@@ -757,6 +763,8 @@ function ProjectsScreen({
   onOpenProject: (project: ProjectSummary) => void;
   onConnectProject: (project: ProjectSummary) => void;
   onAddProject: () => void;
+  onReconnect: () => void;
+  connectionState: ConnectorPresence;
   projects: ProjectSummary[];
   loading: boolean;
   error: ApiError | null;
@@ -828,6 +836,33 @@ function ProjectsScreen({
           Add project
         </button>
       </header>
+
+      {connectionState === "disconnected" && (
+        <section
+          className="connector-recovery"
+          aria-labelledby="connector-recovery-title"
+        >
+          <div>
+            <span className="connector-recovery-state">
+              <StatusMark tone="warn" /> Disconnected
+            </span>
+            <strong id="connector-recovery-title">
+              Reconnect your local Telaegent connector
+            </strong>
+            <p>
+              Local agent work is paused. Open a terminal in the repository you
+              want to use, then run a new secure connection command.
+            </p>
+          </div>
+          <button
+            className="app-primary-action"
+            type="button"
+            onClick={onReconnect}
+          >
+            Generate new command
+          </button>
+        </section>
+      )}
 
       <div className="projects-layout">
         <section className="project-list" aria-label="Connected repositories">
@@ -941,6 +976,12 @@ function AddProjectScreen({
     );
     setCopied(true);
   }
+
+  useEffect(() => {
+    if (!autoGenerate || autoGenerateStartedRef.current) return;
+    autoGenerateStartedRef.current = true;
+    void createCommand();
+  }, [autoGenerate]);
 
   async function checkConnection() {
     if (!pairing || checking) return;
@@ -3112,6 +3153,8 @@ export default function ProductApp({
     () => !preview && user !== null,
   );
   const [projectsError, setProjectsError] = useState<ApiError | null>(null);
+  const [autoGenerateConnectorCommand, setAutoGenerateConnectorCommand] =
+    useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(
     null,
   );
@@ -3217,8 +3260,20 @@ export default function ProductApp({
 
   function connectProject(project: ProjectSummary) {
     setProjectToConnect(project);
+    setAutoGenerateConnectorCommand(true);
     navigateProduct("add-project");
   }
+
+  function openConnectorSetup(autoGenerate: boolean) {
+    setProjectToConnect(null);
+    setAutoGenerateConnectorCommand(autoGenerate);
+    navigateProduct("add-project");
+  }
+
+  const connectionState = connectorPresence(
+    discoveredProjects,
+    projectsLoading,
+  );
 
   if (route === "onboarding") {
     return (
@@ -3257,6 +3312,38 @@ export default function ProductApp({
           )}
         </div>
         <div className="app-topbar-actions">
+          {connectionState === "disconnected" ? (
+            <button
+              className="connector-presence disconnected"
+              type="button"
+              onClick={() => openConnectorSetup(true)}
+              aria-label="Telaegent disconnected. Generate a new connection command."
+            >
+              <StatusMark tone="warn" />
+              <span>
+                <small>Telaegent</small>
+                <strong>Disconnected</strong>
+              </span>
+            </button>
+          ) : (
+            <div
+              className={`connector-presence ${connectionState}`}
+              role="status"
+              aria-live="polite"
+            >
+              {connectionState === "connected" ? (
+                <StatusMark />
+              ) : (
+                <TypingDots label="Checking Telaegent connection" />
+              )}
+              <span>
+                <small>Telaegent</small>
+                <strong>
+                  {connectionState === "connected" ? "Connected" : "Checking"}
+                </strong>
+              </span>
+            </div>
+          )}
           <button
             className="app-text-button"
             type="button"
@@ -3286,10 +3373,9 @@ export default function ProductApp({
             <ProjectsScreen
               onOpenProject={openProject}
               onConnectProject={connectProject}
-              onAddProject={() => {
-                setProjectToConnect(null);
-                navigateProduct("add-project");
-              }}
+              onAddProject={() => openConnectorSetup(false)}
+              onReconnect={() => openConnectorSetup(true)}
+              connectionState={connectionState}
               projects={discoveredProjects}
               loading={projectsLoading}
               error={projectsError}
@@ -3299,13 +3385,15 @@ export default function ProductApp({
           {route === "add-project" && (
             <AddProjectScreen
               project={projectToConnect}
-              autoGenerate={projectToConnect !== null}
+              autoGenerate={autoGenerateConnectorCommand}
               onBack={() => {
                 setProjectToConnect(null);
+                setAutoGenerateConnectorCommand(false);
                 navigateProduct("projects");
               }}
               onConnected={() => {
                 setProjectToConnect(null);
+                setAutoGenerateConnectorCommand(false);
                 navigateProduct("projects");
               }}
             />
