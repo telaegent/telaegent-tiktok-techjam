@@ -244,6 +244,92 @@
   background: var(--surface-raised);
 }
 
+.onboarding-requirements {
+  margin: 28px 0 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.onboarding-requirements > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.onboarding-requirements .app-eyebrow {
+  color: var(--accent);
+  font-size: 15px;
+  font-family: var(--mono);
+}
+
+.onboarding-requirements > div > strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.onboarding-requirements ol {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: requirements;
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-requirements li {
+  counter-increment: requirements;
+  display: grid;
+  grid-template-columns: 21px minmax(0, 1fr);
+  column-gap: 8px;
+}
+
+.onboarding-requirements li::before {
+  content: counter(requirements);
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.onboarding-requirements li > strong,
+.onboarding-requirements li > small {
+  grid-column: 2;
+}
+
+.onboarding-requirements li > strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.onboarding-requirements li > small,
+.onboarding-requirements > p {
+  color: var(--quiet);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.onboarding-requirements li > small {
+  margin-top: 2px;
+}
+
+.onboarding-requirements code {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+.onboarding-requirements > p {
+  margin: 14px 0 0 29px;
+}
+
 .onboarding-card h1 {
   max-width: 500px;
   margin: 18px 0 0;
@@ -480,17 +566,14 @@
   gap: 18px;
 }
 
-.account-button {
+.account-summary {
   padding: 0;
-  border: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: transparent;
-  cursor: pointer;
 }
 
-.account-button span {
+.account-summary span {
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -502,9 +585,13 @@
   font-size: 10px;
 }
 
-.account-button strong {
+.account-summary strong {
   font-size: 13px;
   font-weight: 600;
+}
+
+.logout-button {
+  white-space: nowrap;
 }
 
 .app-body {
@@ -2464,7 +2551,7 @@ html[data-theme="dark"] .app-rail button > img {
   }
 
   .app-topbar-context,
-  .account-button strong {
+  .account-summary strong {
     display: none;
   }
 
