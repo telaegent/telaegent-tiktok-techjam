@@ -199,16 +199,32 @@ describe("AuthorizedProtocolTurnService", () => {
     { name: "missing", initialContext: null, loadError: false },
     { name: "unreachable", initialContext: durableContext(), loadError: true },
   ])("fails closed when durable context is $name", async (testCase) => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const { runs, service } = harness(testCase);
-    const error = await start(service).catch((caught: unknown) => caught);
+    try {
+      const error = await start(service).catch((caught: unknown) => caught);
 
-    expect(error).toBeInstanceOf(ProtocolHydrationError);
-    expect(error).toMatchObject({
-      code: "DURABLE_CONTEXT_UNAVAILABLE",
-      retryable: true,
-    });
-    expect(String(error)).not.toContain("database detail");
-    expect(runs).toHaveLength(0);
+      expect(error).toBeInstanceOf(ProtocolHydrationError);
+      expect(error).toMatchObject({
+        code: "DURABLE_CONTEXT_UNAVAILABLE",
+        retryable: true,
+      });
+      expect(String(error)).not.toContain("database detail");
+      expect(runs).toHaveLength(0);
+      if (testCase.loadError) {
+        expect(errorLog).toHaveBeenCalledWith(
+          "DURABLE_CONTEXT_LOAD_FAILED",
+          "Error",
+        );
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+          "database detail",
+        );
+      } else {
+        expect(errorLog).not.toHaveBeenCalled();
+      }
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it("blocks a role mismatch before provider execution", async () => {

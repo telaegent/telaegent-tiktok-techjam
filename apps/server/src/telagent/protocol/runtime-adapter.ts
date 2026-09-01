@@ -167,7 +167,13 @@ export async function loadValidatedDurableContext(options: {
       purpose: options.purpose,
       correlationId: options.correlationId,
     });
-  } catch {
+  } catch (error) {
+    // Error names are safe operational evidence; messages may contain private
+    // persistence/provider details and must never be logged at this boundary.
+    console.error(
+      "DURABLE_CONTEXT_LOAD_FAILED",
+      error instanceof Error ? error.name : "UnknownError",
+    );
     return rejectProtocolContext(
       options.scope,
       "DURABLE_CONTEXT_UNAVAILABLE",
