@@ -34,6 +34,7 @@ import {
 import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
+import { partitionProjects, projectAvailability } from "./project-list";
 import {
   initialProductEntryRoute,
   productEntryRouteAfterDiscovery,
@@ -212,19 +213,6 @@ function repositoryParts(fullName: string): { owner: string; name: string } {
         name: fullName.slice(separator + 1),
       }
     : { owner: "GitHub", name: fullName };
-}
-
-function projectAvailability(project: ProjectSummary): string {
-  if (
-    project.projectStatus !== "active" ||
-    project.membershipStatus !== "active"
-  ) {
-    return "Unavailable";
-  }
-  if (project.repositoryAccessStatus !== "verified")
-    return "Needs verification";
-  if (project.binding.status !== "ready") return "Connector offline";
-  return "Open";
 }
 
 function TypingDots({ label = "Working" }: { label?: string }) {
@@ -693,6 +681,49 @@ function ProjectsScreen({
   error: ApiError | null;
   onRetry: () => void;
 }) {
+  const grouped = partitionProjects(projects);
+
+  function projectRow(project: ProjectSummary) {
+    const repository = repositoryParts(project.repositoryFullName);
+    const availability = projectAvailability(project);
+    const available = availability === "Open";
+    return (
+      <button
+        type="button"
+        key={project.projectId}
+        disabled={!available}
+        onClick={() => onOpenProject(project)}
+      >
+        <span className="repo-mark" aria-hidden="true">
+          {repository.name.slice(0, 2).toUpperCase()}
+        </span>
+        <span className="repo-title">
+          <small>{repository.owner}</small>
+          <strong>{repository.name}</strong>
+          <p>
+            <span>{project.visibility} repository</span>
+            <span>Default branch {project.defaultBranch}</span>
+          </p>
+        </span>
+        <span className="repo-meta">
+          <small>
+            {project.connectedCollaboratorCount} connected collaborator
+            {project.connectedCollaboratorCount === 1 ? "" : "s"}
+          </small>
+          <strong>
+            {project.binding.currentBranch ?? project.defaultBranch}
+          </strong>
+          <small>
+            {project.connectorLive
+              ? "Connector online"
+              : "Connector not currently online"}
+          </small>
+        </span>
+        <span className="repo-open">{availability}</span>
+      </button>
+    );
+  }
+
   return (
     <div className="app-page projects-page">
       <header className="app-page-heading">
@@ -722,55 +753,29 @@ function ProjectsScreen({
               )}
             </div>
           )}
-          {!loading && !error && projects.length === 0 && (
+          {!loading && !error && grouped.active.length === 0 && (
             <div className="api-state">
-              <strong>No verified repositories yet</strong>
+              <strong>No active repositories</strong>
               <p>
-                Run the local connector from a GitHub repository, then refresh
-                this page.
+                Run the local connector from the intended Git repository root,
+                confirm its GitHub name, then refresh this page.
               </p>
             </div>
           )}
-          {projects.map((project) => {
-            const repository = repositoryParts(project.repositoryFullName);
-            const availability = projectAvailability(project);
-            const available = availability === "Open";
-            return (
-              <button
-                type="button"
-                key={project.projectId}
-                disabled={!available}
-                onClick={() => onOpenProject(project)}
-              >
-                <span className="repo-mark" aria-hidden="true">
-                  {repository.name.slice(0, 2).toUpperCase()}
-                </span>
-                <span className="repo-title">
-                  <small>{repository.owner}</small>
-                  <strong>{repository.name}</strong>
-                  <p>
-                    <span>{project.visibility} repository</span>
-                    <span>Default branch {project.defaultBranch}</span>
-                  </p>
-                </span>
-                <span className="repo-meta">
-                  <small>
-                    {project.connectedCollaboratorCount} connected collaborator
-                    {project.connectedCollaboratorCount === 1 ? "" : "s"}
-                  </small>
-                  <strong>
-                    {project.binding.currentBranch ?? project.defaultBranch}
-                  </strong>
-                  <small>
-                    {project.binding.lastSeenAt
-                      ? "Connector seen recently"
-                      : "Awaiting connector presence"}
-                  </small>
-                </span>
-                <span className="repo-open">{availability}</span>
-              </button>
-            );
-          })}
+          {!loading && !error && grouped.active.length > 0 && (
+            <div className="project-group-heading">
+              <strong>Active projects</strong>
+              <small>Verified repositories with a connector online now</small>
+            </div>
+          )}
+          {!loading && !error && grouped.active.map(projectRow)}
+          {!loading && !error && grouped.historical.length > 0 && (
+            <div className="project-group-heading historical">
+              <strong>Previous connections</strong>
+              <small>Offline, stopped, or no longer verified</small>
+            </div>
+          )}
+          {!loading && !error && grouped.historical.map(projectRow)}
         </section>
 
         <aside className="connection-request-card">

@@ -154,6 +154,8 @@ export type ProjectSummary = {
   repositoryAccessStatus: "verified" | "revalidation_required" | "revoked";
   repositoryVerifiedAt: string;
   connectedCollaboratorCount: number;
+  /** Process-local relay presence, separate from durable binding status. */
+  connectorLive: boolean;
   binding: {
     connectorBindingId: string;
     connectorInstanceId: string | null;

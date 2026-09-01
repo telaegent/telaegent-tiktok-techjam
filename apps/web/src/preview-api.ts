@@ -42,6 +42,7 @@ const project: ProjectSummary = {
   repositoryAccessStatus: "verified",
   repositoryVerifiedAt: "2026-09-01T00:30:00.000Z",
   connectedCollaboratorCount: 1,
+  connectorLive: true,
   binding: {
     connectorBindingId: "55555555-5555-4555-8555-555555555555",
     connectorInstanceId: "preview-connector-instance",

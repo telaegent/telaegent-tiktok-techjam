@@ -160,6 +160,35 @@ describe("LongPollConnectorJobRelay", () => {
     });
   });
 
+  it("reports only current owner-scoped presence and keeps an active job online", async () => {
+    let now = 1_000;
+    const relay = new LongPollConnectorJobRelay({
+      jobTimeoutMs: 5_000,
+      presenceTimeoutMs: 1_000,
+      now: () => now,
+    });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    expect(relay.isBindingOnline(principal.authenticatedUserId, bindingId)).toBe(true);
+    expect(
+      relay.isBindingOnline("10000000-0000-4000-8000-000000000099", bindingId),
+    ).toBe(false);
+
+    const completion = relay.dispatch(job);
+    now += 1_001;
+    expect(relay.isBindingOnline(principal.authenticatedUserId, bindingId)).toBe(true);
+    await relay.poll(principal, bindingId, 0);
+    relay.complete(principal, job.jobId, {
+      provider: "claude",
+      final: {},
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 1,
+    });
+    await completion;
+    now += 1_001;
+    expect(relay.isBindingOnline(principal.authenticatedUserId, bindingId)).toBe(false);
+  });
+
   it("removes proven bindings when the connector credential is rotated or revoked", async () => {
     const relay = new LongPollConnectorJobRelay();
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);

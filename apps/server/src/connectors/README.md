@@ -61,13 +61,18 @@ Add `--probe-only` to exercise the real repository/provider/relay path and exit
 after `TELAEGENT LIVE READINESS VERIFIED`; unlike the static `npm run doctor`,
 this may spend a provider call.
 
-The connector canonicalizes the Git root, collects an allowlisted `gh`/`git`
-repository proof, receives an opaque binding, detects locally authenticated
-Claude Code and Codex CLIs, and runs one fixed read-only relay probe for each
-available provider. Claude-only, Codex-only, and dual-provider installations
-are valid. It prints `TELAEGENT IS CONNECTED` only after a normalized result
-returns through the relay. Local paths, GitHub/provider credentials, raw CLI
-output, and provider session IDs remain local.
+The connector requires the selected directory to be the canonical Git root;
+it never silently climbs from a misleading nested folder into an ancestor
+checkout. It collects an allowlisted `gh`/`git` repository proof and prints the
+canonical local root plus exact GitHub `owner/name`. Only an explicit `y`
+continues, and pairing exchange happens after that confirmation so rejection
+does not consume the single-use code. It then receives an opaque binding,
+detects locally authenticated Claude Code and Codex CLIs, and runs one fixed
+read-only relay probe for each available provider. Claude-only, Codex-only, and
+dual-provider installations are valid. It prints `TELAEGENT IS CONNECTED` only
+after a normalized result returns through the relay. Local paths,
+GitHub/provider credentials, raw CLI output, and provider session IDs remain
+local.
 
 The signed-in browser can poll
 `GET /api/connectors/installations/:connectorInstanceId/status`. The backend

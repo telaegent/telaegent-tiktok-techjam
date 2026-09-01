@@ -19,6 +19,10 @@ bearer never appears in the browser, clipboard, shell history, or process
 arguments. The repository checkout, its local path, GitHub/provider
 credentials, and provider sessions remain on this machine.
 
+Run the command from the repository root. Before consuming the pairing code,
+the connector prints the canonical local root and exact GitHub `owner/name`;
+answer `y` only when both identify the repository you intended to connect.
+
 Requirements:
 
 - Node.js 22 or newer
