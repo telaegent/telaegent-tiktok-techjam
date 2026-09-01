@@ -14,6 +14,21 @@ export interface NormalizedRuntimeFailure {
   statusCode: number;
 }
 
+export type LocalRuntimeFailurePhase =
+  | "concurrency"
+  | "spawn"
+  | "event_stream"
+  | "provider_exit"
+  | "structured_output"
+  | "timeout"
+  | "output_limit";
+
+/** Local-only structural evidence. normalizeRuntimeFailure never serializes it. */
+export interface LocalRuntimeFailureDiagnostic {
+  phase: LocalRuntimeFailurePhase;
+  exitCode?: number | undefined;
+}
+
 const runtimeFailureDefinitions: Record<
   PublicRuntimeErrorCode,
   Omit<NormalizedRuntimeFailure, "code">
@@ -69,6 +84,7 @@ export class RuntimeProviderError extends Error {
   constructor(
     public readonly code: RuntimeErrorCode,
     message: string,
+    public readonly localDiagnostic?: Readonly<LocalRuntimeFailureDiagnostic>,
   ) {
     super(message);
     this.name = "RuntimeProviderError";
@@ -92,6 +108,7 @@ const invalidOutputPattern =
 export function classifyProviderFailure(
   provider: AgentProvider,
   detail: unknown,
+  localDiagnostic?: Readonly<LocalRuntimeFailureDiagnostic>,
 ): RuntimeProviderError {
   const raw = detail instanceof Error ? detail.message : String(detail ?? "");
   const label = provider === "codex" ? "Codex" : "Claude Code";
@@ -99,37 +116,53 @@ export function classifyProviderFailure(
     return new RuntimeProviderError(
       "RUNTIME_AUTHENTICATION_FAILED",
       label + " authentication failed",
+      localDiagnostic,
     );
   }
   if (missingSessionPattern.test(raw)) {
     return new RuntimeProviderError(
       "RUNTIME_SESSION_NOT_FOUND",
       label + " session is no longer available",
+      localDiagnostic,
     );
   }
   if (timeoutPattern.test(raw)) {
-    return new RuntimeProviderError("RUNTIME_TIMEOUT", label + " runtime timed out");
+    return new RuntimeProviderError(
+      "RUNTIME_TIMEOUT",
+      label + " runtime timed out",
+      localDiagnostic,
+    );
   }
   if (unavailablePattern.test(raw)) {
     return new RuntimeProviderError(
       "RUNTIME_UNAVAILABLE",
       label + " runtime is unavailable",
+      localDiagnostic,
     );
   }
   if (invalidOutputPattern.test(raw)) {
     return new RuntimeProviderError(
       "INVALID_AGENT_OUTPUT",
       label + " returned invalid output",
+      localDiagnostic,
     );
   }
-  return new RuntimeProviderError("RUNTIME_FAILED", label + " runtime failed");
+  return new RuntimeProviderError(
+    "RUNTIME_FAILED",
+    label + " runtime failed",
+    localDiagnostic,
+  );
 }
 
 export function safeRuntimeError(error: unknown): Error {
   if (error instanceof RunCancelledError) return error;
   if (error instanceof RuntimeProviderError) {
     const normalized = normalizeRuntimeFailure(error);
-    return new RuntimeProviderError(error.code, normalized.message);
+    return new RuntimeProviderError(
+      error.code,
+      normalized.message,
+      error.localDiagnostic,
+    );
   }
   const normalized = normalizeRuntimeFailure(error);
   return new RuntimeProviderError("RUNTIME_FAILED", normalized.message);

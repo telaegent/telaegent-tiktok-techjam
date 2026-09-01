@@ -364,6 +364,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         throw new RuntimeProviderError(
           "INVALID_AGENT_OUTPUT",
           "Codex completed without structured output",
+          { phase: "structured_output", exitCode: result.exitCode },
         );
       }
       return {
@@ -389,7 +390,11 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
   ): Promise<CodexProcessResult> {
     throwIfRuntimeCancelled(signal);
     if (this.active.has(request.agentId)) {
-      throw new RuntimeProviderError("RUNTIME_FAILED", "Agent runtime is already active");
+      throw new RuntimeProviderError(
+        "RUNTIME_FAILED",
+        "Agent runtime is already active",
+        { phase: "concurrency" },
+      );
     }
     const startedAt = Date.now();
     const child = this.dependencies.spawn(this.config.codexBin, request.args, {
@@ -477,26 +482,38 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
           child.once("close", (code) => resolve(code ?? 1));
         });
       } catch (error) {
-        throw classifyProviderFailure("codex", error);
+        throw classifyProviderFailure("codex", error, { phase: "spawn" });
       }
       if (stdout.trim() && !parseFailure) {
         parseCodexEventLine(stdout.trim(), parsed, onProgress);
       }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {
-        throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Codex runtime timed out");
+        throw new RuntimeProviderError(
+          "RUNTIME_TIMEOUT",
+          "Codex runtime timed out",
+          { phase: "timeout" },
+        );
       }
       if (active.outputExceeded) {
         throw new RuntimeProviderError(
           "RUNTIME_OUTPUT_LIMIT",
           "Codex output exceeded the configured limit",
+          { phase: "output_limit" },
         );
       }
-      if (parseFailure) throw parseFailure;
+      if (parseFailure) {
+        const failure = parseFailure as RuntimeProviderError;
+        throw new RuntimeProviderError(failure.code, failure.message, {
+          phase: "event_stream",
+          exitCode,
+        });
+      }
       if (exitCode !== 0) {
         throw classifyProviderFailure(
           "codex",
           parsed.errors.at(-1) ?? stderr ?? "provider failure",
+          { phase: "provider_exit", exitCode },
         );
       }
       const output = parsed.messages.at(-1)?.trim();
@@ -504,6 +521,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         throw new RuntimeProviderError(
           "INVALID_AGENT_OUTPUT",
           "Codex completed without an agent message",
+          { phase: "structured_output", exitCode },
         );
       }
       return {
