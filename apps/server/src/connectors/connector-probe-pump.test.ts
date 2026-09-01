@@ -30,10 +30,36 @@ describe("runConnectorProbePump", () => {
       return await untilAborted(signal);
     });
 
-    await expect(runConnectorProbePump(runOnce, runProbe)).resolves.toBe("ready");
+    await expect(runConnectorProbePump(
+      runOnce,
+      runProbe,
+      async (value) => value,
+    )).resolves.toBe("ready");
     expect(runOnce).toHaveBeenCalledTimes(2);
     expect(observedSignals[0]).toBe(observedSignals[1]);
     expect(observedSignals[1]?.aborted).toBe(true);
+  });
+
+  it("keeps a successful probe signal live until its returned body is consumed", async () => {
+    let probeSignal!: AbortSignal;
+    const result = await runConnectorProbePump(
+      (signal) => untilAborted(signal),
+      async (signal) => {
+        probeSignal = signal;
+        return {
+          json: async () => {
+            if (signal.aborted) {
+              throw new DOMException("This operation was aborted", "AbortError");
+            }
+            return { connected: true };
+          },
+        };
+      },
+      async (response) => response.json(),
+    );
+
+    expect(probeSignal.aborted).toBe(true);
+    expect(result).toEqual({ connected: true });
   });
 
   it("aborts and joins connector polling when the cloud probe fails", async () => {
@@ -49,6 +75,7 @@ describe("runConnectorProbePump", () => {
     const failure = await runConnectorProbePump(
       runOnce,
       async () => { throw new Error("probe failed"); },
+      async (value) => value,
     ).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(Error);
@@ -71,6 +98,7 @@ describe("runConnectorProbePump", () => {
     const failure = await runConnectorProbePump(
       async () => { throw new Error("poll failed"); },
       runProbe,
+      async (value) => value,
     ).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(ConnectorPollingFailedError);
@@ -86,6 +114,7 @@ describe("runConnectorProbePump", () => {
     const failure = await runConnectorProbePump(
       async () => { throw new DOMException("This operation was aborted", "AbortError"); },
       (signal) => untilAborted(signal),
+      async (value) => value,
     ).catch((error: unknown) => error);
 
     expect(probeFailureSource(failure)).toBe("connector");

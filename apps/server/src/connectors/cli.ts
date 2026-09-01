@@ -198,8 +198,8 @@ async function main(): Promise<void> {
       try {
         // Cancellations and resource requests have priority over jobs in the
         // relay, so keep polling until this provider's bounded cloud probe
-        // actually settles. The shared signal also joins both sides on error.
-        const probeResponse = await runConnectorProbePump(
+        // actually settles. The pump joins both sides on error.
+        const probeResult = await runConnectorProbePump(
           (signal) => worker.runOnce(signal),
           (signal) => connectorRequest(
             serverOrigin,
@@ -208,8 +208,8 @@ async function main(): Promise<void> {
             { provider },
             signal,
           ),
+          async (response) => probeResponseSchema.parse(await response.json()),
         );
-        const probeResult = probeResponseSchema.parse(await probeResponse.json());
         if (probeResult.provider !== provider) {
           throw new Error("Connector provider probe returned the wrong provider");
         }
