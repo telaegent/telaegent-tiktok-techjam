@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { ProjectSummary } from "./api";
 import { connectorPresence } from "./connector-presence";
 
+const nowMs = Date.parse("2026-09-02T00:00:00.000Z");
+const freshVerifiedAt = new Date().toISOString();
+
 function project(
   overrides: Partial<ProjectSummary> = {},
 ): ProjectSummary {
@@ -16,7 +19,7 @@ function project(
     membershipJoinedAt: "2026-09-01T00:00:00.000Z",
     githubConnectionStatus: "connected",
     repositoryAccessStatus: "verified",
-    repositoryVerifiedAt: "2026-09-01T00:00:00.000Z",
+    repositoryVerifiedAt: freshVerifiedAt,
     connectedCollaboratorCount: 0,
     connectorLive: true,
     binding: {
@@ -81,5 +84,16 @@ describe("connectorPresence", () => {
 
   it("reports checking while the last refresh is stale", () => {
     expect(connectorPresence([project()], false, true)).toBe("checking");
+  });
+
+  it("does not trust live transport after repository proof expiry", () => {
+    const expired = project({
+      repositoryVerifiedAt: new Date(
+        nowMs - 15 * 60_000 - 1,
+      ).toISOString(),
+    });
+    expect(connectorPresence([expired], false, false, nowMs)).toBe(
+      "disconnected",
+    );
   });
 });
