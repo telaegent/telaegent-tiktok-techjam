@@ -4,12 +4,7 @@ import {
   partitionProjects,
   projectAction,
   projectAvailability,
-  REPOSITORY_PROOF_CLOCK_SKEW_MS,
-  REPOSITORY_PROOF_MAX_AGE_MS,
 } from "./project-list";
-
-const nowMs = Date.parse("2026-09-02T00:00:00.000Z");
-const freshVerifiedAt = new Date().toISOString();
 
 function project(
   id: string,
@@ -26,7 +21,8 @@ function project(
     membershipJoinedAt: "2026-09-01T00:00:00.000Z",
     githubConnectionStatus: "connected",
     repositoryAccessStatus: "verified",
-    repositoryVerifiedAt: freshVerifiedAt,
+    repositoryVerifiedAt: "2026-09-02T00:00:00.000Z",
+    repositoryAccessFresh: true,
     connectedCollaboratorCount: 0,
     connectorLive: true,
     binding: {
@@ -52,42 +48,10 @@ describe("project list grouping", () => {
     );
   });
 
-  it("matches the backend repository-proof freshness boundary", () => {
+  it("uses the server-authoritative repository proof decision", () => {
+    expect(projectAvailability(project("1"))).toBe("Open");
     expect(
-      projectAvailability(
-        project("1", {
-          repositoryVerifiedAt: new Date(
-            nowMs - REPOSITORY_PROOF_MAX_AGE_MS,
-          ).toISOString(),
-        }),
-        nowMs,
-      ),
-    ).toBe("Open");
-    expect(
-      projectAvailability(
-        project("2", {
-          repositoryVerifiedAt: new Date(
-            nowMs - REPOSITORY_PROOF_MAX_AGE_MS - 1,
-          ).toISOString(),
-        }),
-        nowMs,
-      ),
-    ).toBe("Needs verification");
-    expect(
-      projectAvailability(
-        project("3", {
-          repositoryVerifiedAt: new Date(
-            nowMs + REPOSITORY_PROOF_CLOCK_SKEW_MS + 1,
-          ).toISOString(),
-        }),
-        nowMs,
-      ),
-    ).toBe("Needs verification");
-    expect(
-      projectAvailability(
-        project("4", { repositoryVerifiedAt: "invalid" }),
-        nowMs,
-      ),
+      projectAvailability(project("2", { repositoryAccessFresh: false })),
     ).toBe("Needs verification");
   });
 

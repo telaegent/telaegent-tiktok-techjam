@@ -153,6 +153,8 @@ export type ProjectSummary = {
     | "revoked";
   repositoryAccessStatus: "verified" | "revalidation_required" | "revoked";
   repositoryVerifiedAt: string;
+  /** Server-authoritative evaluation of the private-runtime proof lifetime. */
+  repositoryAccessFresh: boolean;
   connectedCollaboratorCount: number;
   /** Process-local relay presence, separate from durable binding status. */
   connectorLive: boolean;

@@ -9,6 +9,10 @@ import type {
   UserId,
 } from "./types.js";
 import { isGitHubRepositoryId } from "./github-repository-id.js";
+import {
+  REPOSITORY_ACCESS_MAXIMUM_CLOCK_SKEW_MS,
+  repositoryAccessProofIsFresh,
+} from "../repository-proof/lifetime.js";
 
 export type PrivateRuntimeAuthorizationErrorCode =
   | "PRIVATE_RUNTIME_FORBIDDEN"
@@ -71,7 +75,6 @@ export interface PrivateRuntimeAuthorizer {
 }
 
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-const defaultMaximumClockSkewMs = 60_000;
 const defaultMaximumConversationParticipants = 16;
 
 /**
@@ -94,7 +97,8 @@ export class PrivateRuntimeAuthorizationService
     validateDuration(policy.repositoryAccessMaxAgeMs, 1_000, 86_400_000);
     validateDuration(policy.repositoryReadTimeoutMs, 100, 30_000);
     this.maximumClockSkewMs =
-      policy.maximumClockSkewMs ?? defaultMaximumClockSkewMs;
+      policy.maximumClockSkewMs ??
+      REPOSITORY_ACCESS_MAXIMUM_CLOCK_SKEW_MS;
     validateDuration(this.maximumClockSkewMs, 0, 300_000);
     this.maximumConversationParticipants =
       policy.maximumConversationParticipants ??
@@ -306,14 +310,13 @@ export class PrivateRuntimeAuthorizationService
   }
 
   private requireFreshRepositoryAccess(verifiedAt: string): void {
-    const verifiedAtMs = Date.parse(verifiedAt);
     const nowMs = this.now().getTime();
-    if (
-      !Number.isFinite(verifiedAtMs) ||
-      !Number.isFinite(nowMs) ||
-      verifiedAtMs > nowMs + this.maximumClockSkewMs ||
-      nowMs - verifiedAtMs > this.policy.repositoryAccessMaxAgeMs
-    ) {
+    if (!repositoryAccessProofIsFresh(
+      verifiedAt,
+      nowMs,
+      this.policy.repositoryAccessMaxAgeMs,
+      this.maximumClockSkewMs,
+    )) {
       throw forbidden("repository_access_stale");
     }
   }
