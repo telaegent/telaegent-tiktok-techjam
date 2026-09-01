@@ -807,18 +807,22 @@ function ProjectsScreen({
             {availability === "Open" ? "Connector online" : availability}
           </small>
         </span>
-        <button
-          className={`repo-action ${action.toLowerCase()}`}
-          type="button"
-          aria-label={`${action} ${project.repositoryFullName}`}
-          onClick={() =>
-            action === "Open"
-              ? onOpenProject(project)
-              : onConnectProject(project)
-          }
-        >
-          {action}
-        </button>
+        {action ? (
+          <button
+            className={`repo-action ${action.toLowerCase()}`}
+            type="button"
+            aria-label={`${action} ${project.repositoryFullName}`}
+            onClick={() =>
+              action === "Open"
+                ? onOpenProject(project)
+                : onConnectProject(project)
+            }
+          >
+            {action}
+          </button>
+        ) : (
+          <span className="repo-unavailable">Unavailable</span>
+        )}
       </article>
     );
   }
@@ -979,12 +983,6 @@ function AddProjectScreen({
     );
     setCopied(true);
   }
-
-  useEffect(() => {
-    if (!autoGenerate || autoGenerateStartedRef.current) return;
-    autoGenerateStartedRef.current = true;
-    void createCommand();
-  }, [autoGenerate]);
 
   async function checkConnection() {
     if (!pairing || checking) return;
@@ -3156,6 +3154,7 @@ export default function ProductApp({
     () => !preview && user !== null,
   );
   const [projectsError, setProjectsError] = useState<ApiError | null>(null);
+  const [projectsRefreshStale, setProjectsRefreshStale] = useState(false);
   const [autoGenerateConnectorCommand, setAutoGenerateConnectorCommand] =
     useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(
@@ -3170,15 +3169,19 @@ export default function ProductApp({
       : "resolved",
   );
 
-  async function loadProjects() {
-    if (!user || projectsRequestInFlightRef.current) return;
+  async function loadProjects(background = false): Promise<boolean> {
+    if (!user || projectsRequestInFlightRef.current) return false;
     const resolvesProductEntry = entryProjectDiscoveryRef.current === "pending";
     projectsRequestInFlightRef.current = true;
     if (resolvesProductEntry) entryProjectDiscoveryRef.current = "loading";
-    setProjectsLoading(true);
-    setProjectsError(null);
+    if (!background) {
+      setProjectsLoading(true);
+      setProjectsError(null);
+    }
     try {
       const result = await api.projects({ limit: 50 });
+      setProjectsRefreshStale(false);
+      setProjectsError(null);
       setDiscoveredProjects(result.projects);
       setSelectedProject((current) =>
         current
@@ -3197,12 +3200,17 @@ export default function ProductApp({
           true,
         );
       }
+      return result.projects.some(
+        (project) => projectAvailability(project) === "Open",
+      );
     } catch (error) {
-      setProjectsError(normalizeApiError(error));
+      setProjectsRefreshStale(true);
+      if (!background) setProjectsError(normalizeApiError(error));
+      return false;
     } finally {
       projectsRequestInFlightRef.current = false;
       if (resolvesProductEntry) entryProjectDiscoveryRef.current = "resolved";
-      setProjectsLoading(false);
+      if (!background) setProjectsLoading(false);
     }
   }
 
@@ -3211,6 +3219,19 @@ export default function ProductApp({
     void loadProjects();
     // Project discovery is refreshed on navigation; connector/revocation state
     // must not be treated as a permanent browser cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, user?.userId]);
+
+  useEffect(() => {
+    if (route === "onboarding" || !user) return;
+    const poller = new AdaptivePoller({
+      poll: () => loadProjects(true),
+      minimumDelayMs: 5_000,
+      maximumDelayMs: 30_000,
+    });
+    return startVisiblePolling(poller, false);
+    // The route-scoped poller always calls the current render's loader and is
+    // replaced whenever its user or product route changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, user?.userId]);
 
@@ -3276,6 +3297,7 @@ export default function ProductApp({
   const connectionState = connectorPresence(
     discoveredProjects,
     projectsLoading,
+    projectsRefreshStale,
   );
 
   if (route === "onboarding") {

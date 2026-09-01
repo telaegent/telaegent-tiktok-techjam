@@ -1,11 +1,15 @@
 import type { ProjectSummary } from "./api";
+import { projectAvailability } from "./project-list";
 
 export type ConnectorPresence = "checking" | "connected" | "disconnected";
 
 export function connectorPresence(
-  projects: Array<Pick<ProjectSummary, "connectorLive">>,
+  projects: readonly ProjectSummary[],
   loading: boolean,
+  stale = false,
 ): ConnectorPresence {
-  if (projects.some((project) => project.connectorLive)) return "connected";
-  return loading ? "checking" : "disconnected";
+  if (loading || stale) return "checking";
+  return projects.some((project) => projectAvailability(project) === "Open")
+    ? "connected"
+    : "disconnected";
 }

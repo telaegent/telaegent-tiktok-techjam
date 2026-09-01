@@ -73,8 +73,20 @@ describe("project list grouping", () => {
         }),
       ),
     ).toBe("Connect");
+  });
+
+  it("does not offer connection commands for terminal authorization states", () => {
     expect(
-      projectAction(project("4", { membershipStatus: "revoked" })),
-    ).toBe("Connect");
+      projectAction(project("1", { projectStatus: "archived" })),
+    ).toBeNull();
+    expect(
+      projectAction(project("2", { membershipStatus: "revoked" })),
+    ).toBeNull();
+    expect(
+      projectAction(project("3", { repositoryAccessStatus: "revoked" })),
+    ).toBeNull();
+    expect(
+      projectAction(project("4", { githubConnectionStatus: "revoked" })),
+    ).toBeNull();
   });
 });
