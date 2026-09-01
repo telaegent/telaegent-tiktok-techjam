@@ -201,9 +201,9 @@ in a headless Linux environment. That evidence remains reproducible research,
 but its cloud-custody design conclusion is superseded. The canonical product
 uses the developer's existing local GitHub CLI identity.
 
-The Azure proof under [`deploy/azure/github-auth-proof/`](deploy/azure/github-auth-proof/README.md)
-is retained only as superseded research infrastructure and must not be extended
-as the product onboarding path.
+A short-lived Azure VM package was written to reproduce that experiment in the
+cloud. It was removed once the local connector became canonical, and cloud
+GitHub CLI custody must not be revived as the product onboarding path.
 
 ## 11. Implementation checklist
 
