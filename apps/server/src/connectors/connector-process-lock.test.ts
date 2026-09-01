@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -145,5 +145,74 @@ describe("connector process singleton", () => {
       settleMs: 0,
     });
     await second.release();
+  });
+
+  it("restamps its own claim for as long as it holds the lock", async () => {
+    const root = await stateDirectory();
+    const held = await acquireConnectorProcessLock(binding, {
+      stateDirectory: root,
+      pid: 101,
+      token: "a".repeat(64),
+      settleMs: 0,
+      heartbeatIntervalMs: 20,
+      staleAfterMs: 100,
+    });
+    const claimPath = path.join(
+      root,
+      "process-locks",
+      binding,
+      `101-${"a".repeat(64)}.claim`,
+    );
+
+    const acquiredAt = (await stat(claimPath)).mtimeMs;
+    let restampedAt = acquiredAt;
+    for (let attempt = 0; attempt < 200 && restampedAt <= acquiredAt; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      restampedAt = (await stat(claimPath)).mtimeMs;
+    }
+
+    expect(restampedAt).toBeGreaterThan(acquiredAt);
+    await held.release();
+  });
+
+  it("reclaims a lock whose owner stopped restamping even while its pid answers", async () => {
+    // Windows keeps an exited process addressable while any handle to it stays
+    // open, and the shell that launched the connector holds one, so a
+    // hard-killed connector answers process.kill(pid, 0) forever. Before the
+    // heartbeat the claim below was permanent: reconnecting meant deleting the
+    // file by hand.
+    const root = await stateDirectory();
+    const abandoned = await acquireConnectorProcessLock(binding, {
+      stateDirectory: root,
+      pid: 101,
+      token: "a".repeat(64),
+      settleMs: 0,
+      heartbeatIntervalMs: 60_000,
+      staleAfterMs: 600_000,
+    });
+
+    // While the stamp is still fresh the owner keeps the binding, so a
+    // contender cannot simply take a lock from a peer that is merely quiet.
+    await expect(
+      acquireConnectorProcessLock(binding, {
+        stateDirectory: root,
+        pid: 202,
+        token: "b".repeat(64),
+        settleMs: 0,
+        processIsAlive: () => true,
+      }),
+    ).rejects.toBeInstanceOf(ConnectorAlreadyRunningError);
+
+    const afterTheWindow = new Date(Date.now() + 300_000);
+    const successor = await acquireConnectorProcessLock(binding, {
+      stateDirectory: root,
+      pid: 202,
+      token: "b".repeat(64),
+      settleMs: 0,
+      processIsAlive: () => true,
+      now: () => afterTheWindow,
+    });
+    await successor.release();
+    await abandoned.release();
   });
 });

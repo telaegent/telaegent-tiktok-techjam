@@ -165,6 +165,27 @@ describe("normalizeRuntimeFailure", () => {
     }
   });
 
+  it("classifies an exhausted plan quota as an unavailable runtime", () => {
+    const messages = [
+      // Verbatim from `codex exec --json` on a spent ChatGPT plan.
+      "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), " +
+        "visit https://chatgpt.com/codex/settings/usage to purchase more credits or " +
+        "try again at 6:47 PM.",
+      "Claude usage limit reached",
+      "quota exceeded",
+      "You are out of credits",
+    ];
+    for (const message of messages) {
+      const error = classifyProviderFailure("codex", message, {
+        phase: "provider_exit",
+        exitCode: 1,
+      });
+      expect(error.code).toBe("RUNTIME_UNAVAILABLE");
+      expect(error.message).toBe("Codex runtime is unavailable");
+      expect(error.message).not.toContain("chatgpt.com");
+    }
+  });
+
   it("keeps authentication ahead of transport wording", () => {
     const error = classifyProviderFailure(
       "codex",

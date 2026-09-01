@@ -27,6 +27,7 @@ import { acquireConnectorProcessLock } from "./connector-process-lock.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
 import { refreshEstablishedReadiness } from "./connector-readiness.js";
 import { runConnectorProbePump } from "./connector-probe-pump.js";
+import { probeFailureReason } from "./connector-probe-failure.js";
 import {
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
@@ -213,8 +214,10 @@ async function main(): Promise<void> {
         process.stdout.write(
           `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
         );
-      } catch {
-        process.stderr.write(`TELAEGENT PROVIDER UNAVAILABLE (${provider})\n`);
+      } catch (error) {
+        process.stderr.write(
+          `TELAEGENT PROVIDER UNAVAILABLE (${provider}): ${probeFailureReason(error)}\n`,
+        );
       }
     }
     if (successfulProbes === 0) {

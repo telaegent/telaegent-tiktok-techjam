@@ -220,6 +220,99 @@ describe("connector long-poll HTTP transport", () => {
     await app.close();
   });
 
+  it("treats a provider that declines the probe draft as connected", async () => {
+    // Captured from Claude Code 2.1.x against the real sender-turn schema. The
+    // round trip succeeded and the model still refused to assert a connection
+    // it could not observe. Readiness is a property of the pipeline, so a
+    // refusal that travelled the whole pipeline is proof the pipeline works.
+    const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { relay, resolveConnectorPrincipal: async () => principal },
+    );
+
+    const probeRequest = app.inject({
+      method: "POST",
+      url: `/api/connectors/bindings/${bindingId}/probe`,
+      payload: { provider: "claude" },
+    });
+    const delivery = await app.inject({
+      method: "GET",
+      url: `/api/connectors/jobs/next?connectorBindingId=${bindingId}&waitMs=1000`,
+    });
+    const result = await app.inject({
+      method: "POST",
+      url: `/api/connectors/jobs/${delivery.json().job.jobId}/result`,
+      payload: {
+        provider: "claude",
+        final: {
+          state: "blocked",
+          assistantMessage:
+            "I'm not going to prepare that message as a ready-to-send confirmation.",
+          sendCandidate: null,
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        changedFiles: [],
+        exitCode: 0,
+        durationMs: 31,
+      },
+    });
+    expect(result.statusCode).toBe(204);
+    const probe = await probeRequest;
+    expect(probe.statusCode).toBe(200);
+    expect(probe.json()).toEqual({
+      connected: true,
+      provider: "claude",
+      durationMs: 31,
+    });
+    await app.close();
+  });
+
+  it("still rejects a probe result that is not a sender turn", async () => {
+    const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { relay, resolveConnectorPrincipal: async () => principal },
+    );
+
+    const probeRequest = app.inject({
+      method: "POST",
+      url: `/api/connectors/bindings/${bindingId}/probe`,
+      payload: { provider: "claude" },
+    });
+    const delivery = await app.inject({
+      method: "GET",
+      url: `/api/connectors/jobs/next?connectorBindingId=${bindingId}&waitMs=1000`,
+    });
+    const result = await app.inject({
+      method: "POST",
+      url: `/api/connectors/jobs/${delivery.json().job.jobId}/result`,
+      payload: {
+        provider: "claude",
+        final: { state: "ready" },
+        changedFiles: [],
+        exitCode: 0,
+        durationMs: 12,
+      },
+    });
+    expect(result.statusCode).toBe(204);
+    expect((await probeRequest).statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+
   it("frees the binding poll slot when a connector disconnects mid-poll", async () => {
     const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);
