@@ -19,6 +19,7 @@ import {
   type ConnectorResourceRequest,
 } from "./resource-request.js";
 import { resourceIdSchema, type ResourceRegistry } from "./resource-registry.js";
+import { projectRelativeDisplayLabel } from "./workspace-label.js";
 
 // The request shape lives in a leaf module because a private agent's turn now
 // emits it too, and the protocol layer must not import a filesystem to say so.
@@ -199,17 +200,6 @@ async function proposeCandidate(
     resourceId: await deps.registry.mint(taskId, located.canonicalPath),
     resourceDisplayLabel,
   };
-}
-
-function projectRelativeDisplayLabel(
-  workspacePath: string,
-  canonicalPath: string,
-): string | null {
-  const relative = path.relative(path.resolve(workspacePath), path.resolve(canonicalPath));
-  if (!relative || path.isAbsolute(relative)) return null;
-  const label = relative.split(path.sep).join("/");
-  const parsed = resourceDisplayLabelSchema.safeParse(label);
-  return parsed.success ? parsed.data : null;
 }
 
 export async function fulfilResourceRequests(
