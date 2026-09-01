@@ -192,7 +192,10 @@ describe("connector long-poll HTTP transport", () => {
       sandboxMode: "read-only",
       networkMode: "none",
       purpose: "sender_draft",
-      sessionMode: "continue",
+      // Never "continue": a resumed session that no longer exists locally makes
+      // the provider CLI exit 1 and the readiness check report a healthy
+      // provider as unavailable.
+      sessionMode: "fresh",
       outputSchemaName: "sender-turn.schema.json",
       maxTurns: 2,
     });

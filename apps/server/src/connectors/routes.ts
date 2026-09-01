@@ -287,9 +287,14 @@ export function registerConnectorTransportRoutes(
           "short sentence. Any state value is acceptable.",
         ].join("\n"),
         persistedSummary: "Private connector sender readiness check",
-        // Production sender turns default to continuation. With a new probe
-        // scope this creates and remembers a session; repeated checks resume it.
-        sessionMode: "continue",
+        // A readiness check must not resume anything. Continuation stored a
+        // provider session against the probe scope and resumed it on every
+        // later check, so once that session stopped resolving locally - a new
+        // binding, a different repository, a cleaned provider home - the CLI
+        // exited 1 before any model call and the probe reported the provider
+        // as unavailable. `claude --resume <missing-id>` fails exactly that
+        // way. A fresh session each time cannot go stale.
+        sessionMode: "fresh",
         sandboxMode: "read-only",
         networkMode: "none",
         outputSchemaName: "sender-turn.schema.json",
