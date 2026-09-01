@@ -41,6 +41,7 @@ const project: ProjectSummary = {
   githubConnectionStatus: "connected",
   repositoryAccessStatus: "verified",
   repositoryVerifiedAt: new Date().toISOString(),
+  repositoryAccessFresh: true,
   connectedCollaboratorCount: 1,
   connectorLive: true,
   binding: {

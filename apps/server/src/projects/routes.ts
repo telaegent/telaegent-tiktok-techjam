@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AuthenticatedUserResolver } from "../conversations/routes.js";
 import { HttpError } from "../errors.js";
 import { setPrivateNoStore } from "../http-cache.js";
+import { repositoryAccessProofIsFresh } from "../repository-proof/lifetime.js";
 import type { ProjectService } from "./service.js";
 
 const querySchema = z.strictObject({
@@ -31,6 +32,8 @@ export interface ProjectRouteDependencies {
     authenticatedUserId: string,
     githubRepositoryId: string,
   ) => void | Promise<void>;
+  /** Server clock override for deterministic freshness-boundary tests. */
+  now?: (() => Date) | undefined;
 }
 
 /**
@@ -60,10 +63,15 @@ export function registerProjectRoutes(
       authenticatedUserId,
       ...query,
     });
+    const nowMs = (dependencies.now?.() ?? new Date()).getTime();
     return {
       ...page,
       projects: page.projects.map((project) => ({
         ...project,
+        repositoryAccessFresh: repositoryAccessProofIsFresh(
+          project.repositoryVerifiedAt,
+          nowMs,
+        ),
         connectorLive: dependencies.isBindingOnline?.(
           authenticatedUserId,
           project.binding.connectorBindingId,

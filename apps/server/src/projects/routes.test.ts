@@ -132,8 +132,8 @@ describe("project discovery routes", () => {
     await authenticatedApp.close();
   });
 
-  it("adds owner-scoped live presence instead of trusting durable ready status", async () => {
-    const isBindingOnline = vi.fn(() => false);
+  it("separates live presence from server-authoritative proof freshness", async () => {
+    const isBindingOnline = vi.fn(() => true);
     const app = await createApp(
       loadConfig({ NODE_ENV: "test" }),
       undefined,
@@ -148,6 +148,7 @@ describe("project discovery routes", () => {
         })),
         authenticatedUserId: async () => userId,
         isBindingOnline,
+        now: () => new Date("2026-09-01T00:15:00.001Z"),
       },
     );
 
@@ -155,7 +156,8 @@ describe("project discovery routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().projects[0]).toMatchObject({
       projectId: readyProject.projectId,
-      connectorLive: false,
+      repositoryAccessFresh: false,
+      connectorLive: true,
     });
     expect(isBindingOnline).toHaveBeenCalledWith(userId, bindingId);
     await app.close();
