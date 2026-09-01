@@ -77,6 +77,10 @@ describe("classifyProviderFailure", () => {
     ],
     ["You have hit your usage limit", "RUNTIME_UNAVAILABLE"],
     ["The configured model is deprecated", "RUNTIME_UNAVAILABLE"],
+    [
+      "The 'gpt-5.6-sol' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+      "RUNTIME_UNAVAILABLE",
+    ],
     ["unrecognized provider explosion", "RUNTIME_FAILED"],
   ] as const)("classifies %s as %s", (detail, code) => {
     const error = classifyProviderFailure("codex", detail);

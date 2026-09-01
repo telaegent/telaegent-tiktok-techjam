@@ -108,7 +108,7 @@ const timeoutPattern = /(?:ETIMEDOUT|timed?\s*out|timeout)/i;
  * but the runtime itself is intact, which is what RUNTIME_UNAVAILABLE means.
  */
 const unavailablePattern =
-  /(?:ENOENT|command not found|not recognized as an internal or external command|ECONNREFUSED|ECONNRESET|ENOTFOUND|service unavailable|temporarily unavailable|provider overloaded|rate limit|too many requests|\b429\b|usage limit|\bquota\b|out of credits|insufficient credits|purchase more credits|model (?:is )?(?:unavailable|unsupported|retired|deprecated)|does not have access to (?:the )?model)/i;
+  /(?:ENOENT|command not found|not recognized as an internal or external command|ECONNREFUSED|ECONNRESET|ENOTFOUND|service unavailable|temporarily unavailable|provider overloaded|rate limit|too many requests|\b429\b|usage limit|\bquota\b|out of credits|insufficient credits|purchase more credits|model (?:is )?(?:unavailable|unsupported|retired|deprecated)|does not have access to (?:the )?model|requires a newer version of codex|upgrade to the latest (?:app|cli|app or cli))/i;
 
 /**
  * Transport-layer failures raised before the CLI ever reaches the model.

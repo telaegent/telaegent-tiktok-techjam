@@ -95,7 +95,7 @@ pairing command, open a terminal in the repository to connect, and run the exact
 command shown by the website:
 
 ```text
-npx --yes @telaegent/connector@0.1.6 connect . --url https://telaegent.live --pair ONE_TIME_CODE
+npx --yes @telaegent/connector@0.1.7 connect . --url https://telaegent.live --pair ONE_TIME_CODE
 ```
 
 The pairing code is high-entropy, expires after five minutes, and can be used

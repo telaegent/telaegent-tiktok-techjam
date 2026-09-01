@@ -25,6 +25,7 @@ describe("Codex runner protocol", () => {
     );
     expect(args).toEqual([
       "exec",
+      "--ignore-user-config",
       "--json",
       "--sandbox",
       "workspace-write",
@@ -200,6 +201,7 @@ describe("Codex runner protocol", () => {
       "/tmp/status.schema.json",
     );
     expect(args).toContain("read-only");
+    expect(args).toContain("--ignore-user-config");
     expect(args).toContain("--output-schema");
     expect(args).toContain("/tmp/status.schema.json");
     expect(args.slice(-3)).toEqual(["resume", "thread-123", "-"]);
