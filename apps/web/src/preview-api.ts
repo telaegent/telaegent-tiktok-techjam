@@ -62,7 +62,7 @@ let collaborator: ProjectCollaborator = {
   projectConnectionId: "66666666-6666-4666-8666-666666666666",
 };
 
-function connection(
+function previewConnection(
   status: ProjectConnection["status"],
   projectConnectionId = collaborator.projectConnectionId ?? crypto.randomUUID(),
 ): ProjectConnection {
@@ -226,32 +226,35 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
     return { collaborators: [copy(collaborator)] };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/connections$/) && method === "POST") {
-    const next = connection("pending", crypto.randomUUID());
+    const next = previewConnection("pending", crypto.randomUUID());
     collaborator = {
       ...collaborator,
       connectionStatus: "pending_outgoing",
       projectConnectionId: next.projectConnectionId,
     };
+    project.connectedCollaboratorCount = 0;
     return { connection: copy(next) };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/connections\/[^/]+\/respond$/) && method === "POST") {
     const body = jsonBody(options);
     const accepted = body["decision"] === "accept";
-    const next = connection(accepted ? "connected" : "revoked");
+    const next = previewConnection(accepted ? "connected" : "revoked");
     collaborator = {
       ...collaborator,
       connectionStatus: accepted ? "connected" : "revoked",
       projectConnectionId: next.projectConnectionId,
     };
+    project.connectedCollaboratorCount = accepted ? 1 : 0;
     return { connection: copy(next) };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/connections\/[^/]+\/revoke$/) && method === "POST") {
-    const next = connection("revoked");
+    const next = previewConnection("revoked");
     collaborator = {
       ...collaborator,
       connectionStatus: "revoked",
       projectConnectionId: next.projectConnectionId,
     };
+    project.connectedCollaboratorCount = 0;
     return { connection: copy(next) };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/conversations$/) && method === "POST") {

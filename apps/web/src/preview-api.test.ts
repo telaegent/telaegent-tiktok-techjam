@@ -4,6 +4,7 @@ import type {
   ConversationMessage,
   PrivateDraftView,
   ProjectCollaborator,
+  ProjectConnection,
   ProjectSummary,
   TelaegentSession,
 } from "./api";
@@ -102,5 +103,27 @@ describe("local UI preview", () => {
       `/api/projects/${projects.projects[0]!.projectId}/collaborators?limit=50`,
     ) as { collaborators: ProjectCollaborator[] };
     expect(requested.collaborators[0]?.connectionStatus).toBe("pending_outgoing");
+  });
+
+  it("exercises project connection revocation and a new request", async () => {
+    const revoked = await previewRequest(
+      "/api/projects/33333333-3333-4333-8333-333333333333/connections/66666666-6666-4666-8666-666666666666/revoke",
+      { method: "POST", body: "{}" },
+    ) as { connection: ProjectConnection };
+    expect(revoked.connection.status).toBe("revoked");
+
+    const requested = await previewRequest(
+      "/api/projects/33333333-3333-4333-8333-333333333333/connections",
+      {
+        method: "POST",
+        body: JSON.stringify({ recipientUserId: "22222222-2222-4222-8222-222222222222" }),
+      },
+    ) as { connection: ProjectConnection };
+    expect(requested.connection.status).toBe("pending");
+
+    const collaborators = await previewRequest(
+      "/api/projects/33333333-3333-4333-8333-333333333333/collaborators?limit=50",
+    ) as { collaborators: ProjectCollaborator[] };
+    expect(collaborators.collaborators[0]?.connectionStatus).toBe("pending_outgoing");
   });
 });
