@@ -277,6 +277,44 @@ describe("AuthorizedProtocolTurnService", () => {
     );
   });
 
+  it("threads the opt-in continuity memory profile into cloud-built prompts", async () => {
+    const jobs: ConnectorJobRequest[] = [];
+    const connector: ConnectorJobRelay = {
+      async dispatch(job) {
+        jobs.push(job as ConnectorJobRequest);
+        return {
+          provider: job.provider,
+          final: { state: "ready" },
+          changedFiles: [],
+          exitCode: 0,
+          durationMs: 1,
+        };
+      },
+      cancel: async () => false,
+    };
+    const sharedHistory = Array.from({ length: 12 }, (_, index) => ({
+      id: "message-" + String(index),
+      author: index % 2 === 0 ? "Phuong" : "Justin",
+      origin: "agent" as const,
+      text:
+        index === 1
+          ? "We agreed the compatibility window must remain 4200 milliseconds."
+          : "Routine follow-up " + String(index),
+      at: "2026-09-01T00:" + String(index).padStart(2, "0") + ":00.000Z",
+    }));
+    const runtime = createAuthorizedProtocolTurnRuntime({
+      authorizer: fakeAuthorizer(),
+      loadContext: async () => durableContext("recipient", { sharedHistory }),
+      connector,
+      memoryProfile: "continuity-v2",
+      policy: POLICY,
+    });
+
+    await (await start(runtime.turns)).completion;
+
+    expect(jobs[0]?.runtimePrompt).toContain("4200 milliseconds");
+  });
+
   it("authorizes before reading private durable context", async () => {
     const { load, runs, service } = harness({ revoked: true });
     await expect(start(service)).rejects.toBeInstanceOf(
