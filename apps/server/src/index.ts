@@ -212,6 +212,7 @@ if (config.telaegentIdentityProvider === "github") {
       authorizer,
       loadContext: contextLoader.load,
       connector: relay,
+      memoryProfile: config.agentMemoryV2 ? "continuity-v2" : "baseline",
       policy: {
         maxTurns: 2,
         maximumRuntimePromptBytes: 1_048_576,

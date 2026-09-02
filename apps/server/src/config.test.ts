@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config.js";
 
+describe("agent memory rollout", () => {
+  it("keeps continuity memory off unless the deployment opts in", () => {
+    expect(loadConfig({}).agentMemoryV2).toBe(false);
+    expect(loadConfig({ AGENT_MEMORY_V2: "1" }).agentMemoryV2).toBe(true);
+  });
+});
+
 describe("ModelArk configuration", () => {
   it("defaults local runs to the BytePlus Southeast Asia Responses API", () => {
     const config = loadConfig({});

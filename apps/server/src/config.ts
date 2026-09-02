@@ -11,6 +11,10 @@ const envSchema = z.object({
     .enum(["0", "1"])
     .default("0")
     .transform((value) => value === "1"),
+  AGENT_MEMORY_V2: z
+    .enum(["0", "1"])
+    .default("0")
+    .transform((value) => value === "1"),
   APP_DATA_DIR: z.string().default(path.resolve(".data")),
   AGENT_WORKSPACE_ROOT: z.string().default(path.resolve("workspaces")),
   CODEX_HOME: z.string().default(path.resolve("codex-home")),
@@ -110,6 +114,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     port: env.PORT,
     logLevel: env.LOG_LEVEL,
     enableLegacyLocalPlayground: env.ENABLE_LEGACY_LOCAL_PLAYGROUND,
+    agentMemoryV2: env.AGENT_MEMORY_V2,
     dataDirectory: path.resolve(env.APP_DATA_DIR),
     workspaceRoot: path.resolve(env.AGENT_WORKSPACE_ROOT),
     codexHome: path.resolve(env.CODEX_HOME),

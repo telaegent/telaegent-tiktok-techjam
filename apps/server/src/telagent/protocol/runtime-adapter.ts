@@ -48,7 +48,10 @@ import {
   type SharedTurn,
 } from "./contract.js";
 import { getFormat } from "./formats.js";
-import { rehydrationContext } from "./memory.js";
+import {
+  rehydrationContext,
+  type RehydrationMemoryProfile,
+} from "./memory.js";
 
 /* ========================================================================== *
  * Names the runtime uses
@@ -261,8 +264,13 @@ export function toTurnInput(
 function renderTurn(
   context: DurableConversationContext,
   format: ProtocolFormatId,
+  memoryProfile: RehydrationMemoryProfile = "baseline",
 ): { runtimePrompt: string; persistedSummary: string } {
-  const memory = rehydrationContext(context.sharedHistory, context.projectFacts);
+  const memory = rehydrationContext(
+    context.sharedHistory,
+    context.projectFacts,
+    memoryProfile,
+  );
   const rendered = getFormat(format).render(toTurnInput(context, memory));
 
   // `runtimePrompt` carries the full rendered turn; `persistedSummary` carries
@@ -305,6 +313,8 @@ export interface BuildPreparedTurnOptions {
   sessionMode?: SessionMode;
   /** Files a peer approved since the previous round of this same turn. */
   deliveredResources?: readonly DeliveredResourceBlock[] | undefined;
+  /** Default-off rollout seam for the deterministic continuity renderer. */
+  memoryProfile?: RehydrationMemoryProfile | undefined;
 }
 
 /**
@@ -324,6 +334,7 @@ export function buildPreparedPrivateTurn(
   const { runtimePrompt, persistedSummary } = renderTurn(
     options.context,
     options.format ?? "P5",
+    options.memoryProfile,
   );
 
   return {
@@ -397,6 +408,7 @@ export interface ProtocolHydratorOptions {
    * is where the scope reaches anyone entitled to see it.
    */
   onHydrationRejected?: ProtocolContextRejectionReporter;
+  memoryProfile?: RehydrationMemoryProfile | undefined;
 }
 
 /**
@@ -448,7 +460,11 @@ export function createProtocolHydrator(
         : {}),
     });
 
-    const { runtimePrompt, persistedSummary } = renderTurn(context, formatId);
+    const { runtimePrompt, persistedSummary } = renderTurn(
+      context,
+      formatId,
+      options.memoryProfile,
+    );
 
     // Only the content fields are replaced. `workspacePath`, `agentId`,
     // `sandboxMode`, `networkMode` and `maxTurns` were set by the starter after

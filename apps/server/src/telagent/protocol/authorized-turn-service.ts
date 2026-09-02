@@ -23,6 +23,7 @@ import {
 } from "../../provider-session-manager.js";
 import type { AgentProvider, SessionMode } from "../../runtime-contract.js";
 import type { ProtocolFormatId, ProtocolRole } from "./contract.js";
+import type { RehydrationMemoryProfile } from "./memory.js";
 import {
   PROTOCOL_PURPOSES,
   buildPreparedPrivateTurn,
@@ -62,6 +63,7 @@ export interface StartAuthorizedProtocolTurnInput {
 
 export interface AuthorizedProtocolTurnServiceOptions {
   onContextRejected?: ProtocolContextRejectionReporter;
+  memoryProfile?: RehydrationMemoryProfile | undefined;
 }
 
 /**
@@ -125,6 +127,9 @@ export function createAuthorizedProtocolTurnRuntime(
       dependencies.sessionStore,
       createProtocolHydrator({
         load: dependencies.loadContext,
+        ...(dependencies.memoryProfile
+          ? { memoryProfile: dependencies.memoryProfile }
+          : {}),
         ...(dependencies.onContextRejected
           ? { onHydrationRejected: dependencies.onContextRejected }
           : {}),
@@ -146,9 +151,14 @@ export function createAuthorizedProtocolTurnRuntime(
     dependencies.authorizer,
     dependencies.loadContext,
     starter,
-    dependencies.onContextRejected
-      ? { onContextRejected: dependencies.onContextRejected }
-      : {},
+    {
+      ...(dependencies.onContextRejected
+        ? { onContextRejected: dependencies.onContextRejected }
+        : {}),
+      ...(dependencies.memoryProfile
+        ? { memoryProfile: dependencies.memoryProfile }
+        : {}),
+    },
   );
   return { turns, coordinator, sessions };
 }
@@ -200,6 +210,9 @@ export class AuthorizedProtocolTurnService {
       ...(input.sessionMode ? { sessionMode: input.sessionMode } : {}),
       ...(input.deliveredResources?.length
         ? { deliveredResources: input.deliveredResources }
+        : {}),
+      ...(this.options.memoryProfile
+        ? { memoryProfile: this.options.memoryProfile }
         : {}),
     });
 
