@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LocalFileBroker, isBrokerFailure } from "./file-broker.js";
+import { RealpathWorkspaceBoundary } from "../authorization/workspace-boundary.js";
 import {
   DEFAULT_RESOURCE_POLICY_LIMITS,
   decideResourceRequest,
@@ -396,5 +397,41 @@ describe("local file broker", () => {
     expect(await broker.read(readInput(path.join(workspace, "src")), () => now)).toEqual({
       code: "UNREADABLE",
     });
+  });
+
+  it("refuses a symlink ancestor swapped after containment but before open", async () => {
+    const insideDirectory = path.join(workspace, "race-inside");
+    const outsideDirectory = path.join(outside, "race-outside");
+    const linkDirectory = path.join(workspace, "race-link");
+    await mkdir(insideDirectory);
+    await mkdir(outsideDirectory);
+    await writeFile(path.join(insideDirectory, "payload.txt"), "inside\n");
+    await writeFile(path.join(outsideDirectory, "payload.txt"), "outside secret\n");
+    await symlink(insideDirectory, linkDirectory, process.platform === "win32" ? "junction" : "dir");
+
+    const realBoundary = new RealpathWorkspaceBoundary(workspace);
+    let swapped = false;
+    const swappingBoundary = {
+      contains: async (check: { workspacePath: string }) => {
+        const allowed = await realBoundary.contains(check);
+        if (allowed && !swapped) {
+          swapped = true;
+          await unlink(linkDirectory);
+          await symlink(
+            outsideDirectory,
+            linkDirectory,
+            process.platform === "win32" ? "junction" : "dir",
+          );
+        }
+        return allowed;
+      },
+    };
+
+    const result = await new LocalFileBroker(workspace, swappingBoundary).read(
+      readInput(path.join(linkDirectory, "payload.txt")),
+      () => now,
+    );
+
+    expect(result).toEqual({ code: "OUTSIDE_WORKSPACE" });
   });
 });
