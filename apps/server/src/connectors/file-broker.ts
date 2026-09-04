@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { open } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   RealpathWorkspaceBoundary,
@@ -148,6 +149,12 @@ export class LocalFileBroker {
       // reading one can block the connector indefinitely.
       if (!stats.isFile()) return { code: "UNREADABLE" };
 
+      const openedFileFailure = await this.verifyOpenedFile(
+        input.canonicalPath,
+        stats,
+      );
+      if (openedFileFailure) return openedFileFailure;
+
       const limit = Math.max(0, Math.floor(input.maxBytes));
       const truncated = stats.size > limit;
       const length = truncated ? limit : stats.size;
@@ -159,6 +166,14 @@ export class LocalFileBroker {
         filled += bytesRead;
       }
       const delivered = buffer.subarray(0, filled);
+      // The descriptor is stable, but the path may have been swapped while the
+      // bytes were read. Do not release the snapshot unless the live path still
+      // resolves inside this workspace and still identifies this descriptor.
+      const finalFailure = await this.verifyOpenedFile(
+        input.canonicalPath,
+        stats,
+      );
+      if (finalFailure) return finalFailure;
       return {
         content: delivered.toString("utf8"),
         audit: {
@@ -177,6 +192,38 @@ export class LocalFileBroker {
     } finally {
       await handle.close().catch(() => undefined);
     }
+  }
+
+  private async verifyOpenedFile(
+    requestedPath: string,
+    openedStats: Stats,
+  ): Promise<BrokerFailure | null> {
+    let resolvedPath: string;
+    let namedStats: Stats;
+    try {
+      resolvedPath = await realpath(requestedPath);
+      if (isDeniedPath(resolvedPath, this.workspacePath)) {
+        return { code: "SECRET_PATH" };
+      }
+      if (!(await this.boundary.contains({ workspacePath: resolvedPath }))) {
+        return { code: "OUTSIDE_WORKSPACE" };
+      }
+      namedStats = await stat(resolvedPath);
+    } catch {
+      return { code: "UNREADABLE" };
+    }
+
+    // Matching both fields ties the validated name to the already-open file.
+    // It catches a path that was swapped back inside after open as well as one
+    // that changed while containment was being checked.
+    if (
+      !namedStats.isFile() ||
+      namedStats.dev !== openedStats.dev ||
+      namedStats.ino !== openedStats.ino
+    ) {
+      return { code: "OUTSIDE_WORKSPACE" };
+    }
+    return null;
   }
 }
 
