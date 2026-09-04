@@ -41,6 +41,7 @@ import {
 } from "./app-routing";
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
+import { getOrCreateIdempotencyKey } from "./idempotency-keys";
 import {
   connectorPresence,
   type ConnectorPresence,
@@ -2003,6 +2004,9 @@ function ProjectChat({
   // A network retry or double click reuses the same backend creation key. A
   // deliberate runtime retry clears it and opens a new private attempt.
   const replyCreationKeys = useRef(new Map<string, string>());
+  // One key represents one human Send decision. Keep it until the server
+  // confirms or reconciliation proves the message was committed.
+  const sendKeys = useRef(new Map<string, string>());
   const messageRequests = useRef(
     new SingleFlightByKey<ConversationMessage[]>(),
   );
@@ -2123,6 +2127,7 @@ function ProjectChat({
     let active = true;
     ownMessageIds.current.clear();
     replyCreationKeys.current.clear();
+    sendKeys.current.clear();
     setComposer("");
     setRoughMessage("");
     setPrivateRoomOpen(false);
@@ -2322,11 +2327,11 @@ function ProjectChat({
     setEditingCandidate(false);
     try {
       if (forceNew) replyCreationKeys.current.delete(message.id);
-      let idempotencyKey = replyCreationKeys.current.get(message.id);
-      if (!idempotencyKey) {
-        idempotencyKey = `reply:${message.id}:${crypto.randomUUID()}`;
-        replyCreationKeys.current.set(message.id, idempotencyKey);
-      }
+      const idempotencyKey = getOrCreateIdempotencyKey(
+        replyCreationKeys.current,
+        message.id,
+        "reply",
+      );
       const created = await api.createConversationReply(conversationId, {
         githubRepositoryId: project.githubRepositoryId,
         provider,
@@ -2409,6 +2414,7 @@ function ProjectChat({
     setActionError(null);
     try {
       await api.cancelConversationDraft(draft.draftId);
+      sendKeys.current.delete(draft.draftId);
       if (answering) replyCreationKeys.current.delete(answering.id);
       setPrivateRoomOpen(false);
       setDraft(null);
@@ -2423,13 +2429,19 @@ function ProjectChat({
 
   async function sendDraft() {
     if (!draft || draft.state !== "ready" || !approvedContent.trim()) return;
+    const sendingDraft = draft;
     setBusy(true);
     setActionError(null);
     try {
-      const result = await api.sendConversationDraft(draft.draftId, {
+      const result = await api.sendConversationDraft(sendingDraft.draftId, {
         approvedContent: approvedContent.trim(),
-        idempotencyKey: `send:${draft.draftId}:${crypto.randomUUID()}`,
+        idempotencyKey: getOrCreateIdempotencyKey(
+          sendKeys.current,
+          sendingDraft.draftId,
+          "send",
+        ),
       });
+      sendKeys.current.delete(sendingDraft.draftId);
       ownMessageIds.current.add(result.message.messageId);
       if (answering) replyCreationKeys.current.delete(answering.id);
       setMessages((current) => [
@@ -2443,7 +2455,27 @@ function ProjectChat({
       setComposer("");
       await loadMessages(true);
     } catch (error) {
-      setActionError(normalizeApiError(error));
+      const sendError = normalizeApiError(error);
+      try {
+        const { draft: reconciled } = await api.conversationDraft(
+          sendingDraft.draftId,
+        );
+        if (reconciled.state === "sent" && reconciled.sentMessageId) {
+          sendKeys.current.delete(sendingDraft.draftId);
+          ownMessageIds.current.add(reconciled.sentMessageId);
+          if (answering) replyCreationKeys.current.delete(answering.id);
+          setPrivateRoomOpen(false);
+          setDraft(null);
+          setAnswering(null);
+          setComposer("");
+          await loadMessages(true);
+          return;
+        }
+      } catch {
+        // The send outcome is still unknown. Preserve the original key so the
+        // next click asks the backend to replay, never to create another send.
+      }
+      setActionError(sendError);
     } finally {
       setBusy(false);
     }
