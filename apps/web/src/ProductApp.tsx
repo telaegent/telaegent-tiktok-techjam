@@ -41,7 +41,9 @@ import {
 } from "./app-routing";
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
+import { collectCursorPages } from "./cursor-pagination";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
+import { nextPairingPollDelay } from "./pairing-expiry";
 import {
   connectorPresence,
   type ConnectorPresence,
@@ -76,6 +78,36 @@ function connectorSetupIsReady(connector: ConnectorSetupStatus): boolean {
         binding.membershipStatus === "active" &&
         binding.repositoryAccessStatus === "verified",
     )
+  );
+}
+
+function pairingExpiredError(): ApiError {
+  return new ApiError(
+    "This one-time command expired. Generate a new command and try again.",
+    410,
+    "CONNECTOR_PAIRING_EXPIRED",
+  );
+}
+
+async function loadAllProjects(): Promise<ProjectSummary[]> {
+  return collectCursorPages(async (cursor) => {
+    const page = await api.projects({ limit: 50, ...(cursor ? { cursor } : {}) });
+    return { items: page.projects, nextCursor: page.nextCursor };
+  });
+}
+
+async function loadAllProjectCollaborators(
+  projectId: string,
+): Promise<ProjectCollaborator[]> {
+  const collaborators = await collectCursorPages(async (cursor) => {
+    const page = await api.projectCollaborators(projectId, {
+      limit: 50,
+      ...(cursor ? { cursor } : {}),
+    });
+    return { items: page.collaborators, nextCursor: page.nextCursor };
+  });
+  return collaborators.sort((left, right) =>
+    left.githubLogin.localeCompare(right.githubLogin),
   );
 }
 type WorkspaceTab = "chat" | "people" | "settings";
@@ -310,6 +342,11 @@ function Onboarding({
 
   async function copyConnectorCommand() {
     if (!connectorPairing) return;
+    if (nextPairingPollDelay(connectorPairing.expiresAt) === null) {
+      setConnectorCommandCopied(false);
+      setConnectorError(pairingExpiredError());
+      return;
+    }
     await navigator.clipboard.writeText(
       buildConnectorCommand(window.location.origin, connectorPairing),
     );
@@ -318,6 +355,10 @@ function Onboarding({
 
   async function verifyConnectorSetup() {
     if (!connectorPairing || checkingConnector) return;
+    if (nextPairingPollDelay(connectorPairing.expiresAt) === null) {
+      setConnectorError(pairingExpiredError());
+      return;
+    }
     setCheckingConnector(true);
     setConnectorError(null);
     try {
@@ -378,7 +419,14 @@ function Onboarding({
         // Before the CLI exchanges the code there is intentionally no durable
         // credential/status row. Keep waiting without showing a false error.
       }
-      if (active) timer = window.setTimeout(() => void poll(), 1_500);
+      if (!active) return;
+      const delay = nextPairingPollDelay(connectorPairing.expiresAt);
+      if (delay === null) {
+        setConnectorCommandCopied(false);
+        setConnectorError(pairingExpiredError());
+        return;
+      }
+      timer = window.setTimeout(() => void poll(), delay);
     };
     void poll();
     return () => {
@@ -569,6 +617,7 @@ function Onboarding({
                     <button
                       className="app-secondary-action"
                       type="button"
+                      disabled={connectorError?.code === "CONNECTOR_PAIRING_EXPIRED"}
                       onClick={() => void copyConnectorCommand()}
                     >
                       {connectorCommandCopied
@@ -578,7 +627,10 @@ function Onboarding({
                     <button
                       className="app-primary-action"
                       type="button"
-                      disabled={checkingConnector}
+                      disabled={
+                        checkingConnector ||
+                        connectorError?.code === "CONNECTOR_PAIRING_EXPIRED"
+                      }
                       onClick={() => void verifyConnectorSetup()}
                     >
                       {checkingConnector ? "Checking…" : "Check connection"}
@@ -979,6 +1031,11 @@ function AddProjectScreen({
 
   async function copyCommand() {
     if (!pairing) return;
+    if (nextPairingPollDelay(pairing.expiresAt) === null) {
+      setCopied(false);
+      setError(pairingExpiredError());
+      return;
+    }
     await navigator.clipboard.writeText(
       buildConnectorCommand(window.location.origin, pairing),
     );
@@ -987,6 +1044,10 @@ function AddProjectScreen({
 
   async function checkConnection() {
     if (!pairing || checking) return;
+    if (nextPairingPollDelay(pairing.expiresAt) === null) {
+      setError(pairingExpiredError());
+      return;
+    }
     setChecking(true);
     setError(null);
     try {
@@ -1029,7 +1090,14 @@ function AddProjectScreen({
       } catch {
         // No durable status exists until the one-time command is exchanged.
       }
-      if (active) timer = window.setTimeout(() => void poll(), 1_500);
+      if (!active) return;
+      const delay = nextPairingPollDelay(pairing.expiresAt);
+      if (delay === null) {
+        setCopied(false);
+        setError(pairingExpiredError());
+        return;
+      }
+      timer = window.setTimeout(() => void poll(), delay);
     };
     void poll();
     return () => {
@@ -1113,6 +1181,7 @@ function AddProjectScreen({
             <button
               className="app-secondary-action"
               type="button"
+              disabled={error?.code === "CONNECTOR_PAIRING_EXPIRED"}
               onClick={() => void copyCommand()}
             >
               {copied ? "Command copied" : "Copy command"}
@@ -1120,7 +1189,9 @@ function AddProjectScreen({
             <button
               className="app-primary-action"
               type="button"
-              disabled={checking}
+              disabled={
+                checking || error?.code === "CONNECTOR_PAIRING_EXPIRED"
+              }
               onClick={() => void checkConnection()}
             >
               {checking ? "Checking…" : "Check connection"}
@@ -1256,12 +1327,12 @@ function LiveConnectionsScreen({
     void Promise.all(
       projects.map(async (project): Promise<ProjectConnectionGroup> => {
         try {
-          const result = await api.projectCollaborators(project.projectId, {
-            limit: 50,
-          });
+          const collaborators = await loadAllProjectCollaborators(
+            project.projectId,
+          );
           return {
             project,
-            collaborators: result.collaborators,
+            collaborators,
             error: null,
           };
         } catch (nextError) {
@@ -1321,13 +1392,11 @@ function LiveConnectionsScreen({
           );
         }
       }
-      const refreshed = await api.projectCollaborators(project.projectId, {
-        limit: 50,
-      });
+      const refreshed = await loadAllProjectCollaborators(project.projectId);
       setGroups((current) =>
         current.map((group) =>
           group.project.projectId === project.projectId
-            ? { ...group, collaborators: refreshed.collaborators, error: null }
+            ? { ...group, collaborators: refreshed, error: null }
             : group,
         ),
       );
@@ -2964,13 +3033,11 @@ function Workspace({
     setConversationState("idle");
     setConversationError(null);
     try {
-      const result = await api.projectCollaborators(project.projectId, {
-        limit: 50,
-      });
+      const result = await loadAllProjectCollaborators(project.projectId);
       if (requestId !== collaboratorRequest.current) return;
-      setCollaborators(result.collaborators);
+      setCollaborators(result);
       setSelectedPeerUserId((current) =>
-        selectConnectedPeer(result.collaborators, current),
+        selectConnectedPeer(result, current),
       );
       setCollaboratorsState("ready");
     } catch (error) {
@@ -2993,12 +3060,11 @@ function Workspace({
     setConversationPeerUserId(null);
     setConversationState("idle");
     setConversationError(null);
-    void api
-      .projectCollaborators(project.projectId, { limit: 50 })
+    void loadAllProjectCollaborators(project.projectId)
       .then((result) => {
         if (!active || requestId !== collaboratorRequest.current) return;
-        setCollaborators(result.collaborators);
-        setSelectedPeerUserId(selectConnectedPeer(result.collaborators, null));
+        setCollaborators(result);
+        setSelectedPeerUserId(selectConnectedPeer(result, null));
         setCollaboratorsState("ready");
       })
       .catch((error: unknown) => {
@@ -3211,13 +3277,13 @@ export default function ProductApp({
       setProjectsError(null);
     }
     try {
-      const result = await api.projects({ limit: 50 });
+      const projects = await loadAllProjects();
       setProjectsRefreshStale(false);
       setProjectsError(null);
-      setDiscoveredProjects(result.projects);
+      setDiscoveredProjects(projects);
       setSelectedProject((current) =>
         current
-          ? (result.projects.find(
+          ? (projects.find(
               (project) => project.projectId === current.projectId,
             ) ?? null)
           : null,
@@ -3227,12 +3293,12 @@ export default function ProductApp({
         entryProjectDiscoveryRef.current === "loading"
       ) {
         navigateProduct(
-          productEntryRouteAfterDiscovery(result.projects.length),
+          productEntryRouteAfterDiscovery(projects.length),
           null,
           true,
         );
       }
-      return result.projects.some(
+      return projects.some(
         (project) => projectAvailability(project) === "Open",
       );
     } catch (error) {

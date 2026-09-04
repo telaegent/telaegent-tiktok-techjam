@@ -15,6 +15,7 @@ const projectParams = z.object({ projectId: uuid });
 const connectionParams = z.object({ projectId: uuid, connectionId: uuid });
 const collaboratorQuery = z.strictObject({
   limit: z.coerce.number().int().min(1).max(50).default(50),
+  cursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
 const requestConnectionBody = z.strictObject({ recipientUserId: uuid });
 const respondBody = z.strictObject({ decision: z.enum(["accept", "decline"]) });
@@ -85,11 +86,11 @@ export function registerProjectRoutes(
     setPrivateNoStore(reply);
     const authenticatedUserId = await user(request, dependencies.authenticatedUserId);
     const { projectId } = projectParams.parse(request.params);
-    const { limit } = collaboratorQuery.parse(request.query);
+    const query = collaboratorQuery.parse(request.query);
     return dependencies.service.listCollaborators({
       authenticatedUserId,
       projectId,
-      limit,
+      ...query,
     });
   });
 

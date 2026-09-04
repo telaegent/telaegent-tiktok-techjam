@@ -4,7 +4,7 @@ import { isGitHubRepositoryId } from "../authorization/github-repository-id.js";
 import { HttpError } from "../errors.js";
 import type { ProjectRepository } from "./repository.js";
 import type {
-  ProjectCollaborator,
+  ProjectCollaboratorListPage,
   ProjectConnection,
   ProjectConversation,
   ProjectDisconnect,
@@ -14,6 +14,10 @@ import type {
 const cursorPayload = z.strictObject({
   version: z.literal(1),
   afterGitHubRepositoryId: z.string().refine(isGitHubRepositoryId),
+});
+const collaboratorCursorPayload = z.strictObject({
+  version: z.literal(1),
+  afterUserId: z.string().uuid(),
 });
 const cursorPattern = /^[A-Za-z0-9_-]{1,256}$/;
 const uuid = z.string().uuid();
@@ -73,14 +77,28 @@ export class ProjectService {
     authenticatedUserId: string;
     projectId: string;
     limit: number;
-  }>): Promise<{ collaborators: ProjectCollaborator[] }> {
-    const collaborators = await this.repository.listCollaborators({
+    cursor?: string | undefined;
+  }>): Promise<ProjectCollaboratorListPage> {
+    const limit = z.number().int().min(1).max(50).parse(input.limit);
+    const rows = await this.repository.listCollaborators({
       authenticatedUserId: uuid.parse(input.authenticatedUserId),
       projectId: uuid.parse(input.projectId),
-      limit: z.number().int().min(1).max(50).parse(input.limit),
+      afterUserId: decodeCollaboratorCursor(input.cursor),
+      limit: limit + 1,
     });
-    if (collaborators === null) throw notAvailable();
-    return { collaborators };
+    if (rows === null) throw notAvailable();
+    if (rows.length > limit + 1) {
+      throw new HttpError(503, "Collaborator discovery is temporarily unavailable");
+    }
+    const collaborators = rows.slice(0, limit);
+    const last = collaborators.at(-1);
+    return {
+      collaborators,
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCollaboratorCursor(last.userId)
+          : null,
+    };
   }
 
   /**
@@ -227,12 +245,45 @@ function encodeCursor(afterGitHubRepositoryId: string): string {
   ).toString("base64url");
 }
 
+function decodeCollaboratorCursor(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  if (!cursorPattern.test(value)) throw invalidCollaboratorCursor();
+  try {
+    const bytes = Buffer.from(value, "base64url");
+    if (bytes.toString("base64url") !== value || bytes.byteLength > 192) {
+      throw invalidCollaboratorCursor();
+    }
+    return collaboratorCursorPayload.parse(
+      JSON.parse(bytes.toString("utf8")),
+    ).afterUserId;
+  } catch {
+    throw invalidCollaboratorCursor();
+  }
+}
+
+function encodeCollaboratorCursor(afterUserId: string): string {
+  return Buffer.from(
+    JSON.stringify({ version: 1, afterUserId }),
+    "utf8",
+  ).toString("base64url");
+}
+
 function invalidCursor(): z.ZodError {
   return new z.ZodError([
     {
       code: "custom",
       path: ["cursor"],
       message: "Invalid project cursor",
+    },
+  ]);
+}
+
+function invalidCollaboratorCursor(): z.ZodError {
+  return new z.ZodError([
+    {
+      code: "custom",
+      path: ["cursor"],
+      message: "Invalid collaborator cursor",
     },
   ]);
 }

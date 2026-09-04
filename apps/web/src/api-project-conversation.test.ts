@@ -6,6 +6,25 @@ afterEach(() => {
 });
 
 describe("project conversation API", () => {
+  it("sends collaborator cursors through the scoped discovery route", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
+        JSON.stringify({ collaborators: [], nextCursor: null }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.projectCollaborators("project/id", {
+      limit: 50,
+      cursor: "cursor_value",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/projects/project%2Fid/collaborators?limit=50&cursor=cursor_value",
+    );
+  });
+
   it("requests project trust from an independently verified member", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
       JSON.stringify({ connection: { status: "pending" } }),
