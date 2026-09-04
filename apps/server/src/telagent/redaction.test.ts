@@ -9,6 +9,8 @@ import {
 const SECRETS = {
   arkKey: "sk-live-9f3a2b7c4d5e6f7a8b9c0d1e",
   githubToken: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+  githubFineGrainedToken:
+    "github_pat_" + "A".repeat(70) + "1".repeat(12),
   slackToken: "xoxb-1234567890-abcdefghij",
   awsKey: "AKIAIOSFODNN7EXAMPLE",
   googleKey: "AIzaSyA1234567890abcdefghijklmnopqrstu",
@@ -35,6 +37,7 @@ describe("redaction removes the secret, not just flags it", () => {
     for (const literal of [
       SECRETS.arkKey,
       SECRETS.githubToken,
+      SECRETS.githubFineGrainedToken,
       SECRETS.awsKey,
       SECRETS.googleKey,
       "hunter2-not-in-the-log",

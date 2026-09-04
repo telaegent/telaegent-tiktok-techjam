@@ -407,6 +407,19 @@ describe("secret values cannot cross the boundary", () => {
     expect(verdict.sendable).toBe(false);
   });
 
+  it("blocks a fine-grained GitHub PAT even when entropy heuristics would miss it", () => {
+    const fineGrainedPat = "github_pat_" + "A".repeat(70) + "1".repeat(12);
+    const verdict = inspectCandidate("Here it is: " + fineGrainedPat);
+
+    expect(verdict.sendable).toBe(false);
+    expect(verdict.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "GUARD_SECRET_VALUE_IN_CANDIDATE" }),
+      ]),
+    );
+    expect(verdict.redactedCandidate).not.toContain(fineGrainedPat);
+  });
+
   it("never quotes the offending text in the reason it gives", () => {
     // A block message that quotes the secret defeats the block. This is also
     // why findings carry `safeReason` rather than the match.

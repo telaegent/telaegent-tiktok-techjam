@@ -63,9 +63,10 @@ const PATTERNS: Pattern[] = [
   },
   {
     reason: "API_KEY",
-    // sk-…, ghp_…, xoxb-…, AKIA…, AIza… and the ark key shape.
+    // sk-…, GitHub tokens (including fine-grained github_pat_…), xoxb-…,
+    // AKIA…, AIza… and the ark key shape.
     expression:
-      /\b(?:sk-[A-Za-z0-9-]{12,}|rk-[A-Za-z0-9-]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z\-_]{20,})\b/g,
+      /\b(?:sk-[A-Za-z0-9-]{12,}|rk-[A-Za-z0-9-]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z\-_]{20,})\b/g,
     replace: () => PLACEHOLDER,
   },
   {
