@@ -24,12 +24,17 @@ export type ConnectorSetupSnapshot = Readonly<{
 }>;
 
 export type ConnectorSetupPhase =
-  | "not_ready"
+  | "not_exchanged"
+  | "verifying"
   | "ready"
   | "credential_inactive";
 
 export type ConnectorSetupPollOutcome =
-  | Readonly<{ kind: "wait"; delayMs: number }>
+  | Readonly<{
+      kind: "wait";
+      delayMs: number;
+      credentialObserved: boolean;
+    }>
   | Readonly<{
       kind: "stop";
       reason: "pairing_expired" | "credential_inactive" | "setup_timed_out";
@@ -46,7 +51,7 @@ export function nextPairingPollDelay(
   return Math.min(CONNECTOR_PAIRING_POLL_INTERVAL_MS, expiresMs - nowMs);
 }
 
-/** Maps setup status without treating a not-yet-exchanged pairing as inactive. */
+/** Maps the browser-safe status across pairing, credential, and ready states. */
 export function connectorSetupPhase(
   connector: ConnectorSetupSnapshot,
 ): ConnectorSetupPhase {
@@ -68,7 +73,8 @@ export function connectorSetupPhase(
   ) {
     return "ready";
   }
-  return "not_ready";
+  if (connector.credential?.status === "active") return "verifying";
+  return "not_exchanged";
 }
 
 /**
@@ -134,6 +140,7 @@ export class ConnectorSetupPollTracker {
           CONNECTOR_PAIRING_POLL_INTERVAL_MS,
           recoveryDeadlineMs - nowMs,
         ),
+        credentialObserved: false,
       };
     }
 
@@ -161,6 +168,7 @@ export class ConnectorSetupPollTracker {
         credentialExpiresMs - nowMs,
         setupDeadlineMs - nowMs,
       ),
+      credentialObserved: true,
     };
   }
 }

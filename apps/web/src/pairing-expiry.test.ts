@@ -49,13 +49,15 @@ describe("nextPairingPollDelay", () => {
 
 describe("connectorSetupPhase", () => {
   it("treats a null credential as not exchanged yet, not inactive", () => {
-    expect(connectorSetupPhase(snapshot({ credential: null }))).toBe("not_ready");
+    expect(connectorSetupPhase(snapshot({ credential: null }))).toBe(
+      "not_exchanged",
+    );
   });
 
   it("keeps an active but incomplete connector pending", () => {
     expect(
       connectorSetupPhase(snapshot({ credential: activeCredential() })),
-    ).toBe("not_ready");
+    ).toBe("verifying");
   });
 
   it("recognizes ready and explicitly inactive connectors", () => {
@@ -97,6 +99,7 @@ describe("ConnectorSetupPollTracker", () => {
     ).resolves.toEqual({
       kind: "wait",
       delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS,
+      credentialObserved: false,
     });
     await expect(
       tracker.check(
@@ -117,6 +120,7 @@ describe("ConnectorSetupPollTracker", () => {
     ).resolves.toEqual({
       kind: "wait",
       delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS,
+      credentialObserved: false,
     });
   });
 
@@ -135,6 +139,7 @@ describe("ConnectorSetupPollTracker", () => {
     ).resolves.toEqual({
       kind: "wait",
       delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS,
+      credentialObserved: true,
     });
   });
 
@@ -151,6 +156,7 @@ describe("ConnectorSetupPollTracker", () => {
     ).resolves.toEqual({
       kind: "wait",
       delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS * 2,
+      credentialObserved: true,
     });
   });
 
@@ -168,6 +174,7 @@ describe("ConnectorSetupPollTracker", () => {
     ).resolves.toEqual({
       kind: "wait",
       delayMs: CONNECTOR_SETUP_MAX_POLL_INTERVAL_MS,
+      credentialObserved: true,
     });
     await expect(
       tracker.check(

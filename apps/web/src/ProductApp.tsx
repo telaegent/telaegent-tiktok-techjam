@@ -70,6 +70,10 @@ type OnboardingStep =
   | "agent"
   | "ready";
 type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
+type ConnectorSetupAttempt = Pick<
+  ConnectorPairing,
+  "connectorInstanceId" | "expiresAt"
+>;
 
 function pairingExpiredError(): ApiError {
   return new ApiError(
@@ -310,6 +314,8 @@ function Onboarding({
   const [githubStage, setGithubStage] = useState<GithubStage>("idle");
   const [connectorPairing, setConnectorPairing] =
     useState<ConnectorPairing | null>(null);
+  const [connectorAttempt, setConnectorAttempt] =
+    useState<ConnectorSetupAttempt | null>(null);
   const [connectorError, setConnectorError] = useState<ApiError | null>(null);
   const [checkingConnector, setCheckingConnector] = useState(false);
   const [connectedAgents, setConnectedAgents] = useState<string[]>([]);
@@ -336,9 +342,15 @@ function Onboarding({
   async function createConnectorPairing() {
     setGithubStage("issuing");
     setConnectorError(null);
+    setConnectorPairing(null);
+    setConnectorAttempt(null);
     try {
       const result = await api.createConnectorPairing();
       setConnectorPairing(result.pairing);
+      setConnectorAttempt({
+        connectorInstanceId: result.pairing.connectorInstanceId,
+        expiresAt: result.pairing.expiresAt,
+      });
       setConnectorCommandCopied(false);
       setGithubStage("connector");
     } catch (error) {
@@ -361,18 +373,28 @@ function Onboarding({
   }
 
   async function verifyConnectorSetup() {
-    if (!connectorPairing || checkingConnector) return;
+    if (!connectorAttempt || checkingConnector) return;
     setCheckingConnector(true);
     setConnectorError(null);
     try {
       const { connector } = await api.connectorSetupStatus(
-        connectorPairing.connectorInstanceId,
+        connectorAttempt.connectorInstanceId,
       );
       const setupPhase = connectorSetupPhase(connector);
       if (setupPhase === "credential_inactive") {
         throw connectorCredentialInactiveError();
       }
+      if (setupPhase === "verifying") {
+        setConnectorPairing(null);
+        return;
+      }
       if (setupPhase !== "ready") {
+        if (
+          setupPhase === "not_exchanged" &&
+          nextPairingPollDelay(connectorAttempt.expiresAt) === null
+        ) {
+          throw pairingExpiredError();
+        }
         throw new ApiError(
           "The connector has not finished verifying this repository yet. Keep it running and check again.",
           409,
@@ -383,6 +405,7 @@ function Onboarding({
       // Remove the already-consumed pairing code from React state as soon as
       // onboarding no longer needs to render it.
       setConnectorPairing(null);
+      setConnectorAttempt(null);
       setGithubStage("connected");
       onCompleteRef.current();
     } catch (error) {
@@ -390,6 +413,7 @@ function Onboarding({
       setConnectorError(normalized);
       if (normalized.code === "CONNECTOR_CREDENTIAL_INACTIVE") {
         setConnectorPairing(null);
+        setConnectorAttempt(null);
         setGithubStage("error");
       }
     } finally {
@@ -398,14 +422,14 @@ function Onboarding({
   }
 
   useEffect(() => {
-    if (githubStage !== "connector" || !connectorPairing) return;
+    if (githubStage !== "connector" || !connectorAttempt) return;
     let active = true;
     let timer: number | undefined;
-    const tracker = new ConnectorSetupPollTracker(connectorPairing.expiresAt);
+    const tracker = new ConnectorSetupPollTracker(connectorAttempt.expiresAt);
     const poll = async () => {
       const outcome = await tracker.check(async () => {
         const result = await api.connectorSetupStatus(
-          connectorPairing.connectorInstanceId,
+          connectorAttempt.connectorInstanceId,
         );
         return result.connector;
       });
@@ -413,6 +437,7 @@ function Onboarding({
       if (outcome.kind === "ready") {
         setConnectorError(null);
         setConnectorPairing(null);
+        setConnectorAttempt(null);
         setGithubStage("connected");
         onCompleteRef.current();
         return;
@@ -421,6 +446,7 @@ function Onboarding({
         setConnectorCommandCopied(false);
         if (outcome.reason === "credential_inactive") {
           setConnectorPairing(null);
+          setConnectorAttempt(null);
           setConnectorError(connectorCredentialInactiveError());
           setGithubStage("error");
         } else if (outcome.reason === "setup_timed_out") {
@@ -430,6 +456,11 @@ function Onboarding({
         }
         return;
       }
+      if (outcome.credentialObserved) {
+        setConnectorPairing(null);
+        setConnectorCommandCopied(false);
+        setConnectorError(null);
+      }
       timer = window.setTimeout(() => void poll(), outcome.delayMs);
     };
     void poll();
@@ -437,7 +468,7 @@ function Onboarding({
       active = false;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [githubStage, connectorPairing]);
+  }, [githubStage, connectorAttempt]);
 
   return (
     <main className="onboarding-shell">
@@ -585,49 +616,69 @@ function Onboarding({
                 </div>
               )}
 
-              {githubStage === "connector" && connectorPairing && (
+              {githubStage === "connector" && connectorAttempt && (
                 <div className="device-flow">
-                  <div>
-                    <span>Run from your repository</span>
-                    <strong>Connect this repository</strong>
-                  </div>
-                  <div>
-                    <span>What remains local</span>
-                    <code>repo · gh · Claude/Codex · sessions</code>
-                  </div>
-                  <p>
-                    Open a terminal in the repository you want to connect, then
-                    run this command. It works on Windows, macOS, and Linux.
-                  </p>
-                  <div className="connector-command-block">
-                    <code className="connector-command">
-                      {buildConnectorCommand(
-                        window.location.origin,
-                        connectorPairing,
-                      )}
-                    </code>
-                    <p>
-                      The connector uses the current Git repository. Its local
-                      path, checkout, GitHub login, and coding-agent sessions
-                      stay on this device. This one-time command expires{" "}
-                      {new Intl.DateTimeFormat(undefined, {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      }).format(new Date(connectorPairing.expiresAt))}
-                      .
-                    </p>
-                  </div>
+                  {connectorPairing ? (
+                    <>
+                      <div>
+                        <span>Run from your repository</span>
+                        <strong>Connect this repository</strong>
+                      </div>
+                      <div>
+                        <span>What remains local</span>
+                        <code>repo · gh · Claude/Codex · sessions</code>
+                      </div>
+                      <p>
+                        Open a terminal in the repository you want to connect,
+                        then run this command. It works on Windows, macOS, and
+                        Linux.
+                      </p>
+                      <div className="connector-command-block">
+                        <code className="connector-command">
+                          {buildConnectorCommand(
+                            window.location.origin,
+                            connectorPairing,
+                          )}
+                        </code>
+                        <p>
+                          The connector uses the current Git repository. Its
+                          local path, checkout, GitHub login, and coding-agent
+                          sessions stay on this device. This one-time command
+                          expires{" "}
+                          {new Intl.DateTimeFormat(undefined, {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          }).format(new Date(connectorPairing.expiresAt))}
+                          .
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="setup-row" aria-live="polite">
+                      <div>
+                        <strong>Connector authenticated</strong>
+                        <small>
+                          Verifying repository access and the local provider
+                        </small>
+                      </div>
+                      <TypingDots label="Verifying connector setup" />
+                    </div>
+                  )}
                   <div className="inline-actions">
-                    <button
-                      className="app-secondary-action"
-                      type="button"
-                      disabled={connectorError?.code === "CONNECTOR_PAIRING_EXPIRED"}
-                      onClick={() => void copyConnectorCommand()}
-                    >
-                      {connectorCommandCopied
-                        ? "Command copied"
-                        : "Copy command"}
-                    </button>
+                    {connectorPairing && (
+                      <button
+                        className="app-secondary-action"
+                        type="button"
+                        disabled={
+                          connectorError?.code === "CONNECTOR_PAIRING_EXPIRED"
+                        }
+                        onClick={() => void copyConnectorCommand()}
+                      >
+                        {connectorCommandCopied
+                          ? "Command copied"
+                          : "Copy command"}
+                      </button>
+                    )}
                     <button
                       className="app-primary-action"
                       type="button"
@@ -1005,6 +1056,8 @@ function AddProjectScreen({
     autoGenerate ? "issuing" : "idle",
   );
   const [pairing, setPairing] = useState<ConnectorPairing | null>(null);
+  const [connectorAttempt, setConnectorAttempt] =
+    useState<ConnectorSetupAttempt | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [checking, setChecking] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1013,9 +1066,15 @@ function AddProjectScreen({
   const createCommand = useCallback(async () => {
     setStage("issuing");
     setError(null);
+    setPairing(null);
+    setConnectorAttempt(null);
     try {
       const result = await api.createConnectorPairing();
       setPairing(result.pairing);
+      setConnectorAttempt({
+        connectorInstanceId: result.pairing.connectorInstanceId,
+        expiresAt: result.pairing.expiresAt,
+      });
       setCopied(false);
       setStage("connector");
     } catch (nextError) {
@@ -1044,18 +1103,28 @@ function AddProjectScreen({
   }
 
   async function checkConnection() {
-    if (!pairing || checking) return;
+    if (!connectorAttempt || checking) return;
     setChecking(true);
     setError(null);
     try {
       const { connector } = await api.connectorSetupStatus(
-        pairing.connectorInstanceId,
+        connectorAttempt.connectorInstanceId,
       );
       const setupPhase = connectorSetupPhase(connector);
       if (setupPhase === "credential_inactive") {
         throw connectorCredentialInactiveError();
       }
+      if (setupPhase === "verifying") {
+        setPairing(null);
+        return;
+      }
       if (setupPhase !== "ready") {
+        if (
+          setupPhase === "not_exchanged" &&
+          nextPairingPollDelay(connectorAttempt.expiresAt) === null
+        ) {
+          throw pairingExpiredError();
+        }
         throw new ApiError(
           "The connector has not finished verifying this repository yet. Keep it running and check again.",
           409,
@@ -1064,12 +1133,14 @@ function AddProjectScreen({
         );
       }
       setPairing(null);
+      setConnectorAttempt(null);
       setStage("connected");
     } catch (nextError) {
       const normalized = normalizeApiError(nextError);
       setError(normalized);
       if (normalized.code === "CONNECTOR_CREDENTIAL_INACTIVE") {
         setPairing(null);
+        setConnectorAttempt(null);
         setStage("error");
       }
     } finally {
@@ -1078,14 +1149,14 @@ function AddProjectScreen({
   }
 
   useEffect(() => {
-    if (stage !== "connector" || !pairing) return;
+    if (stage !== "connector" || !connectorAttempt) return;
     let active = true;
     let timer: number | undefined;
-    const tracker = new ConnectorSetupPollTracker(pairing.expiresAt);
+    const tracker = new ConnectorSetupPollTracker(connectorAttempt.expiresAt);
     const poll = async () => {
       const outcome = await tracker.check(async () => {
         const result = await api.connectorSetupStatus(
-          pairing.connectorInstanceId,
+          connectorAttempt.connectorInstanceId,
         );
         return result.connector;
       });
@@ -1093,6 +1164,7 @@ function AddProjectScreen({
       if (outcome.kind === "ready") {
         setError(null);
         setPairing(null);
+        setConnectorAttempt(null);
         setStage("connected");
         return;
       }
@@ -1100,6 +1172,7 @@ function AddProjectScreen({
         setCopied(false);
         if (outcome.reason === "credential_inactive") {
           setPairing(null);
+          setConnectorAttempt(null);
           setError(connectorCredentialInactiveError());
           setStage("error");
         } else if (outcome.reason === "setup_timed_out") {
@@ -1109,6 +1182,11 @@ function AddProjectScreen({
         }
         return;
       }
+      if (outcome.credentialObserved) {
+        setPairing(null);
+        setCopied(false);
+        setError(null);
+      }
       timer = window.setTimeout(() => void poll(), outcome.delayMs);
     };
     void poll();
@@ -1116,7 +1194,7 @@ function AddProjectScreen({
       active = false;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [stage, pairing]);
+  }, [stage, connectorAttempt]);
 
   return (
     <div className="app-page compact-page add-project-page">
@@ -1162,42 +1240,58 @@ function AddProjectScreen({
         </section>
       )}
 
-      {stage === "connector" && pairing && (
+      {stage === "connector" && connectorAttempt && (
         <section className="device-flow add-project-card">
-          <div>
-            <span>Run from your repository</span>
-            <strong>
-              {project
-                ? `Connect ${project.repositoryFullName}`
-                : "Connect this repository"}
-            </strong>
-          </div>
-          <p>
-            Open a terminal in the repository you want to add, then run this
-            command on Windows, macOS, or Linux.
-          </p>
-          <div className="connector-command-block">
-            <code className="connector-command">
-              {buildConnectorCommand(window.location.origin, pairing)}
-            </code>
-            <p>
-              This command expires{" "}
-              {new Intl.DateTimeFormat(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              }).format(new Date(pairing.expiresAt))}
-              .
-            </p>
-          </div>
+          {pairing ? (
+            <>
+              <div>
+                <span>Run from your repository</span>
+                <strong>
+                  {project
+                    ? `Connect ${project.repositoryFullName}`
+                    : "Connect this repository"}
+                </strong>
+              </div>
+              <p>
+                Open a terminal in the repository you want to add, then run
+                this command on Windows, macOS, or Linux.
+              </p>
+              <div className="connector-command-block">
+                <code className="connector-command">
+                  {buildConnectorCommand(window.location.origin, pairing)}
+                </code>
+                <p>
+                  This command expires{" "}
+                  {new Intl.DateTimeFormat(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }).format(new Date(pairing.expiresAt))}
+                  .
+                </p>
+              </div>
+            </>
+          ) : (
+            <div className="setup-row" aria-live="polite">
+              <div>
+                <strong>Connector authenticated</strong>
+                <small>
+                  Verifying repository access and the local provider
+                </small>
+              </div>
+              <TypingDots label="Verifying connector setup" />
+            </div>
+          )}
           <div className="inline-actions">
-            <button
-              className="app-secondary-action"
-              type="button"
-              disabled={error?.code === "CONNECTOR_PAIRING_EXPIRED"}
-              onClick={() => void copyCommand()}
-            >
-              {copied ? "Command copied" : "Copy command"}
-            </button>
+            {pairing && (
+              <button
+                className="app-secondary-action"
+                type="button"
+                disabled={error?.code === "CONNECTOR_PAIRING_EXPIRED"}
+                onClick={() => void copyCommand()}
+              >
+                {copied ? "Command copied" : "Copy command"}
+              </button>
+            )}
             <button
               className="app-primary-action"
               type="button"
