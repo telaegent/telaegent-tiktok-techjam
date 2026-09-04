@@ -57,7 +57,7 @@ export class SupabaseProjectRepository implements ProjectRepository {
     afterUserId: string | null;
     limit: number;
   }>): Promise<ProjectCollaborator[] | null> {
-    return this.call("list_project_collaborators", {
+    return this.call("list_project_collaborators_page", {
       p_user_id: input.authenticatedUserId,
       p_project_id: input.projectId,
       p_after_user_id: input.afterUserId,

@@ -2,12 +2,12 @@
 --
 -- The cursor is the peer's stable user ID. Connection-state changes therefore
 -- cannot move a row between pages while the browser drains the result set.
+-- Keep the existing list_project_collaborators RPC untouched so the migration
+-- can be deployed before the updated server without an outage. Supabase's Data
+-- API does not reliably support overloaded function names, so pagination uses
+-- a distinct RPC name.
 
-revoke all on function public.list_project_collaborators(uuid, uuid, integer)
-  from public, anon, authenticated;
-drop function public.list_project_collaborators(uuid, uuid, integer);
-
-create function public.list_project_collaborators(
+create or replace function public.list_project_collaborators_page(
   p_user_id       uuid,
   p_project_id    uuid,
   p_after_user_id uuid,
@@ -93,7 +93,7 @@ as $$
   end;
 $$;
 
-revoke all on function public.list_project_collaborators(uuid, uuid, uuid, integer)
+revoke all on function public.list_project_collaborators_page(uuid, uuid, uuid, integer)
   from public, anon, authenticated;
-grant execute on function public.list_project_collaborators(uuid, uuid, uuid, integer)
+grant execute on function public.list_project_collaborators_page(uuid, uuid, uuid, integer)
   to service_role;
