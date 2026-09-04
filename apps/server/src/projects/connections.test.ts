@@ -393,7 +393,7 @@ describe("SupabaseProjectRepository connection calls", () => {
     ).resolves.toBeNull();
     const [url, request] = fetchImplementation.mock.calls[0]!;
     expect(url).toBe(
-      "https://example.supabase.co/rest/v1/rpc/list_project_collaborators",
+      "https://example.supabase.co/rest/v1/rpc/list_project_collaborators_page",
     );
     expect(JSON.parse(String((request as RequestInit | undefined)?.body))).toEqual({
       p_user_id: alice,
