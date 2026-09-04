@@ -43,7 +43,10 @@ import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import { collectCursorPages } from "./cursor-pagination";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
-import { nextPairingPollDelay } from "./pairing-expiry";
+import {
+  nextConnectorSetupPollDelay,
+  nextPairingPollDelay,
+} from "./pairing-expiry";
 import {
   connectorPresence,
   type ConnectorPresence,
@@ -86,6 +89,14 @@ function pairingExpiredError(): ApiError {
     "This one-time command expired. Generate a new command and try again.",
     410,
     "CONNECTOR_PAIRING_EXPIRED",
+  );
+}
+
+function connectorCredentialInactiveError(): ApiError {
+  return new ApiError(
+    "The connector credential is no longer active. Create a new one and retry.",
+    409,
+    "CONNECTOR_CREDENTIAL_INACTIVE",
   );
 }
 
@@ -355,10 +366,6 @@ function Onboarding({
 
   async function verifyConnectorSetup() {
     if (!connectorPairing || checkingConnector) return;
-    if (nextPairingPollDelay(connectorPairing.expiresAt) === null) {
-      setConnectorError(pairingExpiredError());
-      return;
-    }
     setCheckingConnector(true);
     setConnectorError(null);
     try {
@@ -366,11 +373,7 @@ function Onboarding({
         connectorPairing.connectorInstanceId,
       );
       if (connector.credential?.status !== "active") {
-        throw new ApiError(
-          "The connector credential is no longer active. Create a new one and retry.",
-          409,
-          "CONNECTOR_CREDENTIAL_INACTIVE",
-        );
+        throw connectorCredentialInactiveError();
       }
       const verifiedBinding = connectorSetupIsReady(connector);
       if (!verifiedBinding) {
@@ -402,12 +405,14 @@ function Onboarding({
     if (githubStage !== "connector" || !connectorPairing) return;
     let active = true;
     let timer: number | undefined;
+    let observedCredential: ConnectorSetupStatus["credential"] = null;
     const poll = async () => {
       try {
         const { connector } = await api.connectorSetupStatus(
           connectorPairing.connectorInstanceId,
         );
         if (!active) return;
+        observedCredential = connector.credential;
         if (connectorSetupIsReady(connector)) {
           setConnectorError(null);
           setConnectorPairing(null);
@@ -415,15 +420,33 @@ function Onboarding({
           onCompleteRef.current();
           return;
         }
+        if (
+          connector.credential !== null &&
+          connector.credential.status !== "active"
+        ) {
+          setConnectorPairing(null);
+          setConnectorError(connectorCredentialInactiveError());
+          setGithubStage("error");
+          return;
+        }
       } catch {
         // Before the CLI exchanges the code there is intentionally no durable
         // credential/status row. Keep waiting without showing a false error.
       }
       if (!active) return;
-      const delay = nextPairingPollDelay(connectorPairing.expiresAt);
+      const delay = nextConnectorSetupPollDelay(
+        connectorPairing.expiresAt,
+        observedCredential,
+      );
       if (delay === null) {
         setConnectorCommandCopied(false);
-        setConnectorError(pairingExpiredError());
+        if (observedCredential === null) {
+          setConnectorError(pairingExpiredError());
+        } else {
+          setConnectorPairing(null);
+          setConnectorError(connectorCredentialInactiveError());
+          setGithubStage("error");
+        }
         return;
       }
       timer = window.setTimeout(() => void poll(), delay);
@@ -1044,16 +1067,15 @@ function AddProjectScreen({
 
   async function checkConnection() {
     if (!pairing || checking) return;
-    if (nextPairingPollDelay(pairing.expiresAt) === null) {
-      setError(pairingExpiredError());
-      return;
-    }
     setChecking(true);
     setError(null);
     try {
       const { connector } = await api.connectorSetupStatus(
         pairing.connectorInstanceId,
       );
+      if (connector.credential?.status !== "active") {
+        throw connectorCredentialInactiveError();
+      }
       if (!connectorSetupIsReady(connector)) {
         throw new ApiError(
           "The connector has not finished verifying this repository yet. Keep it running and check again.",
@@ -1065,7 +1087,12 @@ function AddProjectScreen({
       setPairing(null);
       setStage("connected");
     } catch (nextError) {
-      setError(normalizeApiError(nextError));
+      const normalized = normalizeApiError(nextError);
+      setError(normalized);
+      if (normalized.code === "CONNECTOR_CREDENTIAL_INACTIVE") {
+        setPairing(null);
+        setStage("error");
+      }
     } finally {
       setChecking(false);
     }
@@ -1075,26 +1102,46 @@ function AddProjectScreen({
     if (stage !== "connector" || !pairing) return;
     let active = true;
     let timer: number | undefined;
+    let observedCredential: ConnectorSetupStatus["credential"] = null;
     const poll = async () => {
       try {
         const { connector } = await api.connectorSetupStatus(
           pairing.connectorInstanceId,
         );
         if (!active) return;
+        observedCredential = connector.credential;
         if (connectorSetupIsReady(connector)) {
           setError(null);
           setPairing(null);
           setStage("connected");
           return;
         }
+        if (
+          connector.credential !== null &&
+          connector.credential.status !== "active"
+        ) {
+          setPairing(null);
+          setError(connectorCredentialInactiveError());
+          setStage("error");
+          return;
+        }
       } catch {
         // No durable status exists until the one-time command is exchanged.
       }
       if (!active) return;
-      const delay = nextPairingPollDelay(pairing.expiresAt);
+      const delay = nextConnectorSetupPollDelay(
+        pairing.expiresAt,
+        observedCredential,
+      );
       if (delay === null) {
         setCopied(false);
-        setError(pairingExpiredError());
+        if (observedCredential === null) {
+          setError(pairingExpiredError());
+        } else {
+          setPairing(null);
+          setError(connectorCredentialInactiveError());
+          setStage("error");
+        }
         return;
       }
       timer = window.setTimeout(() => void poll(), delay);
