@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectRepository } from "./repository.js";
 import { ProjectService } from "./service.js";
-import type { ProjectSummary } from "./types.js";
+import type { ProjectCollaborator, ProjectSummary } from "./types.js";
 
 const userId = "10000000-0000-4000-8000-000000000001";
 
@@ -30,6 +30,15 @@ function project(githubRepositoryId: string): ProjectSummary {
       lastSeenAt: "2026-08-31T00:00:00.000Z",
       unavailableReason: null,
     },
+  };
+}
+
+function collaborator(suffix: string): ProjectCollaborator {
+  return {
+    userId: `40000000-0000-4000-8000-${suffix.padStart(12, "0")}`,
+    githubLogin: `collaborator-${suffix}`,
+    connectionStatus: "none",
+    projectConnectionId: null,
   };
 }
 
@@ -98,6 +107,48 @@ describe("ProjectService", () => {
         service.listProjects({ authenticatedUserId: userId, limit: 20, cursor }),
       ).rejects.toMatchObject({ name: "ZodError" });
     }
+  });
+
+  it("paginates collaborators with a stable user cursor", async () => {
+    const rows = [collaborator("10"), collaborator("20"), collaborator("30")];
+    const calls: Array<
+      Parameters<ProjectRepository["listCollaborators"]>[0]
+    > = [];
+    const repository: ProjectRepository = {
+      ...refusesConnections,
+      listForUser: async () => [],
+      listCollaborators: async (input) => {
+        calls.push(input);
+        return rows
+          .filter(
+            (row) =>
+              input.afterUserId === null || row.userId > input.afterUserId,
+          )
+          .slice(0, input.limit);
+      },
+    };
+    const service = new ProjectService(repository);
+
+    const first = await service.listCollaborators({
+      authenticatedUserId: userId,
+      projectId: project("10").projectId,
+      limit: 2,
+    });
+    expect(first.collaborators.map((row) => row.userId)).toEqual(
+      rows.slice(0, 2).map((row) => row.userId),
+    );
+    expect(first.nextCursor).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(calls[0]).toMatchObject({ afterUserId: null, limit: 3 });
+
+    const second = await service.listCollaborators({
+      authenticatedUserId: userId,
+      projectId: project("10").projectId,
+      limit: 2,
+      cursor: first.nextCursor!,
+    });
+    expect(second.collaborators).toEqual([rows[2]]);
+    expect(second.nextCursor).toBeNull();
+    expect(calls[1]?.afterUserId).toBe(rows[1]?.userId);
   });
 
   it("fails closed if a repository violates the requested bound", async () => {

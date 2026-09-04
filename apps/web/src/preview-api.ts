@@ -284,7 +284,7 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
     return { projects: [copy(project), copy(offlineProject)], nextCursor: null };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/collaborators(?:\?|$)/) && method === "GET") {
-    return { collaborators: [copy(collaborator)] };
+    return { collaborators: [copy(collaborator)], nextCursor: null };
   }
   if (url.match(/^\/api\/projects\/[^/]+\/connections$/) && method === "POST") {
     const next = previewConnection("pending", crypto.randomUUID());

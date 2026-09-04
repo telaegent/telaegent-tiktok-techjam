@@ -54,11 +54,13 @@ export class SupabaseProjectRepository implements ProjectRepository {
   async listCollaborators(input: Readonly<{
     authenticatedUserId: string;
     projectId: string;
+    afterUserId: string | null;
     limit: number;
   }>): Promise<ProjectCollaborator[] | null> {
     return this.call("list_project_collaborators", {
       p_user_id: input.authenticatedUserId,
       p_project_id: input.projectId,
+      p_after_user_id: input.afterUserId,
       p_limit: input.limit,
     }, projectCollaboratorRowsSchema);
   }

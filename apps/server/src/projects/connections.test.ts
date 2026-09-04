@@ -297,6 +297,7 @@ describe("project connection routes", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json().collaborators[0]?.connectionStatus).toBe("pending_incoming");
+    expect(response.json().nextCursor).toBeNull();
     await app.close();
   });
 
@@ -334,6 +335,7 @@ describe("project connection routes", () => {
     const app = await appWith(stubRepository());
     const rejected: Array<[string, string, unknown]> = [
       ["GET", "/api/projects/not-a-uuid/collaborators", undefined],
+      ["GET", `/api/projects/${projectId}/collaborators?cursor=not-base64`, undefined],
       ["POST", `/api/projects/${projectId}/connections`, { recipientUserId: "nope" }],
       [
         "POST",
@@ -374,7 +376,12 @@ describe("SupabaseProjectRepository connection calls", () => {
     const fetchImplementation = vi.fn(async () => new Response("null", { status: 200 }));
     const subject = repository(fetchImplementation as unknown as typeof fetch);
     await expect(
-      subject.listCollaborators({ authenticatedUserId: alice, projectId, limit: 50 }),
+      subject.listCollaborators({
+        authenticatedUserId: alice,
+        projectId,
+        afterUserId: null,
+        limit: 50,
+      }),
     ).resolves.toBeNull();
     await expect(
       subject.createConversation({
@@ -391,6 +398,7 @@ describe("SupabaseProjectRepository connection calls", () => {
     expect(JSON.parse(String((request as RequestInit | undefined)?.body))).toEqual({
       p_user_id: alice,
       p_project_id: projectId,
+      p_after_user_id: null,
       p_limit: 50,
     });
   });

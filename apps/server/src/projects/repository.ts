@@ -25,6 +25,7 @@ export interface ProjectRepository {
   listCollaborators(input: Readonly<{
     authenticatedUserId: string;
     projectId: string;
+    afterUserId: string | null;
     limit: number;
   }>): Promise<ProjectCollaborator[] | null>;
 
