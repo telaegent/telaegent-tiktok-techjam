@@ -71,13 +71,21 @@ begin
     (v_other,   v_dave,  'active', null);
 
   -- T1: discovery lists only peers who independently proved access.
-  v_page := public.list_project_collaborators(v_alice, v_project, 51);
+  v_page := public.list_project_collaborators_page(
+    v_alice, v_project, null::uuid, 51
+  );
   if jsonb_array_length(v_page) <> 1 or
      v_page #>> '{0,userId}' <> v_bob::text or
      v_page #>> '{0,githubLogin}' <> 'bob-gh' or
      v_page #>> '{0,connectionStatus}' <> 'none' or
      v_page #>> '{0,projectConnectionId}' is not null then
     raise exception 'T1 FAILED: eligible peer listing was invalid %', v_page;
+  end if;
+  if public.list_project_collaborators(v_alice, v_project, 51) <> v_page then
+    raise exception 'T1 FAILED: compatibility overload changed the first page';
+  end if;
+  if public.list_project_collaborators_page(v_alice, v_project, v_bob, 51) <> '[]'::jsonb then
+    raise exception 'T1 FAILED: collaborator cursor did not advance past the peer';
   end if;
 
   -- T2: discovery carries identity and connection state only.
@@ -90,6 +98,8 @@ begin
   if public.list_project_collaborators(v_alice, v_project, 0) is not null or
      public.list_project_collaborators(v_alice, v_project, 52) is not null or
      public.list_project_collaborators(v_alice, v_project, null) is not null or
+     public.list_project_collaborators_page(v_alice, v_project, null::uuid, 0) is not null or
+     public.list_project_collaborators_page(v_alice, v_project, null::uuid, 52) is not null or
      -- carol's own proof is stale, so she may not enumerate the project.
      public.list_project_collaborators(v_carol, v_project, 10) is not null or
      -- dave is a member of a different project; repo A never authorizes repo B.
@@ -290,6 +300,10 @@ begin
        'anon', 'public.list_project_collaborators(uuid,uuid,integer)', 'EXECUTE'
      ) or has_function_privilege(
        'authenticated', 'public.list_project_collaborators(uuid,uuid,integer)', 'EXECUTE'
+     ) or has_function_privilege(
+       'anon', 'public.list_project_collaborators_page(uuid,uuid,uuid,integer)', 'EXECUTE'
+     ) or has_function_privilege(
+       'authenticated', 'public.list_project_collaborators_page(uuid,uuid,uuid,integer)', 'EXECUTE'
      ) or has_function_privilege(
        'anon', 'public.request_project_connection(uuid,uuid,uuid,uuid,timestamptz)', 'EXECUTE'
      ) or has_function_privilege(

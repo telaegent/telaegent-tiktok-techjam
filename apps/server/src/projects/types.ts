@@ -84,6 +84,11 @@ export const projectCollaboratorRowsSchema = z
 
 export type ProjectCollaborator = z.infer<typeof projectCollaboratorSchema>;
 
+export interface ProjectCollaboratorListPage {
+  collaborators: ProjectCollaborator[];
+  nextCursor: string | null;
+}
+
 /** One durable connection row for an unordered pair within one project. */
 export const projectConnectionSchema = z.strictObject({
   projectConnectionId: z.string().uuid(),

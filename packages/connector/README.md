@@ -8,7 +8,7 @@ an outbound connection to the Telaegent control plane.
 From the repository you want to connect:
 
 ```bash
-npx --yes @telaegent/connector@0.1.11 connect . \
+npx --yes @telaegent/connector@0.1.14 connect . \
   --url https://telaegent.live \
   --pair ONE_TIME_PAIRING_CODE
 ```

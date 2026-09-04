@@ -326,10 +326,18 @@ export const api = {
    * Not a GitHub collaborator listing: everyone here connected their own GitHub
    * identity and proved this same repository themselves.
    */
-  projectCollaborators: (projectId: string, options: { limit?: number } = {}) => {
-    const suffix =
-      options.limit === undefined ? "" : `?limit=${String(options.limit)}`;
-    return request<{ collaborators: ProjectCollaborator[] }>(
+  projectCollaborators: (
+    projectId: string,
+    options: { limit?: number; cursor?: string } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (options.limit !== undefined) query.set("limit", String(options.limit));
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return request<{
+      collaborators: ProjectCollaborator[];
+      nextCursor: string | null;
+    }>(
       `/api/projects/${encodeURIComponent(projectId)}/collaborators${suffix}`,
     );
   },
