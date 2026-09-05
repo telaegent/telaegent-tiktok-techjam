@@ -237,4 +237,23 @@ export class InMemoryConversationRepository implements ConversationRepository {
       .sort((left, right) => left.sentAt.localeCompare(right.sentAt))
       .map((message) => structuredClone(message));
   }
+
+  async reconcileRunningDrafts(input: {
+    privateMessage: string;
+    failure: PrivateDraftFailure;
+    updatedAt: string;
+  }): Promise<number> {
+    let reconciled = 0;
+    for (const draft of this.drafts.values()) {
+      if (draft.state !== "agent_working") continue;
+      draft.state = "runtime_failed";
+      draft.privateMessage = input.privateMessage;
+      draft.failure = structuredClone(input.failure);
+      // A candidate from a turn that never finished was never approved.
+      draft.sendCandidate = null;
+      draft.updatedAt = input.updatedAt;
+      reconciled += 1;
+    }
+    return reconciled;
+  }
 }

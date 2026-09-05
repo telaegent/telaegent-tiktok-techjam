@@ -107,6 +107,45 @@ export class ConversationService {
     this.followUp = options.followUp;
   }
 
+  /**
+   * Recovers drafts a lost runtime left running. Call once, before serving.
+   *
+   * Draft state is durable and everything that advances it is not: the turn
+   * coordinator's map, the connector relay's registrations and the in-flight
+   * completion all die with the process, while `agent_working` rows survive. A
+   * draft in that state is unreachable through the normal API -- running
+   * requires `created`, and cancelling has to name a turn no coordinator still
+   * tracks -- so without this the owner watches an agent work on it forever.
+   *
+   * This ends the forever-spinner and lets the owner reject the draft to clear
+   * it. It does not make the draft runnable again: running requires state
+   * `created`, so a reconciled draft cannot be re-run, and the browser's Retry
+   * rebuilds from React state a reload has already emptied. Resuming the
+   * original draft needs a change to the run guard and to Retry, which is not
+   * claimed here -- so the owner-facing message asks for a new draft, which is
+   * a thing they can actually do.
+   */
+  async reconcileRunningDrafts(): Promise<number> {
+    return this.repository.reconcileRunningDrafts({
+      privateMessage:
+        "This draft stopped because the server restarted while its agent was working. Nothing was sent. Start a new draft to ask again.",
+      failure: {
+        // The runtime that was working on this draft no longer exists, which
+        // The runtime that was working on this draft no longer exists, which
+        // is exactly what this code means.
+        code: "RUNTIME_UNAVAILABLE",
+        message: "Server restarted while this draft's agent was working",
+        // Not retryable, because this draft cannot be re-run: the run guard
+        // requires state `created`. The browser renders Retry on any failure
+        // that is not explicitly false, and a Retry that issues no request and
+        // reports no error is worse than no button at all. The message tells
+        // the owner to start a new draft, which does work.
+        retryable: false,
+      },
+      updatedAt: this.now().toISOString(),
+    });
+  }
+
   async createDraft(input: Readonly<{
     authenticatedUserId: string;
     githubRepositoryId: string;
