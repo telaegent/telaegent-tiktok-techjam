@@ -25,9 +25,9 @@ already removed once for drifting into a superseded architecture.
 **Section 8 is newer than most of this repository.** It specifies
 capability-scoped autonomous collaboration. The task/grant contracts, cloud
 routing authorization, binding-scoped connector-local registry, file broker,
-scope-expansion API, and bounded autonomous rounds are implemented. The
-owner-facing approval screen and a two-machine live-provider proof remain open,
-so the contracts are not yet a claim that the full product works end to end.
+scope-expansion API, bounded autonomous rounds, and the owner-facing approval
+screen are implemented. A two-machine live-provider proof remains open, so the
+contracts are not yet a claim that the full product works end to end.
 
 ## 1. Product
 
@@ -105,8 +105,8 @@ No inbound port is opened on either developer machine.
 
 | Layer | Location |
 | --- | --- |
-| React 19 + Vite frontend | Vercel |
-| Node 22 + Fastify backend | AWS EC2 |
+| React 19 + Vite frontend | AWS EC2, same origin as the backend |
+| Node 22 + Fastify backend | AWS EC2 behind Caddy/HTTPS |
 | Postgres/session persistence/Realtime | Supabase |
 | Telaegent connector | **LOCAL developer machine** |
 | GitHub CLI | **LOCAL developer machine** |
@@ -672,7 +672,7 @@ If these work, the core Telaegent architecture works.
 Backend + Telaegent/GitHub identity + project proof + collaborator authorization + capability/file-access policy.
 
 ### Thai
-Vercel/EC2/Supabase deployment + connector/cloud networking + cost + latency + persistence.
+EC2/Supabase deployment + connector/cloud networking + cost + latency + persistence.
 
 ### Duy
 Landing, onboarding, repo/collaborator UI, shared conversation, private side-chat, scope-expansion approval UI, status/error UX.
