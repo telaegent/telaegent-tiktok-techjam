@@ -41,16 +41,6 @@ export type ConnectorSetupPollOutcome =
     }>
   | Readonly<{ kind: "ready" }>;
 
-/**
- * Returns a new attempt identity so a React polling effect can restart without
- * replacing the connector installation or its already-issued credential.
- */
-export function restartConnectorSetupPolling<T extends object>(
-  attempt: T | null,
-): T | null {
-  return attempt === null ? null : { ...attempt };
-}
-
 /** Returns null once a pairing is unusable; otherwise the next bounded delay. */
 export function nextPairingPollDelay(
   expiresAt: string,
@@ -97,11 +87,19 @@ export function connectorSetupPhase(
  * deadline.
  */
 export class ConnectorSetupPollTracker {
-  private credential: ConnectorCredentialLease | null = null;
-  private credentialObservedAtMs: number | null = null;
+  private credential: ConnectorCredentialLease | null;
+  private credentialObservedAtMs: number | null;
   private activeCredentialPolls = 0;
 
-  constructor(private readonly pairingExpiresAt: string) {}
+  constructor(
+    private readonly pairingExpiresAt: string,
+    credential: ConnectorCredentialLease | null = null,
+    now: () => number = Date.now,
+  ) {
+    this.credential = credential;
+    this.credentialObservedAtMs =
+      credential?.status === "active" ? now() : null;
+  }
 
   async check(
     loadStatus: () => Promise<ConnectorSetupSnapshot>,

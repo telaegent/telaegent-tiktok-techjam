@@ -46,7 +46,7 @@ import {
   ConnectorSetupPollTracker,
   connectorSetupPhase,
   nextPairingPollDelay,
-  restartConnectorSetupPolling,
+  type ConnectorCredentialLease,
 } from "./pairing-expiry";
 import {
   connectorPresence,
@@ -74,7 +74,7 @@ type GithubStage = "idle" | "issuing" | "connector" | "connected" | "error";
 type ConnectorSetupAttempt = Pick<
   ConnectorPairing,
   "connectorInstanceId" | "expiresAt"
->;
+> & { credential: ConnectorCredentialLease | null };
 
 function pairingExpiredError(): ApiError {
   return new ApiError(
@@ -360,6 +360,7 @@ function Onboarding({
       setConnectorAttempt({
         connectorInstanceId: result.pairing.connectorInstanceId,
         expiresAt: result.pairing.expiresAt,
+        credential: null,
       });
       setConnectorCommandCopied(false);
       setGithubStage("connector");
@@ -396,7 +397,9 @@ function Onboarding({
       }
       if (setupPhase === "verifying") {
         setConnectorPairing(null);
-        setConnectorAttempt(restartConnectorSetupPolling);
+        setConnectorAttempt((current) =>
+          current ? { ...current, credential: connector.credential } : current,
+        );
         setConnectorError(connectorNotReadyError());
         return;
       }
@@ -432,7 +435,10 @@ function Onboarding({
     if (githubStage !== "connector" || !connectorAttempt) return;
     let active = true;
     let timer: number | undefined;
-    const tracker = new ConnectorSetupPollTracker(connectorAttempt.expiresAt);
+    const tracker = new ConnectorSetupPollTracker(
+      connectorAttempt.expiresAt,
+      connectorAttempt.credential,
+    );
     const poll = async () => {
       const outcome = await tracker.check(async () => {
         const result = await api.connectorSetupStatus(
@@ -1083,6 +1089,7 @@ function AddProjectScreen({
       setConnectorAttempt({
         connectorInstanceId: result.pairing.connectorInstanceId,
         expiresAt: result.pairing.expiresAt,
+        credential: null,
       });
       setCopied(false);
       setStage("connector");
@@ -1125,7 +1132,9 @@ function AddProjectScreen({
       }
       if (setupPhase === "verifying") {
         setPairing(null);
-        setConnectorAttempt(restartConnectorSetupPolling);
+        setConnectorAttempt((current) =>
+          current ? { ...current, credential: connector.credential } : current,
+        );
         setError(connectorNotReadyError());
         return;
       }
@@ -1158,7 +1167,10 @@ function AddProjectScreen({
     if (stage !== "connector" || !connectorAttempt) return;
     let active = true;
     let timer: number | undefined;
-    const tracker = new ConnectorSetupPollTracker(connectorAttempt.expiresAt);
+    const tracker = new ConnectorSetupPollTracker(
+      connectorAttempt.expiresAt,
+      connectorAttempt.credential,
+    );
     const poll = async () => {
       const outcome = await tracker.check(async () => {
         const result = await api.connectorSetupStatus(

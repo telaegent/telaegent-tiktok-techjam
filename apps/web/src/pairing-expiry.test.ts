@@ -7,27 +7,11 @@ import {
   ConnectorSetupPollTracker,
   connectorSetupPhase,
   nextPairingPollDelay,
-  restartConnectorSetupPolling,
   type ConnectorSetupSnapshot,
 } from "./pairing-expiry";
 
 const pairingExpiresAt = "2026-09-04T12:05:00.000Z";
 const pairingExpiresMs = Date.parse(pairingExpiresAt);
-
-describe("restartConnectorSetupPolling", () => {
-  it("keeps the connector attempt but gives the polling effect a new identity", () => {
-    const attempt = {
-      connectorInstanceId: "connector_instance_0001",
-      expiresAt: pairingExpiresAt,
-    };
-
-    const restarted = restartConnectorSetupPolling(attempt);
-
-    expect(restarted).toEqual(attempt);
-    expect(restarted).not.toBe(attempt);
-    expect(restartConnectorSetupPolling(null)).toBeNull();
-  });
-});
 
 function snapshot(
   overrides: Partial<ConnectorSetupSnapshot> = {},
@@ -172,6 +156,26 @@ describe("ConnectorSetupPollTracker", () => {
     ).resolves.toEqual({
       kind: "wait",
       delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS * 2,
+      credentialObserved: true,
+    });
+  });
+
+  it("seeds a restarted tracker with the credential already observed manually", async () => {
+    const restartedAt = pairingExpiresMs + CONNECTOR_SETUP_POLL_WINDOW_MS;
+    const tracker = new ConnectorSetupPollTracker(
+      pairingExpiresAt,
+      activeCredential("2026-09-20T00:00:00.000Z"),
+      () => restartedAt,
+    );
+    const loadStatus = vi.fn(async () => {
+      throw new Error("temporary outage after manual check");
+    });
+
+    await expect(
+      tracker.check(loadStatus, () => restartedAt + 1),
+    ).resolves.toEqual({
+      kind: "wait",
+      delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS,
       credentialObserved: true,
     });
   });
