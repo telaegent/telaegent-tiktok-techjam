@@ -27,14 +27,25 @@ import {
  * only the parent therefore leaves the sleeper behind, which is exactly the
  * failure being tested.
  */
+/**
+ * The descendant's `detached` flag differs by platform, and it has to.
+ *
+ * On Linux a plain child already outlives its parent -- nothing reaps it, it
+ * is simply reparented -- so leaving it attached is both the realistic case
+ * (a shell the CLI spawned) and the one that proves the fix: it stays in the
+ * process group, so only a group kill reaches it. Detaching it there would
+ * make it a group leader of its own and it would survive the very mechanism
+ * under test.
+ *
+ * On Windows the opposite is needed. A plain child is torn down with the
+ * parent's job object, so the test could not tell a tree kill from a parent
+ * kill unless the descendant genuinely escapes first.
+ */
 const parentScript = `
 const { spawn } = require("node:child_process");
 const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
   stdio: "ignore",
-  // Detached so the descendant genuinely outlives its parent. Without this,
-  // Windows tears the whole job down with the parent and the test could not
-  // tell a tree kill apart from a parent kill.
-  detached: true,
+  detached: process.platform === "win32",
 });
 child.unref();
 process.stdout.write(String(child.pid));
