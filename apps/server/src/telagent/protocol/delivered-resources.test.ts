@@ -116,9 +116,14 @@ describe("delivering approved files into a following round", () => {
 
   it("bounds what one prompt may carry, however much was approved", () => {
     const oversized = "x".repeat(PROTOCOL_LIMITS.maxDeliveredResourceChars + 5_000);
+    // A sentinel rather than a word. This assertion once used the content
+    // "second" and started failing the day the output contract gained a
+    // sentence about seconds -- it was testing the prose of an unrelated
+    // prompt, not the clamp.
+    const sentinel = "TELAGENT-SECOND-FILE-SENTINEL";
     const turn = prepare([
       block({ content: oversized }),
-      block({ resourceId: "resource_ffffffffffffffffffff", content: "second" }),
+      block({ resourceId: "resource_ffffffffffffffffffff", content: sentinel }),
     ]);
 
     const section = turn.runtimePrompt.slice(
@@ -130,6 +135,6 @@ describe("delivering approved files into a following round", () => {
     // reading is not the whole file.
     expect(turn.runtimePrompt).toContain('truncated="true"');
     // And a budget spent on the first file does not smuggle the second in.
-    expect(turn.runtimePrompt).not.toContain("second");
+    expect(turn.runtimePrompt).not.toContain(sentinel);
   });
 });

@@ -48,6 +48,48 @@ export interface MiddlewareRunRequest {
   outputSchemaName: string;
   correlationId: string;
   maxTurns: number;
+  /**
+   * Whether this pass may read the workspace at all.
+   *
+   * A drafting pass writes its answer from evidence it was handed; giving it
+   * file tools it does not need is what turns a missing research note into a
+   * failed turn, because it spends its whole turn budget reading and never
+   * returns structured output. `none` removes the temptation structurally.
+   *
+   * Honoured by the Claude runner. Codex has no equivalent: its built-in tool
+   * surface cannot be closed without `--disable`, which `closedToolSurface`
+   * documents as unsafe across releases. Like `maxTurns`, this is a bound the
+   * two runners do not share -- safe, because the sandbox is read-only and the
+   * workspace is pinned either way, but do not read it as symmetry.
+   */
+  toolMode?: "none" | "read" | undefined;
+
+  /**
+   * How much reasoning the provider should spend before answering.
+   *
+   * Left unset the Claude CLI reasons at its maximum, which is the right
+   * default for a pass that has to work something out and the wrong one for a
+   * pass that is transcribing a decision already made. Measured on the drafting
+   * pass, whose evidence arrives pre-gathered in the research note: the same
+   * prompt, note and schema took 38.6s unset and 23.0s at "medium", and the
+   * thinking is what went -- 1123 thinking tokens down to 153, first character
+   * of the answer at 21.1s down to 5.5s, and the same answer at the end of it
+   * (4147 characters against 4131).
+   *
+   * It does not scale past that, because it governs only the thinking. Of the
+   * 23 seconds at "medium", 17.6 are spent emitting the object itself. Setting
+   * this lower buys less than it looks like it should, and "low" buys part of
+   * its remaining speed by writing a shorter answer -- 2425 characters on the
+   * same prompt. Reach for the schema's maxLength before reaching for "low".
+   *
+   * Honoured by the Claude runner as `--effort`. Codex ignores this field, but
+   * is not therefore unbounded: `closedToolSurface()` pins
+   * `model_reasoning_effort="medium"` on every Codex turn. The two runners end up
+   * agreeing on the drafting pass by two unconnected routes, which is worth
+   * knowing before changing this -- moving this field will silently not move
+   * Codex.
+   */
+  effort?: "low" | "medium" | "high" | undefined;
 }
 
 /**
