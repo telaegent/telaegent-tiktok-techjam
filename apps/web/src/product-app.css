@@ -2935,6 +2935,7 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 @media (max-width: 450px) {
+  .app-topbar-actions > .theme-switch,
   .app-topbar-actions > .app-text-button:not(.logout-button),
   .account-summary {
     display: none;
