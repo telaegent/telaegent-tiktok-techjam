@@ -2247,9 +2247,18 @@ function ProjectChat({
     repositoryId: string,
     fresh = false,
   ) {
+    // A transcript outgrows one page, so every page is drained. Before this
+    // the server refused to return a conversation past its ceiling at all,
+    // which made an established conversation permanently unreadable.
     const request = async () =>
-      (await api.conversationMessages(selectedConversationId, repositoryId))
-        .messages;
+      collectCursorPages<ConversationMessage>(async (cursor) => {
+        const page = await api.conversationMessages(
+          selectedConversationId,
+          repositoryId,
+          { limit: 200, ...(cursor ? { cursor } : {}) },
+        );
+        return { items: page.messages, nextCursor: page.nextCursor };
+      });
     return fresh
       ? messageRequests.current.runFresh(scopeKey, request)
       : messageRequests.current.run(scopeKey, request);

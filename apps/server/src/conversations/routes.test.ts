@@ -228,7 +228,7 @@ describe("canonical conversation API", () => {
       url: `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}`,
       headers: { "x-test-user": OWNER },
     });
-    expect(emptyConversation.json()).toEqual({ messages: [] });
+    expect(emptyConversation.json()).toEqual({ messages: [], nextCursor: null });
     expect(emptyConversation.headers["cache-control"]).toBe(
       "no-store, max-age=0",
     );
@@ -568,7 +568,7 @@ describe("canonical conversation API", () => {
       url: `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}`,
       headers: { "x-test-user": OWNER },
     });
-    expect(messages.json()).toEqual({ messages: [] });
+    expect(messages.json()).toEqual({ messages: [], nextCursor: null });
     await app.close();
   });
 
@@ -649,7 +649,7 @@ describe("canonical conversation API", () => {
       url: `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}`,
       headers: { "x-test-user": OWNER },
     });
-    expect(messages.json()).toEqual({ messages: [] });
+    expect(messages.json()).toEqual({ messages: [], nextCursor: null });
     await app.close();
   });
 

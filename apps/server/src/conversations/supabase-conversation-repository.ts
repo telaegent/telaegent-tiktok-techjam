@@ -48,6 +48,7 @@ const conversationRpcFunctions = [
   "send_private_draft",
   "list_shared_messages",
   "reconcile_running_private_drafts",
+  "list_shared_messages_page",
 ] as const;
 
 export type ConversationRpcFunction = (typeof conversationRpcFunctions)[number];
@@ -418,6 +419,34 @@ export class SupabaseConversationRepository implements ConversationRepository {
     });
     const parsed = z.number().int().nonnegative().safeParse(record);
     if (!parsed.success) {
+      throw new SupabaseConversationRepositoryError(
+        "INVALID_SUPABASE_CONVERSATION_RECORD",
+      );
+    }
+    return parsed.data;
+  }
+
+  async listMessagePage(input: {
+    conversationId: string;
+    afterSentAt: string | null;
+    afterMessageId: string | null;
+    limit: number;
+  }): Promise<SharedMessage[]> {
+    const record = await this.call("list_shared_messages_page", {
+      p_conversation_id: input.conversationId,
+      p_after_sent_at: input.afterSentAt,
+      p_after_message_id: input.afterMessageId,
+      p_limit: input.limit,
+    });
+    const parsed = sharedMessageListSchema.safeParse(record);
+    if (!parsed.success) {
+      throw new SupabaseConversationRepositoryError(
+        "INVALID_SUPABASE_CONVERSATION_RECORD",
+      );
+    }
+    // The caller bounds the page and asks for one extra row to detect a next
+    // page, so anything beyond that is the database ignoring its own limit.
+    if (parsed.data.length > input.limit) {
       throw new SupabaseConversationRepositoryError(
         "INVALID_SUPABASE_CONVERSATION_RECORD",
       );

@@ -19,6 +19,7 @@ import type { ConnectorResourceRequest } from "../connectors/resource-exchange.j
 import type { RecipientTurnOutput } from "../telagent/protocol/contract.js";
 import type { StartAuthorizedProtocolTurnInput } from "../telagent/protocol/authorized-turn-service.js";
 import { InMemoryConversationRepository } from "./in-memory-repository.js";
+import type { SharedMessage } from "./types.js";
 import {
   ConversationService,
   type ConversationAccessAuthorizer,
@@ -515,5 +516,172 @@ describe("rejecting a draft", () => {
       createdAt: "2026-08-31T12:00:00.000Z",
       state: "cancelled",
     });
+  });
+});
+
+/**
+ * Reading a transcript that outgrew one page.
+ *
+ * The unpaginated reader asked for one row beyond its ceiling and raised
+ * CONVERSATION_TRANSCRIPT_TOO_LARGE past it. Because there was no other way to
+ * read messages, an established conversation stopped loading permanently --
+ * not slowly, not partially, but with no way forward for its owners.
+ */
+describe("a transcript larger than one page", () => {
+  function messageAt(index: number): SharedMessage {
+    const ordinal = String(index).padStart(12, "0");
+    return {
+      messageId: `77777777-7777-4777-8777-${ordinal}`,
+      conversationId: CONVERSATION,
+      githubRepositoryId: REPOSITORY,
+      senderUserId: OWNER,
+      provider: "codex",
+      body: `message ${ordinal}`,
+      sentAt: `2026-08-31T12:00:${String(index % 60).padStart(2, "0")}.000Z`,
+    };
+  }
+
+  /**
+   * Messages are seeded through the real send path, the only writer of the
+   * transcript, so the rows under test are the rows the product creates.
+   */
+  async function seedMessages(
+    repository: InMemoryConversationRepository,
+    count: number,
+  ): Promise<void> {
+    for (let index = 0; index < count; index += 1) {
+      const ordinal = String(index).padStart(12, "0");
+      const draftId = `22222222-2222-4222-8222-${ordinal}`;
+      const message = messageAt(index);
+      await repository.createDraft({
+        draftId,
+        conversationId: CONVERSATION,
+        githubRepositoryId: REPOSITORY,
+        ownerUserId: OWNER,
+        provider: "codex",
+        role: "sender",
+        roughMessage: message.body,
+        incomingMessageId: null,
+        privateTurns: [],
+        state: "created",
+        turnId: null,
+        privateMessage: null,
+        sendCandidate: null,
+        riskFlags: [],
+        guardFindings: [],
+        failure: null,
+        createdAt: message.sentAt,
+        updatedAt: message.sentAt,
+        sentMessageId: null,
+      });
+      await repository.markDraftRunning({
+        draftId,
+        ownerUserId: OWNER,
+        turnId: `44444444-4444-4444-8444-${ordinal}`,
+        updatedAt: message.sentAt,
+      });
+      await repository.completeDraft({
+        draftId,
+        expectedTurnId: `44444444-4444-4444-8444-${ordinal}`,
+        state: "ready",
+        privateMessage: message.body,
+        sendCandidate: message.body,
+        riskFlags: [],
+        guardFindings: [],
+        updatedAt: message.sentAt,
+      });
+      await repository.sendDraft({
+        draftId,
+        ownerUserId: OWNER,
+        approvedBody: message.body,
+        idempotencyKey: `send-${ordinal}`,
+        message,
+        approval: {
+          approvalId: `99999999-9999-4999-8999-${ordinal}`,
+          draftId,
+          approverUserId: OWNER,
+          approvedBody: message.body,
+          approvedAt: message.sentAt,
+        },
+        updatedAt: message.sentAt,
+      });
+    }
+  }
+
+  function transcriptService(repository: InMemoryConversationRepository) {
+    return new ConversationService(
+      repository,
+      { async authorize() {} },
+      {
+        async start() {
+          throw new Error("not started");
+        },
+        async cancel() {
+          return true;
+        },
+      },
+      { now: () => new Date("2026-08-31T12:00:00.000Z") },
+    );
+  }
+
+  it("reads every message across pages, in order and without repeats", async () => {
+    const repository = new InMemoryConversationRepository();
+    await seedMessages(repository, 25);
+    const service = transcriptService(repository);
+
+    const collected: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await service.listMessages({
+        authenticatedUserId: OWNER,
+        githubRepositoryId: REPOSITORY,
+        conversationId: CONVERSATION,
+        limit: 10,
+        ...(cursor ? { cursor } : {}),
+      });
+      collected.push(...page.messages.map((message) => message.messageId));
+      cursor = page.nextCursor ?? undefined;
+      pages += 1;
+    } while (cursor !== undefined && pages < 10);
+
+    expect(pages).toBe(3);
+    expect(collected).toHaveLength(25);
+    // Every message exactly once, oldest first.
+    expect(new Set(collected).size).toBe(25);
+    expect(collected).toEqual(
+      Array.from({ length: 25 }, (_, index) => messageAt(index).messageId),
+    );
+  });
+
+  it("ends with a null cursor rather than an empty extra page", async () => {
+    const repository = new InMemoryConversationRepository();
+    await seedMessages(repository, 10);
+    const service = transcriptService(repository);
+
+    // Exactly one page's worth: the last page must not claim there is another.
+    const page = await service.listMessages({
+      authenticatedUserId: OWNER,
+      githubRepositoryId: REPOSITORY,
+      conversationId: CONVERSATION,
+      limit: 10,
+    });
+    expect(page.messages).toHaveLength(10);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("refuses a malformed cursor instead of silently restarting", async () => {
+    const repository = new InMemoryConversationRepository();
+    await seedMessages(repository, 3);
+    const service = transcriptService(repository);
+
+    await expect(
+      service.listMessages({
+        authenticatedUserId: OWNER,
+        githubRepositoryId: REPOSITORY,
+        conversationId: CONVERSATION,
+        cursor: "not-a-real-cursor",
+      }),
+    ).rejects.toThrow();
   });
 });
