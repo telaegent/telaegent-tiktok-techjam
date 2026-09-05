@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import type { AuthorizePrivateRuntimeInput } from "../authorization/types.js";
 import type { PrivateDraftFollowUp } from "../capability/draft-follow-up.js";
 import { HttpError } from "../errors.js";
@@ -77,6 +78,60 @@ export interface ConversationServiceOptions {
  * the in-process copy, so a runtime that never reached the database still stops.
  */
 const MAX_FOLLOW_UP_ROUNDS = 5;
+
+/** Largest transcript page one read may return. */
+export const MAX_TRANSCRIPT_PAGE_SIZE = 200;
+
+export interface SharedMessageListPage {
+  messages: SharedMessage[];
+  nextCursor: string | null;
+}
+
+const transcriptCursorPayload = z.strictObject({
+  version: z.literal(1),
+  sentAt: z.string().datetime(),
+  messageId: z.string().uuid(),
+});
+const transcriptCursorPattern = /^[A-Za-z0-9_-]{1,256}$/;
+
+/**
+ * Cursors are opaque to the browser and validated on the way back in.
+ *
+ * A client cannot widen its own read with one: the cursor names a position in
+ * an ordering, and the conversation and the caller's authorization are settled
+ * before it is ever consulted.
+ */
+function decodeTranscriptCursor(
+  value: string | undefined,
+): { sentAt: string; messageId: string } | null {
+  if (value === undefined) return null;
+  if (!transcriptCursorPattern.test(value)) throw invalidTranscriptCursor();
+  try {
+    const bytes = Buffer.from(value, "base64url");
+    if (bytes.toString("base64url") !== value || bytes.byteLength > 192) {
+      throw invalidTranscriptCursor();
+    }
+    const parsed = transcriptCursorPayload.parse(
+      JSON.parse(bytes.toString("utf8")),
+    );
+    return { sentAt: parsed.sentAt, messageId: parsed.messageId };
+  } catch {
+    throw invalidTranscriptCursor();
+  }
+}
+
+function encodeTranscriptCursor(sentAt: string, messageId: string): string {
+  return Buffer.from(
+    JSON.stringify({ version: 1, sentAt, messageId }),
+    "utf8",
+  ).toString("base64url");
+}
+
+function invalidTranscriptCursor(): z.ZodError {
+  return new z.ZodError([
+    { code: "custom", path: ["cursor"], message: "Invalid transcript cursor" },
+  ]);
+}
 
 export class ConversationService {
   private readonly now: () => Date;
@@ -385,13 +440,47 @@ export class ConversationService {
     return result;
   }
 
+  /**
+   * One page of a conversation transcript, oldest first.
+   *
+   * Paginated because an established conversation outgrows any single read.
+   * The unpaginated reader raised CONVERSATION_TRANSCRIPT_TOO_LARGE past its
+   * ceiling, which made a busy conversation permanently unreadable rather than
+   * merely slow. Keyset ordering on `(sentAt, messageId)` keeps a transcript
+   * that is still being written correct across pages.
+   */
   async listMessages(input: Readonly<{
     authenticatedUserId: string;
     githubRepositoryId: string;
     conversationId: string;
-  }>): Promise<SharedMessage[]> {
+    limit?: number | undefined;
+    cursor?: string | undefined;
+  }>): Promise<SharedMessageListPage> {
     await this.authorize(input, "read");
-    return this.repository.listMessages(input.conversationId);
+    const limit = z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_TRANSCRIPT_PAGE_SIZE)
+      .parse(input.limit ?? MAX_TRANSCRIPT_PAGE_SIZE);
+    const after = decodeTranscriptCursor(input.cursor);
+    const rows = await this.repository.listMessagePage({
+      conversationId: input.conversationId,
+      afterSentAt: after?.sentAt ?? null,
+      afterMessageId: after?.messageId ?? null,
+      // One beyond the page, so a full page can be told from a last page
+      // without a second round trip.
+      limit: limit + 1,
+    });
+    const messages = rows.slice(0, limit);
+    const last = messages.at(-1);
+    return {
+      messages,
+      nextCursor:
+        rows.length > limit && last
+          ? encodeTranscriptCursor(last.sentAt, last.messageId)
+          : null,
+    };
   }
 
   private async completeTurn(

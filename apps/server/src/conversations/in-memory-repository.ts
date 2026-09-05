@@ -239,9 +239,31 @@ export class InMemoryConversationRepository implements ConversationRepository {
   }
 
   async listMessages(conversationId: string): Promise<SharedMessage[]> {
-    return [...this.messages.values()]
-      .filter((message) => message.conversationId === conversationId)
-      .sort((left, right) => left.sentAt.localeCompare(right.sentAt))
+    return this.orderedMessages(conversationId).map((message) =>
+      structuredClone(message),
+    );
+  }
+
+  async listMessagePage(input: {
+    conversationId: string;
+    afterSentAt: string | null;
+    afterMessageId: string | null;
+    limit: number;
+  }): Promise<SharedMessage[]> {
+    const ordered = this.orderedMessages(input.conversationId);
+    const after =
+      input.afterSentAt === null || input.afterMessageId === null
+        ? -1
+        : ordered.findIndex(
+            (message) =>
+              message.sentAt === input.afterSentAt &&
+              message.messageId === input.afterMessageId,
+          );
+    // An unknown cursor row yields the first page rather than an error: the
+    // SQL comparison is by value, not by position, and behaves the same way.
+    const start = after < 0 ? 0 : after + 1;
+    return ordered
+      .slice(start, start + input.limit)
       .map((message) => structuredClone(message));
   }
 
@@ -262,5 +284,16 @@ export class InMemoryConversationRepository implements ConversationRepository {
       reconciled += 1;
     }
     return reconciled;
+  }
+
+  /** The one ordering both readers share: `(sentAt, messageId)`. */
+  private orderedMessages(conversationId: string): SharedMessage[] {
+    return [...this.messages.values()]
+      .filter((message) => message.conversationId === conversationId)
+      .sort(
+        (left, right) =>
+          left.sentAt.localeCompare(right.sentAt) ||
+          left.messageId.localeCompare(right.messageId),
+      );
   }
 }

@@ -46,7 +46,11 @@ const sendBody = z.strictObject({
     .max(128)
     .regex(/^[A-Za-z0-9_.:-]+$/),
 });
-const messageQuery = z.object({ githubRepositoryId: repositoryId });
+const messageQuery = z.object({
+  githubRepositoryId: repositoryId,
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).optional(),
+});
 
 export type AuthenticatedUserResolver = (
   request: FastifyRequest,
@@ -144,12 +148,12 @@ export function registerConversationRoutes(
     setPrivateNoStore(reply);
     const { conversationId } = conversationParams.parse(request.params);
     const query = messageQuery.parse(request.query);
-    return {
-      messages: await dependencies.service.listMessages({
-        authenticatedUserId: await user(request),
-        conversationId,
-        ...query,
-      }),
-    };
+    // The page carries its own next cursor, so the response shape is the page.
+    // `messages` keeps its name and meaning for existing readers.
+    return await dependencies.service.listMessages({
+      authenticatedUserId: await user(request),
+      conversationId,
+      ...query,
+    });
   });
 }

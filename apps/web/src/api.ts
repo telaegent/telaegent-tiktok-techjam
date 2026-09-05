@@ -448,10 +448,21 @@ export const api = {
       },
     ),
   run: (id: string) => request<{ run: AgentRun }>("/api/runs/" + id),
-  conversationMessages: (conversationId: string, githubRepositoryId: string) =>
-    request<{ messages: ConversationMessage[] }>(
-      `/api/conversations/${encodeURIComponent(conversationId)}/messages?githubRepositoryId=${encodeURIComponent(githubRepositoryId)}`,
-    ),
+  conversationMessages: (
+    conversationId: string,
+    githubRepositoryId: string,
+    options: { limit?: number; cursor?: string } = {},
+  ) => {
+    const query = new URLSearchParams({ githubRepositoryId });
+    if (options.limit !== undefined) query.set("limit", String(options.limit));
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    return request<{
+      messages: ConversationMessage[];
+      nextCursor: string | null;
+    }>(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
+    );
+  },
   createConversationDraft: (
     conversationId: string,
     body: {

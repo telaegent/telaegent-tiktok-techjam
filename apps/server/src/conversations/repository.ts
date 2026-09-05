@@ -97,4 +97,17 @@ export interface ConversationRepository {
     failure: PrivateDraftFailure;
     updatedAt: string;
   }): Promise<number>;
+  /**
+   * One page of a transcript, in `(sentAt, messageId)` order.
+   *
+   * Keyset rather than offset because a transcript grows while it is read, and
+   * an offset would skip or repeat messages as it does. Both cursor halves are
+   * supplied together or not at all; `null` means the first page.
+   */
+  listMessagePage(input: {
+    conversationId: string;
+    afterSentAt: string | null;
+    afterMessageId: string | null;
+    limit: number;
+  }): Promise<SharedMessage[]>;
 }
