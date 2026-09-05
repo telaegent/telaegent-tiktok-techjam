@@ -109,7 +109,7 @@ const AUTO_SEND_CLAIMS = [
  * it is asserting a fact that is false.
  */
 const PERMISSION_CLAIMS = [
-  /\b(?:approval|permission|authoriz(?:ation|ed)|authoris(?:ation|ed))\s+(?:is\s+)?(?:not\s+)?(?:required|needed|necessary)\b/i,
+  /\b(?:approval|permission|authorization|authorisation)\s+(?:is\s+)?not\s+(?:required|needed|necessary)\b/i,
   /\b(?:already|pre[-\s]?)(?:approved|authoriz(?:ed)|authoris(?:ed))\b/i,
   /\bI(?:'m| am)\s+authoris?z?ed\s+to\b/i,
   /\bgrant(?:ing|ed)?\s+(?:you|myself|full|all)\s+(?:access|permission)/i,

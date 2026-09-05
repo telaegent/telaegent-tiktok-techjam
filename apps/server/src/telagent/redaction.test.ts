@@ -105,6 +105,20 @@ describe("secret detection", () => {
     expect(containsSecretLikeContent("api_key = " + SECRETS.arkKey)).toBe(true);
     expect(containsSecretLikeContent("Use the fake SessionRepository in tests.")).toBe(false);
   });
+
+  it("detects credential values under quoted JSON property names", () => {
+    const source = '{"password":"fake-review-password"}';
+    const result = redactText(source);
+
+    expect(result.count).toBe(1);
+    expect(result.value).toBe('{"password":[redacted]}');
+    expect(containsSecretLikeContent(source)).toBe(true);
+  });
+
+  it("scans past the outbound-message redaction limit", () => {
+    const source = "x".repeat(20_001) + '\n{"password":"fake-review-password"}';
+    expect(containsSecretLikeContent(source)).toBe(true);
+  });
 });
 
 /* ========================================================================== *

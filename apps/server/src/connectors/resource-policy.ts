@@ -11,6 +11,7 @@ import { resourceIdSchema } from "./resource-registry.js";
  */
 export type ResourceDenyCode =
   | "SECRET_PATH"
+  | "SECRET_CONTENT"
   | "OUTSIDE_WORKSPACE"
   | "UNKNOWN_RESOURCE"
   | "GRANT_MISSING"
