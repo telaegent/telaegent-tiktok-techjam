@@ -12,8 +12,7 @@ or provider CLIs into the cloud.
 Accepted infrastructure hypothesis:
 
 ```text
-Vercel frontend
-AWS EC2 backend/control plane
+AWS EC2 backend/control plane, serving the built frontend on the same origin
 Supabase Postgres/session persistence/Realtime in Singapore
 Outbound local connectors
 ```
@@ -22,7 +21,7 @@ Outbound local connectors
 
 | Layer | Technology | Location |
 | --- | --- | --- |
-| Frontend | React 19 + Vite | Vercel |
+| Frontend | React 19 + Vite | Served by the control plane from the same origin |
 | Backend/control plane | Node 22 + Fastify 5 + Zod | AWS EC2 behind Caddy/HTTPS |
 | Database | Supabase Postgres | Southeast Asia/Singapore |
 | Telaegent identity persistence | GitHub OAuth account + hashed Telaegent sessions | Supabase Postgres |
@@ -36,8 +35,7 @@ Outbound local connectors
 
 ```text
 Browser
-→ Vercel SPA
-→ AWS EC2 Caddy/Fastify
+→ AWS EC2 Caddy/Fastify (serves the built SPA and the API on one origin)
    ├→ Supabase
    └→ Connector presence/job relay
        ├↔ User A × Repo X local connector
@@ -180,8 +178,7 @@ A private draft → A send → B agent → B approval → shared response.
 Produce actual current estimates after benchmark for:
 
 ### Hackathon
-- Vercel
-- AWS EC2 control-plane/relay compute
+- AWS EC2 control-plane/relay compute (also serves the frontend)
 - Supabase
 - storage/bandwidth
 

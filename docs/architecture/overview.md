@@ -86,9 +86,13 @@ Only approved content belongs to the shared conversation. Provider sessions are 
 
 Specified in [canonical build plan section 8](../product/canonical-build-plan.md).
 Task/grant contracts, cloud route checks, resource delivery, local grant
-enforcement, the scope-expansion queue and the bounded autonomous rounds are
-implemented. The owner-facing approval screen is not, so a scope request is
-answered through the API today.
+enforcement, the scope-expansion queue, the bounded autonomous rounds and the
+owner-facing approval screen are implemented: a scope request is answered in
+the browser, with Deny, Allow once and Allow for this task.
+
+Not yet built: inspecting and individually revoking a grant that was already
+allowed. Once "Allow for this task" is given, the owner can see the decision
+but cannot withdraw that one grant short of the task expiring.
 
 A recipient's agent often needs a file it does not own. The request path keeps
 the cloud out of the decision:
