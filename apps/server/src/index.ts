@@ -242,11 +242,22 @@ if (config.telaegentIdentityProvider === "github") {
 
 // The canonical conversation API is what the browser client calls. Leaving it
 // out of the composition made every draft and message route answer 404.
+const conversationApi = createConversationApi(config, conversationOptions);
+
+// Drafts whose runtime died with the previous process are recovered before the
+// first request is served, so no owner is shown an agent that is still working
+// on a turn nothing is running. Startup fails loudly if this cannot be done:
+// serving with stranded drafts is the state this exists to prevent.
+const reconciledDrafts = await conversationApi.service.reconcileRunningDrafts();
+if (reconciledDrafts > 0) {
+  console.warn("PRIVATE_DRAFTS_RECONCILED", reconciledDrafts);
+}
+
 const app = await createApp(
   config,
   service,
   telagentService,
-  createConversationApi(config, conversationOptions),
+  conversationApi,
   identityApi,
   repositoryProofApi,
   connectorTransportApi,

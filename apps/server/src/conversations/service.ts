@@ -107,6 +107,35 @@ export class ConversationService {
     this.followUp = options.followUp;
   }
 
+  /**
+   * Recovers drafts a lost runtime left running. Call once, before serving.
+   *
+   * Draft state is durable and everything that advances it is not: the turn
+   * coordinator's map, the connector relay's registrations and the in-flight
+   * completion all die with the process, while `agent_working` rows survive. A
+   * draft in that state is unreachable through the normal API -- running
+   * requires `created`, and cancelling has to name a turn no coordinator still
+   * tracks -- so without this the owner watches an agent work on it forever.
+   *
+   * The failure is retryable because it is: nothing was wrong with the draft,
+   * the process running it went away, and running it again is the whole fix.
+   */
+  async reconcileRunningDrafts(): Promise<number> {
+    return this.repository.reconcileRunningDrafts({
+      privateMessage:
+        "This draft stopped because the server restarted while its agent was working. Nothing was sent. Run it again.",
+      failure: {
+        // The runtime that was working on this draft no longer exists, which
+        // is exactly what this code means. Retryable, because running the
+        // draft again is the entire remedy.
+        code: "RUNTIME_UNAVAILABLE",
+        message: "Server restarted while this draft's agent was working",
+        retryable: true,
+      },
+      updatedAt: this.now().toISOString(),
+    });
+  }
+
   async createDraft(input: Readonly<{
     authenticatedUserId: string;
     githubRepositoryId: string;

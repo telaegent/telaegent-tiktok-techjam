@@ -336,3 +336,98 @@ describe("cancelling a turn that is on a later round", () => {
     releaseSecondRound?.();
   });
 });
+
+/**
+ * Recovering drafts a restart left running.
+ *
+ * Draft state is durable; the runtime advancing it is not. The coordinator's
+ * turn map, the relay's registrations and the in-flight completion all die with
+ * the process while `agent_working` rows survive, and such a draft is
+ * unreachable through the normal API: running requires `created`, and
+ * cancelling has to name a turn no coordinator still tracks.
+ */
+describe("a draft left running by a restart", () => {
+  it("is failed retryably so its owner can run it again", async () => {
+    const repository = new InMemoryConversationRepository();
+    let releaseTurn: (() => void) | undefined;
+    const runtime: PrivateDraftTurnRuntime = {
+      async start(input) {
+        return {
+          turnId: input.turnId ?? "turn-1",
+          streamId: "55555555-5555-4555-8555-555555555555",
+          initialState: "queued" as const,
+          completion: new Promise<void>((resolve) => {
+            releaseTurn = resolve;
+          }).then(() => turn("never delivered")) as never,
+        };
+      },
+      async cancel() {
+        return true;
+      },
+    };
+    const service = new ConversationService(
+      repository,
+      { async authorize() {} },
+      runtime,
+      {
+        now: () => new Date("2026-08-31T12:00:00.000Z"),
+        createId: () => DRAFT,
+        createTurnId: () => "44444444-4444-4444-8444-444444444444",
+      },
+    );
+
+    await seedDraft(repository);
+    await service.runDraft(OWNER, DRAFT);
+    await expect(service.getDraft(OWNER, DRAFT)).resolves.toMatchObject({
+      state: "agent_working",
+    });
+
+    // The process the turn was running in goes away. A fresh service over the
+    // same durable rows is what comes back.
+    const restarted = new ConversationService(
+      repository,
+      { async authorize() {} },
+      runtime,
+      { now: () => new Date("2026-08-31T12:05:00.000Z") },
+    );
+    await expect(restarted.reconcileRunningDrafts()).resolves.toBe(1);
+
+    const recovered = await restarted.getDraft(OWNER, DRAFT);
+    expect(recovered).toMatchObject({
+      state: "runtime_failed",
+      // Retryable is what makes the draft actionable again: the browser only
+      // offers Retry on a failed draft whose failure is retryable.
+      failure: { code: "RUNTIME_UNAVAILABLE", retryable: true },
+    });
+    // A candidate from a turn that never finished was never approved.
+    expect(recovered.sendCandidate).toBeNull();
+
+    releaseTurn?.();
+  });
+
+  it("leaves drafts alone that were not running", async () => {
+    const repository = new InMemoryConversationRepository();
+    const service = new ConversationService(
+      repository,
+      { async authorize() {} },
+      {
+        async start() {
+          throw new Error("not started");
+        },
+        async cancel() {
+          return true;
+        },
+      },
+      { now: () => new Date("2026-08-31T12:00:00.000Z"), createId: () => DRAFT },
+    );
+
+    await seedDraft(repository);
+
+    // A draft sitting in `created` is not stranded and must not be failed.
+    await expect(service.reconcileRunningDrafts()).resolves.toBe(0);
+    await expect(service.getDraft(OWNER, DRAFT)).resolves.toMatchObject({
+      state: "created",
+      failure: null,
+    });
+  });
+});
