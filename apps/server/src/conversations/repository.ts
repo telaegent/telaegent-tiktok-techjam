@@ -84,4 +84,17 @@ export interface ConversationRepository {
   }): Promise<PrivateDraft | null>;
   sendDraft(input: SendDraftInput): Promise<SendDraftResult | null>;
   listMessages(conversationId: string): Promise<SharedMessage[]>;
+  /**
+   * Fails every draft a lost runtime left running, returning how many moved.
+   *
+   * Draft state is durable and the runtime advancing it is not, so a restart
+   * strands `agent_working` rows: they cannot run again (running requires
+   * `created`) and cannot be cancelled (cancelling names a turn no coordinator
+   * still tracks). Called once at startup, before the server accepts requests.
+   */
+  reconcileRunningDrafts(input: {
+    privateMessage: string;
+    failure: PrivateDraftFailure;
+    updatedAt: string;
+  }): Promise<number>;
 }

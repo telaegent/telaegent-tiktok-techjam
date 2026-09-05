@@ -47,6 +47,7 @@ const conversationRpcFunctions = [
   "cancel_private_draft",
   "send_private_draft",
   "list_shared_messages",
+  "reconcile_running_private_drafts",
 ] as const;
 
 export type ConversationRpcFunction = (typeof conversationRpcFunctions)[number];
@@ -400,6 +401,25 @@ export class SupabaseConversationRepository implements ConversationRepository {
     if (parsed.data.length > maximumSharedMessagesPerRead) {
       throw new SupabaseConversationRepositoryError(
         "CONVERSATION_TRANSCRIPT_TOO_LARGE",
+      );
+    }
+    return parsed.data;
+  }
+
+  async reconcileRunningDrafts(input: {
+    privateMessage: string;
+    failure: PrivateDraftFailure;
+    updatedAt: string;
+  }): Promise<number> {
+    const record = await this.call("reconcile_running_private_drafts", {
+      p_private_message: input.privateMessage,
+      p_failure: input.failure,
+      p_updated_at: input.updatedAt,
+    });
+    const parsed = z.number().int().nonnegative().safeParse(record);
+    if (!parsed.success) {
+      throw new SupabaseConversationRepositoryError(
+        "INVALID_SUPABASE_CONVERSATION_RECORD",
       );
     }
     return parsed.data;
