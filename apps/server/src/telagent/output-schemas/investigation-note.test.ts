@@ -27,12 +27,12 @@ describe("investigation-note.schema.json", () => {
     expect(properties.resourceRequests).toBeUndefined();
   });
 
-  it("bounds the note so it cannot grow without limit", async () => {
+  it("bounds the note to what the pass can generate inside its deadline", async () => {
     const resolver = new FileOutputSchemaResolver(schemaRoot);
     const schema = await resolver.resolve("investigation-note.schema.json");
     const note = (
       schema as unknown as { properties: { note: { maxLength: number } } }
     ).properties.note;
-    expect(note.maxLength).toBe(8000);
+    expect(note.maxLength).toBe(2000);
   });
 });

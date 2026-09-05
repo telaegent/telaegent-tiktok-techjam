@@ -22,7 +22,13 @@ import type { ConnectorResourceRequest } from "./resource-exchange.js";
  * This is part of the job-budget contract, not merely a runner detail: the
  * cloud lease must cover this pass and the drafting pass that follows it.
  */
-export const CONNECTOR_INVESTIGATION_DEADLINE_MS = 90_000;
+export const CONNECTOR_INVESTIGATION_DEADLINE_MS = 60_000;
+
+/**
+ * A backstop, not the primary limit. INVESTIGATION_MAX_TURNS is sized to
+ * finish inside this; if the deadline is what stops the research pass, the
+ * turn budget was wrong.
+ */
 
 /** Time reserved for returning the bounded result after local execution. */
 export const CONNECTOR_JOB_COMPLETION_GRACE_MS = 30_000;

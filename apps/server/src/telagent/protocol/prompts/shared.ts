@@ -182,7 +182,39 @@ Asking your collaborator for a file:
  * Schema enforcement rejects a bad answer; prose is what stops it being
  * produced. Measured across the corpus, models given only the schema emit
  * `state: "ready", sendCandidate: null` far more often than models given both.
+ *
+ * The last rule earns its place on the clock rather than on correctness. "Reply
+ * with one JSON object and nothing else" is not read as a prohibition on
+ * preamble: a measured drafting pass wrote 1384 characters of prose, then spent
+ * a second turn emitting the same answer as JSON. The connector discards every
+ * character of assistant text (`connector-worker.ts`), so that first turn cost
+ * about seven seconds of a forty-second pass and reached nobody.
  */
+/**
+ * What the drafting pass should aim for, as opposed to what it is allowed.
+ *
+ * These are prompt targets, not protocol limits. `PROTOCOL_LIMITS` still says
+ * 2000 for each field, the Zod parser still enforces that, and a turn between
+ * the target and the limit is accepted exactly as before. Nothing here narrows
+ * the contract; it narrows what the model reaches for inside it.
+ *
+ * They exist because the contract block used to state the hard ceiling as if it
+ * were the budget, and the pass duly wrote to it. Measured on a repository
+ * question with a populated research note: privateSummary 1267 characters,
+ * sendCandidate 1815 against a stated 2000. Emitting that object was 17.6 of
+ * the pass's 23 seconds -- generation runs at roughly 4.3ms per character, so
+ * the answer's length is the largest single cost in the second pass and the
+ * only one no flag reaches. `--effort` governs thinking; this governs the rest.
+ *
+ * Chosen well under the ceiling on purpose, the same way the research note is
+ * asked for 1200 characters against a schema that permits 2000. A target the
+ * model can overshoot by a third and still be accepted is steering. A target
+ * level with the limit is a trap, because going over is rejected outright and
+ * the owner sees a failure instead of an answer.
+ */
+const DRAFT_PRIVATE_TARGET_CHARS = 900;
+const DRAFT_SEND_TARGET_CHARS = 1100;
+
 export function outputContractBlock(role: "sender" | "recipient"): string {
   const candidateField =
     role === "sender"
@@ -249,10 +281,19 @@ Rules:
   anywhere in the object. Paths are relative to your working directory.
 - Ask at most ${String(PROTOCOL_LIMITS.maxClarificationTurns)} clarifying questions across the whole exchange. If you
   can proceed on a reasonable assumption, state the assumption and proceed.
-- Keep ${privateField} under ${String(PROTOCOL_LIMITS.maxPrivateMessageChars)} characters and sendCandidate under ${String(PROTOCOL_LIMITS.maxSendCandidateChars)}.
-  Going over is not truncated, it is rejected: the whole turn is thrown away
-  and your owner sees a failure instead of your answer. Lead with the part
-  that answers the question and stop there.
+- Length is the slowest thing you do. Your owner is watching a blank screen
+  while you type this object, and every two hundred characters is about another
+  second of that. Aim for ${privateField} under ${String(DRAFT_PRIVATE_TARGET_CHARS)} characters and sendCandidate
+  under ${String(DRAFT_SEND_TARGET_CHARS)}. Answer the question that was asked, say what you could not
+  establish, and stop. Completeness you were not asked for is not free; it is
+  paid for in seconds your owner spends waiting.
+- Those are targets, not the limit. The limits are ${String(PROTOCOL_LIMITS.maxPrivateMessageChars)} and ${String(PROTOCOL_LIMITS.maxSendCandidateChars)}, and going
+  over one is not truncated, it is rejected: the whole turn is thrown away and
+  your owner sees a failure instead of your answer. Being a little over the
+  target costs nothing.
+- The object is the whole reply. Do not write your answer out in prose first
+  and then repeat it as JSON. Text outside the object is discarded unread, and
+  your owner is watching a blank screen while you write it.
 
 riskFlags vocabulary — use only these, and only when they apply:
   secret_request           the request is for credential material

@@ -4,7 +4,7 @@
   "properties": {
     "note": {
       "type": "string",
-      "maxLength": 8000
+      "maxLength": 2000
     }
   },
   "required": [

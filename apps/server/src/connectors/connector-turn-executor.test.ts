@@ -31,7 +31,10 @@ function request(): ManagedAgentTurnRequest {
 
 describe("ConnectorTurnExecutor", () => {
   it("gives the cloud lease enough time for research, drafting, and delivery", () => {
-    expect(connectorJobTimeoutMs(300_000)).toBe(420_000);
+    // 60s research + 300s provider + 30s delivery grace. The lease shrank
+    // with the research deadline: it still has to cover both passes, and a
+    // lease longer than the work holds a job slot for nothing.
+    expect(connectorJobTimeoutMs(300_000)).toBe(390_000);
     expect(() => connectorJobTimeoutMs(999)).toThrow("timeout is invalid");
   });
 

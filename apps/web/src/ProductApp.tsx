@@ -43,6 +43,7 @@ import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import { collectCursorPages } from "./cursor-pagination";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
+import ThemeSwitch from "./ThemeSwitch";
 import {
   ConnectorSetupPollTracker,
   connectorSetupPhase,
@@ -508,13 +509,7 @@ function Onboarding({
             alt="Telaegent"
           />
         </button>
-        <button
-          className="app-text-button"
-          type="button"
-          onClick={onToggleTheme}
-        >
-          {theme === "dark" ? "Light mode" : "Dark mode"}
-        </button>
+        <ThemeSwitch theme={theme} onToggle={onToggleTheme} />
       </header>
 
       <div className="onboarding-layout">
@@ -3724,13 +3719,7 @@ export default function ProductApp({
               </span>
             </div>
           )}
-          <button
-            className="app-text-button"
-            type="button"
-            onClick={onToggleTheme}
-          >
-            {theme === "dark" ? "Light" : "Dark"}
-          </button>
+          <ThemeSwitch theme={theme} onToggle={onToggleTheme} />
           <div className="account-summary">
             <span>
               {(user?.githubLogin ?? "Demo").slice(0, 2).toUpperCase()}

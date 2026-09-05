@@ -73,6 +73,28 @@ describe("Claude Code runner protocol", () => {
     });
   });
 
+  it("closes the tool surface for a pass that only writes its answer", () => {
+    const args = buildClaudeArgs(request({ toolMode: "none" }), { type: "object" });
+    const tools = args[args.indexOf("--tools") + 1];
+    const denied = args[args.indexOf("--disallowedTools") + 1];
+
+    // "" is the CLI's documented way to disable every built-in tool, and
+    // StructuredOutput is not one of them -- a no-tools pass still returns a
+    // structured result. The deny list repeats the intent so the argv states it
+    // twice rather than relying on one flag.
+    expect(tools).toBe("");
+    expect(denied).toContain("Read");
+    expect(denied).toContain("Glob");
+    expect(denied).toContain("Grep");
+    expect(args).toContain("--json-schema");
+  });
+
+  it("still gives a read-only pass its read tools by default", () => {
+    const args = buildClaudeArgs(request(), { type: "object" });
+    expect(args[args.indexOf("--tools") + 1]).toBe("Read,Glob,Grep");
+    expect(args[args.indexOf("--disallowedTools") + 1]).not.toContain("Read");
+  });
+
   it("disables persistence only for an explicitly ephemeral session", () => {
     const args = buildClaudeArgs(
       request({ sessionMode: "ephemeral" }),

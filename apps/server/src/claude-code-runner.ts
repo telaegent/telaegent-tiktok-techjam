@@ -65,12 +65,22 @@ export function buildClaudeArgs(
   }
 
   const readOnly = request.sandboxMode === "read-only";
-  const tools = readOnly
-    ? "Read,Glob,Grep"
-    : "Read,Glob,Grep,Edit,Write,Bash";
-  const disallowedTools = readOnly
-    ? "Bash,PowerShell,Edit,Write,WebFetch,WebSearch,Task"
-    : "WebFetch,WebSearch,Task";
+  // `--tools ""` is the CLI's documented way to disable every built-in tool.
+  // StructuredOutput is not part of that list, so a no-tools pass still returns
+  // a structured result -- verified by behaviour against CLI 2.1.261, not by the
+  // flag being accepted. The deny list is repeated rather than trusted alone:
+  // two independent statements of the same intent, visible in the argv.
+  const noTools = request.toolMode === "none";
+  const tools = noTools
+    ? ""
+    : readOnly
+      ? "Read,Glob,Grep"
+      : "Read,Glob,Grep,Edit,Write,Bash";
+  const disallowedTools = noTools
+    ? "Read,Glob,Grep,Bash,PowerShell,Edit,Write,WebFetch,WebSearch,Task"
+    : readOnly
+      ? "Bash,PowerShell,Edit,Write,WebFetch,WebSearch,Task"
+      : "WebFetch,WebSearch,Task";
   const args = [
     "-p",
     "--output-format",
@@ -96,6 +106,9 @@ export function buildClaudeArgs(
     "--prompt-suggestions",
     "false",
   ];
+  if (request.effort) {
+    args.push("--effort", request.effort);
+  }
   if (request.sessionMode === "continue" && request.sessionId) {
     args.push("--resume", request.sessionId);
   }

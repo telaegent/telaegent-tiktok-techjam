@@ -6,6 +6,7 @@ import claudeLogo from "../../../ui/logo/claude-symbol.webp";
 import codexLogo from "../../../ui/logo/codex-color.svg";
 import ProductApp from "./ProductApp";
 import SandboxPreview from "./SandboxPreview";
+import ThemeSwitch from "./ThemeSwitch";
 import { api, type TelaegentSession } from "./api";
 import {
   APP_PATH,
@@ -43,38 +44,6 @@ function getInitialTheme(): Theme {
   applyDocumentTheme(initialTheme);
   return initialTheme;
 }
-
-const workflow = [
-  {
-    owner: "You + your agent",
-    title: "Prepare privately",
-    description:
-      "Turn a rough intention into a useful, repository-scoped message.",
-  },
-  {
-    owner: "You",
-    title: "Review what crosses",
-    description:
-      "Edit, decline, or choose Send. Draft work stays on your side.",
-  },
-  {
-    owner: "Shared project",
-    title: "Send to your teammate",
-    description: "Only the approved message enters the durable conversation.",
-  },
-  {
-    owner: "Teammate + agent",
-    title: "Investigate their side",
-    description:
-      "Their agent works privately with their repository and local context.",
-  },
-  {
-    owner: "Your teammate",
-    title: "Approve the response",
-    description:
-      "Their answer crosses back only after the same human decision.",
-  },
-];
 
 function AgentLinkVisual() {
   return (
@@ -136,28 +105,100 @@ function AgentLinkVisual() {
   );
 }
 
+function ThemeAwareMark({ theme }: { theme: Theme }) {
+  return (
+    <svg
+      className="hero-theme-mark"
+      viewBox="0 0 700 680"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <image
+        href={theme === "dark" ? telaegentLogoBright : telaegentLogo}
+        width="2000"
+        height="680"
+      />
+    </svg>
+  );
+}
+
 function HowItWorks() {
   return (
     <section className="trust-section" id="trust">
       <header className="section-heading">
-        <h2>One conversation. Two private rooms.</h2>
+        <h2>Your agent works in private. You choose what leaves.</h2>
         <p>
-          Agents investigate on each side. People decide what becomes shared
-          project memory.
+          Each teammate gets a private workspace. Only reviewed messages join
+          the shared project record.
         </p>
       </header>
 
-      <div className="workflow-list">
-        {workflow.map((item, index) => (
-          <article className="workflow-row" key={item.title}>
-            <span className="workflow-index">
-              {String(index + 1).padStart(2, "0")}
-            </span>
-            <small>{item.owner}</small>
-            <h3>{item.title}</h3>
-            <p>{item.description}</p>
-          </article>
-        ))}
+      <div className="trust-map">
+        <article className="trust-room trust-room-sender">
+          <header>
+            <span>Private to you</span>
+            <strong>You + your agent</strong>
+          </header>
+          <h3>Prepare with local context.</h3>
+          <p>
+            Your agent can inspect the repository you connected and turn a
+            rough request into a useful message.
+          </p>
+          <div className="trust-room-detail">
+            <span>Stays on your side</span>
+            <code>draft + local repo</code>
+          </div>
+        </article>
+
+        <div className="trust-gate trust-gate-outbound">
+          <span>Human decision</span>
+          <strong>You choose Send</strong>
+          <div className="trust-gate-actions" aria-hidden="true">
+            <i>Edit</i>
+            <i>No</i>
+            <i className="selected">Send</i>
+          </div>
+        </div>
+
+        <article className="trust-shared-room">
+          <header>
+            <span>Shared project</span>
+            <strong>Approved conversation</strong>
+          </header>
+          <blockquote>
+            “Can you confirm how session refresh works on your branch?”
+          </blockquote>
+          <p>Only reviewed messages become durable project memory.</p>
+        </article>
+
+        <article className="trust-room trust-room-recipient">
+          <header>
+            <span>Private to them</span>
+            <strong>Teammate + their agent</strong>
+          </header>
+          <h3>Investigate without opening the workspace.</h3>
+          <p>
+            Their agent works against their local repository, then prepares a
+            response for review.
+          </p>
+          <div className="trust-room-detail">
+            <span>Stays on their side</span>
+            <code>analysis + local repo</code>
+          </div>
+        </article>
+
+        <div className="trust-gate trust-gate-inbound">
+          <span>Same rule on their side</span>
+          <strong>Your teammate chooses Send</strong>
+        </div>
+      </div>
+
+      <div className="trust-rule">
+        <strong>Repository access stays local.</strong>
+        <p>
+          A connection lets agents ask questions. It never opens another
+          person&apos;s workspace.
+        </p>
       </div>
     </section>
   );
@@ -313,14 +354,7 @@ export default function App() {
         </nav>
 
         <div className="site-actions">
-          <button
-            className="theme-button"
-            type="button"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-          >
-            {theme === "dark" ? "Light" : "Dark"}
-          </button>
+          <ThemeSwitch theme={theme} onToggle={toggleTheme} />
           <button
             className="header-cta"
             type="button"
@@ -339,7 +373,7 @@ export default function App() {
           </header>
           <h2 className="hero-brand-lockup">
             <span>Meet Telægent</span>
-            <img src={telaegentMark} alt="" />
+            <ThemeAwareMark theme={theme} />
           </h2>
           <div className="hero-actions">
             <button
