@@ -167,4 +167,30 @@ describe("project conversation API", () => {
       });
     },
   );
+
+  it("lists and individually revokes owner file grants", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => new Response(
+        JSON.stringify(String(input).includes("grant%2Fid")
+          ? { outcome: "revoked" }
+          : { grants: [] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.capabilityGrants("123456789");
+    await api.revokeCapabilityGrant("grant/id");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/capability/grants?githubRepositoryId=123456789",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "/api/capability/grants/grant%2Fid",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "DELETE",
+      credentials: "same-origin",
+    });
+  });
 });

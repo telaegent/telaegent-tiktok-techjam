@@ -24,7 +24,12 @@ const ownedGrantSchema = z.strictObject({
 
 const ownedGrantListSchema = z.array(ownedGrantSchema).max(200);
 const revokeOutcomeSchema = z.discriminatedUnion("outcome", [
-  z.object({ outcome: z.literal("revoked") }),
+  z.strictObject({
+    outcome: z.literal("revoked"),
+    grantId: uuidSchema,
+    resourceId: resourceIdSchema,
+    expiresAt: isoTimestampSchema,
+  }),
   // Missing, another owner's, consumed and expired grants deliberately share
   // one result so an identifier cannot be used to inspect another task.
   z.object({ outcome: z.literal("unavailable") }),

@@ -52,6 +52,16 @@ export const resourceExchangeRequestSchema = z.strictObject({
   peerUserId: z.string().uuid(),
   requests: z.array(connectorResourceRequestSchema).min(1).max(16),
   grants: z.array(assertedGrantSchema).max(64),
+  /** Connector-local tombstones for grants revoked after a batch was queued. */
+  revokedGrants: z
+    .array(
+      z.strictObject({
+        grantId: z.string().uuid(),
+        expiresAt: z.string().datetime().nullable(),
+      }),
+    )
+    .max(64)
+    .optional(),
 });
 
 export type ResourceExchangeRequest = z.infer<typeof resourceExchangeRequestSchema>;
@@ -152,6 +162,8 @@ export interface ResourceExchangeDeps {
   limits?: ResourcePolicyLimits;
   /** Shared for the life of the connector binding; durable in production. */
   budget?: ResourceTaskBudgetLedger;
+  /** Durable connector-local check against cloud-delivered revocations. */
+  revokedGrantIds?: ReadonlySet<string>;
   now?: () => Date;
   /** Local-only sink for refusal codes; never sent to the cloud or the peer. */
   onRefusal?: (code: ResourceDenyCode | "UNREADABLE", taskId: string) => void;
@@ -229,6 +241,21 @@ export async function fulfilResourceRequests(
       outcomes.push({ status: "refused" });
       continue;
     }
+    if (
+      item.kind === "resource" &&
+      request.grants.some(
+        (grant) =>
+          grant.resourceId === item.resourceId &&
+          deps.revokedGrantIds?.has(grant.grantId),
+      )
+    ) {
+      // A stale cloud assertion for an explicitly revoked grant is a denial,
+      // not a fresh approval request. Otherwise revocation could immediately
+      // re-prompt the owner for the same authority it just narrowed.
+      deps.onRefusal?.("GRANT_MISSING", request.taskId);
+      outcomes.push({ status: "refused" });
+      continue;
+    }
     const usage = await budget.usage(request.taskId, currentTime);
     const canonicalPath =
       item.kind === "resource"
@@ -238,7 +265,9 @@ export async function fulfilResourceRequests(
       {
         taskId: request.taskId,
         request: item,
-        grants: request.grants as readonly AssertedGrant[],
+        grants: request.grants.filter(
+          (grant) => !deps.revokedGrantIds?.has(grant.grantId),
+        ) as readonly AssertedGrant[],
         canonicalPath,
         // Containment is proven for real by the broker immediately before the
         // read; this is the policy's cheap precondition, not the check itself.

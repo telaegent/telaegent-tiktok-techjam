@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { ResourcePolicyLimits } from "./resource-policy.js";
@@ -66,6 +66,7 @@ interface TaskUsage extends ResourceTaskBudgetUsage {
 
 interface ReservationState extends ResourceBudgetReservation {
   settled: boolean;
+  actualBytes?: number;
 }
 
 /** Process-local ledger used by tests and embedded connectors. */
@@ -192,6 +193,7 @@ export class InMemoryResourceTaskBudgetLedger
     usage.bytesRead -= reservation.reservedBytes - actualBytes;
     if (usage.bytesRead < 0) throw new Error("Resource budget ledger is unreadable");
     reservation.settled = true;
+    reservation.actualBytes = actualBytes;
   }
 
   private currentUsage(taskId: string, now: Date): ResourceTaskBudgetUsage {
@@ -224,10 +226,16 @@ export class InMemoryResourceTaskBudgetLedger
 export class FileResourceTaskBudgetLedger extends InMemoryResourceTaskBudgetLedger {
   private loaded: Promise<void> | undefined;
 
-  constructor(private readonly filePath: string) {
+  constructor(
+    private readonly filePath: string,
+    private readonly maximumLogBytes = MAX_BUDGET_LOG_BYTES,
+  ) {
     super();
     if (!path.isAbsolute(filePath)) {
       throw new Error("Resource budget ledger path must be absolute");
+    }
+    if (!Number.isSafeInteger(maximumLogBytes) || maximumLogBytes < 1_024) {
+      throw new Error("Resource budget ledger capacity is invalid");
     }
   }
 
@@ -261,16 +269,86 @@ export class FileResourceTaskBudgetLedger extends InMemoryResourceTaskBudgetLedg
   protected override async persist(event: BudgetEvent): Promise<void> {
     const line = JSON.stringify(event) + "\n";
     await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    const handle = await open(this.filePath, "a", 0o600);
+    let handle: Awaited<ReturnType<typeof open>> | undefined =
+      await open(this.filePath, "a", 0o600);
     try {
-      const stats = await handle.stat();
-      if (stats.size + Buffer.byteLength(line) > MAX_BUDGET_LOG_BYTES) {
-        throw new Error("Resource budget ledger capacity exceeded");
+      let stats = await handle.stat();
+      if (stats.size + Buffer.byteLength(line) > this.maximumLogBytes) {
+        await handle.close();
+        handle = undefined;
+        await this.compact(new Date());
+        handle = await open(this.filePath, "a", 0o600);
+        stats = await handle.stat();
+        if (stats.size + Buffer.byteLength(line) > this.maximumLogBytes) {
+          throw new Error("Resource budget ledger capacity exceeded");
+        }
       }
       await handle.writeFile(line, "utf8");
       await handle.sync();
     } finally {
-      await handle.close();
+      await handle?.close();
+    }
+  }
+
+  /**
+   * Atomically replaces historical events with an equivalent snapshot of only
+   * live tasks. Expired tasks and their reservations are removed from memory
+   * too, so a long-running connector cannot be permanently filled by history.
+   */
+  private async compact(now: Date): Promise<void> {
+    const liveTasks = [...this.tasks.entries()].filter(([, usage]) =>
+      usage.taskExpiresAt === null || Date.parse(usage.taskExpiresAt) > now.getTime(),
+    );
+    const liveTaskIds = new Set(liveTasks.map(([taskId]) => taskId));
+    const liveReservations = [...this.reservations.values()].filter(
+      (reservation) => liveTaskIds.has(reservation.taskId),
+    );
+    const lines: string[] = [];
+    for (const reservation of liveReservations) {
+      const usage = this.tasks.get(reservation.taskId)!;
+      lines.push(JSON.stringify({
+        version: 1,
+        type: "reserve",
+        reservationId: reservation.reservationId,
+        taskId: reservation.taskId,
+        reservedBytes: reservation.reservedBytes,
+        recordedAt: now.toISOString(),
+        taskExpiresAt: usage.taskExpiresAt,
+      } satisfies BudgetEvent));
+      if (reservation.settled) {
+        lines.push(JSON.stringify({
+          version: 1,
+          type: "settle",
+          reservationId: reservation.reservationId,
+          actualBytes: reservation.actualBytes ?? reservation.reservedBytes,
+        } satisfies BudgetEvent));
+      }
+    }
+    const contents = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+    if (Buffer.byteLength(contents) > this.maximumLogBytes) {
+      throw new Error("Resource budget ledger capacity exceeded");
+    }
+
+    const temporaryPath = `${this.filePath}.${randomUUID()}.tmp`;
+    const temporary = await open(temporaryPath, "wx", 0o600);
+    try {
+      await temporary.writeFile(contents, "utf8");
+      await temporary.sync();
+    } finally {
+      await temporary.close();
+    }
+    try {
+      await rename(temporaryPath, this.filePath);
+    } catch (error) {
+      await unlink(temporaryPath).catch(() => undefined);
+      throw error;
+    }
+
+    for (const taskId of this.tasks.keys()) {
+      if (!liveTaskIds.has(taskId)) this.tasks.delete(taskId);
+    }
+    for (const [id, reservation] of this.reservations) {
+      if (!liveTaskIds.has(reservation.taskId)) this.reservations.delete(id);
     }
   }
 
@@ -287,7 +365,7 @@ export class FileResourceTaskBudgetLedger extends InMemoryResourceTaskBudgetLedg
       if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return;
       throw new Error("Resource budget ledger is unreadable");
     }
-    if (Buffer.byteLength(raw) > MAX_BUDGET_LOG_BYTES) {
+    if (Buffer.byteLength(raw) > this.maximumLogBytes) {
       throw new Error("Resource budget ledger is unreadable");
     }
     const lines = raw.split("\n");

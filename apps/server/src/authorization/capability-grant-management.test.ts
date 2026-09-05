@@ -24,7 +24,12 @@ function client(
 ): SupabaseOwnedCapabilityGrantClient {
   return {
     listOwnedCapabilityGrants: async () => [grant],
-    revokeOwnedCapabilityGrant: async () => ({ outcome: "revoked" }),
+    revokeOwnedCapabilityGrant: async () => ({
+      outcome: "revoked",
+      grantId: grant.grantId,
+      resourceId: grant.resourceId,
+      expiresAt: grant.expiresAt,
+    }),
     ...overrides,
   };
 }

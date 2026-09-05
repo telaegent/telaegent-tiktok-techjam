@@ -427,6 +427,34 @@ describe("connector worker serving resource requests", () => {
     expect(transport.responses[0]?.outcomes).toEqual([{ status: "refused" }]);
   });
 
+  it("remembers a cloud revocation locally across later stale batches", async () => {
+    const transport = new ServingTransport([
+      {
+        kind: "resource_request",
+        request: exchange({
+          requestId: "revoked-1",
+          revokedGrants: [{
+            grantId,
+            expiresAt: "2126-08-31T12:00:00.000Z",
+          }],
+        }),
+      },
+      {
+        kind: "resource_request",
+        request: exchange({ requestId: "revoked-2" }),
+      },
+    ]);
+    const connector = worker(transport);
+
+    await connector.runOnce();
+    await connector.runOnce();
+
+    expect(transport.responses).toEqual([
+      { requestId: "revoked-1", outcomes: [{ status: "refused" }] },
+      { requestId: "revoked-2", outcomes: [{ status: "refused" }] },
+    ]);
+  });
+
   it("rejects a request addressed to another binding", async () => {
     const transport = new ServingTransport([
       {

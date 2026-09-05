@@ -24,6 +24,7 @@ import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worke
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
 import {
   createConnectorResourceBudgetLedger,
+  createConnectorGrantRevocationStore,
   createConnectorResourceRegistry,
 } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
@@ -193,6 +194,9 @@ async function main(): Promise<void> {
         resources: {
           registry: createConnectorResourceRegistry(registered.connectorBindingId),
           budget: createConnectorResourceBudgetLedger(
+            registered.connectorBindingId,
+          ),
+          revocations: createConnectorGrantRevocationStore(
             registered.connectorBindingId,
           ),
         },

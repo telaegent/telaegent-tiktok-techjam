@@ -17,6 +17,9 @@ import type {
 export interface CapabilityScopeExpansionServiceDependencies {
   repository: CapabilityScopeRequestRepository;
   grantManagement?: OwnedCapabilityGrantRepository;
+  onGrantRevoked?: (
+    grant: Readonly<{ grantId: string; resourceId: string; expiresAt: string }>,
+  ) => void | Promise<void>;
   /**
    * Identifiers this service allocates before it calls the database, so a
    * retried request lands on the same row and the same grant instead of
@@ -75,10 +78,14 @@ export class CapabilityScopeExpansionService {
   readonly #repository: CapabilityScopeRequestRepository;
   readonly #grantManagement: OwnedCapabilityGrantRepository | undefined;
   readonly #newId: () => string;
+  readonly #onGrantRevoked:
+    | ((grant: Readonly<{ grantId: string; resourceId: string; expiresAt: string }>) => void | Promise<void>)
+    | undefined;
 
   constructor(dependencies: Readonly<CapabilityScopeExpansionServiceDependencies>) {
     this.#repository = dependencies.repository;
     this.#grantManagement = dependencies.grantManagement;
+    this.#onGrantRevoked = dependencies.onGrantRevoked;
     this.#newId = dependencies.newId ?? randomUUID;
   }
 
@@ -109,6 +116,7 @@ export class CapabilityScopeExpansionService {
     if (result.outcome !== "revoked") {
       throw new HttpError(404, "That grant is not available to revoke");
     }
+    await this.#onGrantRevoked?.(result);
     return { outcome: "revoked" };
   }
 

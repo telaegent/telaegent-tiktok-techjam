@@ -175,6 +175,7 @@ if (config.telaegentIdentityProvider === "github") {
     capabilityScope = new CapabilityScopeExpansionService({
       repository: new SupabaseCapabilityScopeRequestRepository(authorizationRpc),
       grantManagement: new SupabaseOwnedCapabilityGrantRepository(authorizationRpc),
+      onGrantRevoked: (grant) => relay.revokeCapabilityGrant(grant),
     });
     capabilityScopeApi = { service: capabilityScope, authenticatedUserId };
   }

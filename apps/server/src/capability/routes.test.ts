@@ -319,7 +319,12 @@ describe("owned capability grant routes", () => {
   ): OwnedCapabilityGrantRepository {
     return {
       listOwnedGrants: async () => [ownedGrant],
-      revokeOwnedGrant: async () => ({ outcome: "revoked" }),
+      revokeOwnedGrant: async () => ({
+        outcome: "revoked",
+        grantId,
+        resourceId: candidateResourceId,
+        expiresAt: ownedGrant.expiresAt,
+      }),
       ...overrides,
     };
   }
@@ -353,7 +358,12 @@ describe("owned capability grant routes", () => {
 
   it("revokes one grant as the signed-in owner", async () => {
     const revokeOwnedGrant = vi.fn<OwnedCapabilityGrantRepository["revokeOwnedGrant"]>(
-      async () => ({ outcome: "revoked" }),
+      async () => ({
+        outcome: "revoked",
+        grantId,
+        resourceId: candidateResourceId,
+        expiresAt: ownedGrant.expiresAt,
+      }),
     );
     const app = await appWith(
       stubRepository(),

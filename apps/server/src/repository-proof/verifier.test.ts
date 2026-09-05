@@ -59,9 +59,8 @@ describe("GitHubPublicRepositoryProofVerifier", () => {
         permission: "read",
       },
     });
-    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
     expect(fetchImplementation.mock.calls.map(([input]) => String(input))).toEqual([
-      "https://api.github.com/user/123456789",
       "https://api.github.com/repositories/1345851084",
     ]);
     for (const [, init] of fetchImplementation.mock.calls) {
@@ -84,9 +83,7 @@ describe("GitHubPublicRepositoryProofVerifier", () => {
     await Promise.all([verifier.verify(proof), verifier.verify(proof)]);
     await verifier.verify(proof);
 
-    // One identity request and one repository request, rather than two calls
-    // for every connector proof in the refresh wave.
-    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed for private and internal connector assertions", async () => {
@@ -123,6 +120,28 @@ describe("GitHubPublicRepositoryProofVerifier", () => {
     await expect(missing.verify(proof)).rejects.toMatchObject({
       code: "UNVERIFIED",
     });
+  });
+
+  it("caches repeated denials and preserves part of the anonymous hourly quota", async () => {
+    const missingFetch = githubFetch({ repositoryStatus: 404 });
+    const missing = new GitHubPublicRepositoryProofVerifier(5_000, missingFetch);
+    await expect(missing.verify(proof)).rejects.toMatchObject({ code: "UNVERIFIED" });
+    await expect(missing.verify(proof)).rejects.toMatchObject({ code: "UNVERIFIED" });
+    expect(missingFetch).toHaveBeenCalledTimes(1);
+
+    const variedFetch = githubFetch();
+    const bounded = new GitHubPublicRepositoryProofVerifier(5_000, variedFetch);
+    for (let index = 0; index < 41; index += 1) {
+      await expect(
+        bounded.verify({
+          ...proof,
+          repository: { ...proof.repository, id: String(2_000_000_000 + index) },
+        }),
+      ).rejects.toMatchObject({
+        code: index < 40 ? "UNVERIFIED" : "UNAVAILABLE",
+      });
+    }
+    expect(variedFetch).toHaveBeenCalledTimes(40);
   });
 
   it("classifies rate limits and transport failures as temporary outages", async () => {

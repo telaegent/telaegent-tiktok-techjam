@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -79,5 +79,43 @@ describe("resource task budget ledger", () => {
       requestsMade: 1,
       bytesRead: 8,
     });
+  });
+
+  it("compacts expired task history before the bounded ledger fills", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "telaegent-budget-"));
+    temporaryDirectories.push(directory);
+    const file = path.join(directory, "budget.jsonl");
+    const ledger = new FileResourceTaskBudgetLedger(file, 1_024);
+    const broadLimits = {
+      maxRequestsPerTask: 100,
+      maxBytesPerTask: 1_000,
+      maxBytesPerResource: 10,
+    };
+
+    for (let index = 0; index < 12; index += 1) {
+      const reservation = await ledger.reserveRead(
+        `expired-task-${index}`,
+        10,
+        broadLimits,
+        "2000-01-01T00:00:00.000Z",
+        now,
+      );
+      if (reservation.outcome !== "reserved") throw new Error("expected reservation");
+      await ledger.settleRead(reservation.reservation, 1);
+    }
+    const live = await ledger.reserveRead(
+      taskId,
+      10,
+      broadLimits,
+      "2099-01-01T00:00:00.000Z",
+      now,
+    );
+    if (live.outcome !== "reserved") throw new Error("expected live reservation");
+    await ledger.settleRead(live.reservation, 7);
+
+    expect(Buffer.byteLength(await readFile(file, "utf8"))).toBeLessThan(1_024);
+    await expect(
+      new FileResourceTaskBudgetLedger(file, 1_024).usage(taskId, now),
+    ).resolves.toEqual({ requestsMade: 1, bytesRead: 7 });
   });
 });

@@ -6,6 +6,10 @@ import {
   FileResourceTaskBudgetLedger,
   type ResourceTaskBudgetLedger,
 } from "./resource-budget.js";
+import {
+  FileCapabilityGrantRevocationStore,
+  type CapabilityGrantRevocationStore,
+} from "./grant-revocations.js";
 
 const connectorBindingIdSchema = z.string().uuid();
 
@@ -103,5 +107,19 @@ export function createConnectorResourceBudgetLedger(
   }
   return new FileResourceTaskBudgetLedger(
     path.join(stateDirectory, "resource-budgets", `${bindingId}.jsonl`),
+  );
+}
+
+export function createConnectorGrantRevocationStore(
+  connectorBindingId: string,
+  options: ConnectorResourceRegistryOptions = {},
+): CapabilityGrantRevocationStore {
+  const bindingId = connectorBindingIdSchema.parse(connectorBindingId);
+  const stateDirectory = options.stateDirectory ?? connectorStateDirectory(options);
+  if (!path.isAbsolute(stateDirectory)) {
+    throw new Error("Connector state directory must be absolute");
+  }
+  return new FileCapabilityGrantRevocationStore(
+    path.join(stateDirectory, "grant-revocations", `${bindingId}.json`),
   );
 }

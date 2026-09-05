@@ -6,7 +6,12 @@ const MAX_GITHUB_RESPONSE_BYTES = 65_536;
 // response cache coalesces a team's refresh wave without extending the
 // authorization freshness window or caching denials/outages.
 const SUCCESS_CACHE_TTL_MS = 4 * 60 * 1_000;
+const DENIAL_CACHE_TTL_MS = 60 * 1_000;
 const MAX_SUCCESS_CACHE_ENTRIES = 512;
+// GitHub grants an originating IP only 60 anonymous requests/hour. Keep a
+// deployment-local reserve for recovery/manual traffic and fail closed before
+// an authenticated caller can consume the whole allowance.
+const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 40;
 const githubLoginSchema = z
   .string()
   .min(1)
@@ -17,7 +22,6 @@ const repositoryNameSchema = z
   .min(1)
   .max(100)
   .regex(/^[A-Za-z0-9._-]+$/);
-const userSchema = z.object({ login: githubLoginSchema }).passthrough();
 const repositorySchema = z
   .object({
     name: repositoryNameSchema,
@@ -66,7 +70,11 @@ export class GitHubPublicRepositoryProofVerifier
     string,
     Readonly<{ text: string; expiresAt: number }>
   >();
+  private readonly denials = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<string>>();
+  private readonly requestTimes: number[] = [];
+  private githubRemaining: number | null = null;
+  private githubResetAt = 0;
 
   constructor(
     private readonly timeoutMs: number,
@@ -84,24 +92,17 @@ export class GitHubPublicRepositoryProofVerifier
       throw new RepositoryProofVerificationError("UNVERIFIED");
     }
 
-    const [userText, repositoryText] = await Promise.all([
-      this.fetchGitHub(
-        `https://api.github.com/user/${proof.github.userId}`,
-      ),
-      this.fetchGitHub(
-        `https://api.github.com/repositories/${proof.repository.id}`,
-      ),
-    ]);
-    const user = userSchema.safeParse(parseJson(userText));
+    // The service has already bound proof.github.userId to the authenticated
+    // account in Supabase. Only repository existence and immutable identity
+    // need GitHub here, reducing a proof from two anonymous calls to one.
+    const repositoryText = await this.fetchGitHub(
+      `https://api.github.com/repositories/${proof.repository.id}`,
+    );
     const repository = repositorySchema.safeParse(parseJson(repositoryText));
-    const githubUserId = extractTopLevelPositiveInteger(userText, "id");
     const githubRepositoryId = extractTopLevelPositiveInteger(repositoryText, "id");
     if (
-      !user.success ||
       !repository.success ||
-      githubUserId !== proof.github.userId ||
       githubRepositoryId !== proof.repository.id ||
-      user.data.login.toLowerCase() !== proof.github.login.toLowerCase() ||
       repository.data.owner.login.toLowerCase() !==
         proof.repository.owner.toLowerCase() ||
       repository.data.name.toLowerCase() !== proof.repository.name.toLowerCase()
@@ -110,7 +111,7 @@ export class GitHubPublicRepositoryProofVerifier
     }
 
     return {
-      github: { userId: githubUserId, login: user.data.login },
+      github: proof.github,
       repository: {
         id: githubRepositoryId,
         owner: repository.data.owner.login,
@@ -125,29 +126,64 @@ export class GitHubPublicRepositoryProofVerifier
   }
 
   private async fetchGitHub(url: string): Promise<string> {
+    const now = Date.now();
     const cached = this.successes.get(url);
-    if (cached && cached.expiresAt > Date.now()) return cached.text;
+    if (cached && cached.expiresAt > now) return cached.text;
     if (cached) this.successes.delete(url);
+    const deniedUntil = this.denials.get(url);
+    if (deniedUntil && deniedUntil > now) {
+      throw new RepositoryProofVerificationError("UNVERIFIED");
+    }
+    if (deniedUntil) this.denials.delete(url);
     const pending = this.inFlight.get(url);
     if (pending) return pending;
 
-    const request = this.fetchGitHubUncached(url).then((text) => {
-      if (this.successes.size >= MAX_SUCCESS_CACHE_ENTRIES) {
-        const oldest = this.successes.keys().next().value as string | undefined;
-        if (oldest) this.successes.delete(oldest);
-      }
-      this.successes.set(url, {
-        text,
-        expiresAt: Date.now() + SUCCESS_CACHE_TTL_MS,
-      });
-      return text;
-    });
+    this.reserveAnonymousRequest(now);
+    const request = this.fetchGitHubUncached(url).then(
+      (text) => {
+        if (this.successes.size >= MAX_SUCCESS_CACHE_ENTRIES) {
+          const oldest = this.successes.keys().next().value as string | undefined;
+          if (oldest) this.successes.delete(oldest);
+        }
+        this.successes.set(url, {
+          text,
+          expiresAt: Date.now() + SUCCESS_CACHE_TTL_MS,
+        });
+        return text;
+      },
+      (error: unknown) => {
+        if (
+          error instanceof RepositoryProofVerificationError &&
+          error.code === "UNVERIFIED"
+        ) {
+          if (this.denials.size >= MAX_SUCCESS_CACHE_ENTRIES) {
+            const oldest = this.denials.keys().next().value as string | undefined;
+            if (oldest) this.denials.delete(oldest);
+          }
+          this.denials.set(url, Date.now() + DENIAL_CACHE_TTL_MS);
+        }
+        throw error;
+      },
+    );
     this.inFlight.set(url, request);
     try {
       return await request;
     } finally {
       if (this.inFlight.get(url) === request) this.inFlight.delete(url);
     }
+  }
+
+  private reserveAnonymousRequest(now: number): void {
+    while (this.requestTimes[0] !== undefined && this.requestTimes[0] <= now - 3_600_000) {
+      this.requestTimes.shift();
+    }
+    if (
+      this.requestTimes.length >= MAX_ANONYMOUS_REQUESTS_PER_HOUR ||
+      (this.githubRemaining !== null && this.githubRemaining <= 1 && this.githubResetAt > now)
+    ) {
+      throw new RepositoryProofVerificationError("UNAVAILABLE");
+    }
+    this.requestTimes.push(now);
   }
 
   private async fetchGitHubUncached(url: string): Promise<string> {
@@ -166,6 +202,14 @@ export class GitHubPublicRepositoryProofVerifier
         redirect: "error",
         signal: controller.signal,
       });
+      const remaining = Number(response.headers.get("x-ratelimit-remaining"));
+      const resetSeconds = Number(response.headers.get("x-ratelimit-reset"));
+      if (Number.isSafeInteger(remaining) && remaining >= 0) {
+        this.githubRemaining = remaining;
+      }
+      if (Number.isSafeInteger(resetSeconds) && resetSeconds > 0) {
+        this.githubResetAt = resetSeconds * 1_000;
+      }
       if (response.status === 404) {
         await response.body?.cancel();
         throw new RepositoryProofVerificationError("UNVERIFIED");

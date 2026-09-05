@@ -20,6 +20,16 @@ export interface MarkRepositoryUnavailableCommand {
 }
 
 export interface RepositoryProofRepository {
+  /**
+   * Verifies that the transport-authenticated user owns the GitHub identity
+   * named by a connector proof. This cheap database gate must run before any
+   * request is made against GitHub's deployment-wide anonymous quota.
+   */
+  authorizeProofIdentity(
+    principal: Readonly<ConnectorPrincipal>,
+    github: Readonly<RepositoryProof["github"]>,
+  ): Promise<void>;
+
   registerRepositoryProof(
     command: Readonly<RegisterRepositoryProofCommand>,
   ): Promise<RepositoryProofResult>;
@@ -28,4 +38,3 @@ export interface RepositoryProofRepository {
     command: Readonly<MarkRepositoryUnavailableCommand>,
   ): Promise<RepositoryUnavailableResult>;
 }
-

@@ -24,6 +24,10 @@ import { LocalFileBroker } from "./file-broker.js";
 import type { ResourcePolicyLimits } from "./resource-policy.js";
 import type { ResourceTaskBudgetLedger } from "./resource-budget.js";
 import {
+  InMemoryCapabilityGrantRevocationStore,
+  type CapabilityGrantRevocationStore,
+} from "./grant-revocations.js";
+import {
   connectorResourceRequestSchema,
   type ConnectorResourceRequest,
 } from "./resource-request.js";
@@ -139,6 +143,7 @@ export interface ConnectorWorkerOptions {
     registry: ResourceRegistry;
     budget?: ResourceTaskBudgetLedger;
     limits?: ResourcePolicyLimits;
+    revocations?: CapabilityGrantRevocationStore;
   };
   /** Local-only maintenance cadence; never causes a cloud/database request. */
   resourceCleanupIntervalMs?: number;
@@ -174,6 +179,7 @@ export class ConnectorTransportUnavailableError extends Error {
 /** Connector-side reference monitor for one user x repository binding. */
 export class ConnectorWorker {
   private readonly binding: LocalConnectorBinding;
+  private readonly revocations: CapabilityGrantRevocationStore;
   private nextResourceCleanupAt = 0;
 
   constructor(
@@ -183,6 +189,8 @@ export class ConnectorWorker {
     private readonly options: ConnectorWorkerOptions,
   ) {
     this.binding = { ...binding, workspacePath: path.resolve(binding.workspacePath) };
+    this.revocations =
+      options.resources?.revocations ?? new InMemoryCapabilityGrantRevocationStore();
   }
 
   async runOnce(signal?: AbortSignal): Promise<"idle" | "completed" | "cancelled"> {
@@ -318,6 +326,15 @@ export class ConnectorWorker {
       return;
     }
     const limits = this.options.resources?.limits;
+    if (request.revokedGrants?.length) {
+      await this.revocations.record(request.revokedGrants);
+    }
+    const revokedGrantIds = new Set<string>();
+    for (const grant of request.grants) {
+      if (await this.revocations.isRevoked(grant.grantId)) {
+        revokedGrantIds.add(grant.grantId);
+      }
+    }
     const response = await fulfilResourceRequests(request, {
       registry,
       broker: new LocalFileBroker(this.binding.workspacePath),
@@ -326,6 +343,7 @@ export class ConnectorWorker {
         ? { budget: this.options.resources.budget }
         : {}),
       ...(limits ? { limits } : {}),
+      ...(revokedGrantIds.size > 0 ? { revokedGrantIds } : {}),
     });
     await this.transport.resourceResponse(response);
   }

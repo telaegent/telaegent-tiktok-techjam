@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RepositoryProofRepository } from "./repository.js";
-import { RepositoryProofService } from "./service.js";
+import { RepositoryProofError, RepositoryProofService } from "./service.js";
 import { RepositoryProofVerificationError } from "./verifier.js";
 
 const now = new Date("2026-08-31T02:00:00.000Z");
@@ -39,6 +39,7 @@ const registration = {
 
 function fixture() {
   const repository = {
+    authorizeProofIdentity: vi.fn(async () => undefined),
     registerRepositoryProof: vi.fn(async () => registration),
     markRepositoryUnavailable: vi.fn(async () => ({
       githubRepositoryId: proof.repository.id,
@@ -90,6 +91,24 @@ describe("RepositoryProofService", () => {
       code: "REPOSITORY_PROOF_UNVERIFIED",
       statusCode: 403,
     });
+    expect(repository.registerRepositoryProof).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unowned GitHub identity before contacting GitHub", async () => {
+    const { repository, service, verify } = fixture();
+    repository.authorizeProofIdentity.mockRejectedValueOnce(
+      new RepositoryProofError(
+        "REPOSITORY_PROOF_FORBIDDEN",
+        "Repository proof is not authorized",
+        403,
+      ),
+    );
+
+    await expect(service.register(principal, proof)).rejects.toMatchObject({
+      code: "REPOSITORY_PROOF_FORBIDDEN",
+      statusCode: 403,
+    });
+    expect(verify).not.toHaveBeenCalled();
     expect(repository.registerRepositoryProof).not.toHaveBeenCalled();
   });
 

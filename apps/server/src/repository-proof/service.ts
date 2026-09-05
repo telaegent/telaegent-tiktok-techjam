@@ -51,6 +51,17 @@ export class RepositoryProofService {
     const proof = parseProof(untrustedProof);
     this.assertFresh(proof.observedAt);
 
+    // Reject body-injected GitHub identities using our durable account link
+    // before spending GitHub's shared anonymous API allowance. Registration
+    // repeats this check transactionally; this preflight is only an early,
+    // side-effect-free admission gate and is never treated as proof of repo
+    // access by itself.
+    try {
+      await this.repository.authorizeProofIdentity(principal, proof.github);
+    } catch (error) {
+      throw normalizeRepositoryError(error);
+    }
+
     let verified;
     try {
       verified = await this.verifier.verify(proof);
