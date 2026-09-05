@@ -8,7 +8,7 @@ an outbound connection to the Telaegent control plane.
 From the repository you want to connect:
 
 ```bash
-npx --yes @telaegent/connector@0.1.14 connect . \
+npx --yes @telaegent/connector@0.1.15 connect . \
   --url https://telaegent.live \
   --pair ONE_TIME_PAIRING_CODE
 ```
@@ -33,5 +33,9 @@ Requirements:
 - Git and an authenticated GitHub CLI (`gh`)
 - an authenticated Claude Code CLI, Codex CLI, or both
 
-Use `--provider claude` or `--provider codex` to restrict the local connector
-to one provider. Use `--probe-only` to verify the live path and exit.
+The command detects locally authenticated providers before consuming the
+pairing code. If exactly one is ready, it selects that provider automatically;
+if both are ready, it asks whether to connect Claude Code, Codex, or both.
+Use `--provider claude` or `--provider codex` to make the choice directly, or
+`--provider auto` to select every authenticated provider without a prompt.
+Use `--probe-only` to verify the live path and exit.
