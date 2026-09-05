@@ -1,8 +1,8 @@
--- Cheap, side-effect-free admission gate for public repository verification.
+-- Cheap, side-effect-free admission gate for local repository proof.
 --
 -- The connector route has already authenticated both values in the principal.
 -- This RPC binds the claimed GitHub numeric identity to that authenticated
--- account before the server spends any of GitHub's shared anonymous quota.
+-- account before the atomic registration RPC repeats the same check.
 
 create or replace function public.authorize_local_github_proof_identity(
   p_user_id              uuid,
