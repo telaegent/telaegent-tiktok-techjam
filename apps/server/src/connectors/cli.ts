@@ -36,6 +36,7 @@ import {
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
 } from "./connector-repository-selection.js";
+import { selectConnectorProviders } from "./connector-provider-selection.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -89,9 +90,35 @@ async function main(): Promise<void> {
     `${proof.repository.owner}/${proof.repository.name}`,
     workspacePath,
   );
+  const config = loadConfig({
+    ...process.env,
+    TELAEGENT_IDENTITY_PROVIDER: "disabled",
+    AUTHORIZATION_PERSISTENCE: "memory",
+    CONVERSATION_PERSISTENCE: "memory",
+    ENABLE_LEGACY_LOCAL_PLAYGROUND: "0",
+    CODEX_HOME: process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"),
+  });
+  const allRunners = [new ClaudeCodeRunner(config), new CodexRunner(config)];
+  const schemas = new FileOutputSchemaResolver(
+    fileURLToPath(new URL("../telagent/output-schemas", import.meta.url)),
+  );
+  const providerDetector = new RuntimeProviderRegistry(allRunners, schemas);
+  const selectedProviders = await selectConnectorProviders(
+    providerSelection,
+    await providerDetector.capabilities(),
+  );
+  process.stdout.write(
+    `TELAEGENT PROVIDER SELECTED (${selectedProviders.join(", ")})\n`,
+  );
+  const providers = new RuntimeProviderRegistry(
+    allRunners.filter((runner) => selectedProviders.includes(runner.provider)),
+    schemas,
+  );
+
   // Pairing is deliberately exchanged only after the human confirms the exact
-  // GitHub repository. A wrong folder, origin, or declined prompt therefore
-  // cannot consume the single-use browser code or mint a connector bearer.
+  // GitHub repository and selects an available local provider. A wrong folder,
+  // origin, provider, or declined prompt therefore cannot consume the
+  // single-use browser code or mint a connector bearer.
   const bootstrap = options.pairingCode
     ? await exchangePairing(serverOrigin, options.pairingCode)
     : {
@@ -130,23 +157,6 @@ async function main(): Promise<void> {
 
   const processLock = await acquireConnectorProcessLock(registered.connectorBindingId);
   try {
-    const config = loadConfig({
-      ...process.env,
-      TELAEGENT_IDENTITY_PROVIDER: "disabled",
-      AUTHORIZATION_PERSISTENCE: "memory",
-      CONVERSATION_PERSISTENCE: "memory",
-      ENABLE_LEGACY_LOCAL_PLAYGROUND: "0",
-      CODEX_HOME: process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"),
-    });
-    const localRunners = [new ClaudeCodeRunner(config), new CodexRunner(config)].filter(
-      (runner) => providerSelection === "auto" || runner.provider === providerSelection,
-    );
-    const providers = new RuntimeProviderRegistry(
-      localRunners,
-      new FileOutputSchemaResolver(
-        fileURLToPath(new URL("../telagent/output-schemas", import.meta.url)),
-      ),
-    );
     const sessions = new ProviderSessionManager(
       providers,
       new InMemoryProviderSessionStore(),
@@ -214,21 +224,8 @@ async function main(): Promise<void> {
     process.once("SIGINT", () => stopLocalProviders("SIGINT"));
     process.once("SIGTERM", () => stopLocalProviders("SIGTERM"));
 
-    const capabilities = await providers.capabilities();
-    const selectedProviders = providerSelection === "auto"
-      ? (["claude", "codex"] as const)
-      : ([providerSelection] as const);
-    const availableProviders = selectedProviders.filter(
-      (provider) => capabilities[provider].authenticated,
-    );
-    if (availableProviders.length === 0) {
-      throw new Error(
-        "No authenticated Claude Code or Codex CLI is available; sign in locally and retry",
-      );
-    }
-
     let successfulProbes = 0;
-    for (const provider of availableProviders) {
+    for (const provider of selectedProviders) {
       try {
         // Cancellations and resource requests have priority over jobs in the
         // relay, so keep polling until this provider's bounded cloud probe

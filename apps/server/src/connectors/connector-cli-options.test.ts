@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
 
 describe("connector CLI options", () => {
-  it("defaults to the current repository and all authenticated providers", () => {
+  it("defaults to the current repository and interactive provider selection", () => {
     expect(parseConnectorCliOptions(["connect"])).toEqual({
       workspaceCandidate: ".",
-      provider: "auto",
+      provider: "choose",
       probeOnly: false,
     });
   });
 
-  it.each(["codex", "claude"] as const)(
+  it.each(["choose", "auto", "codex", "claude"] as const)(
     "allows the local operator to select %s explicitly",
     (provider) => {
       expect(parseConnectorCliOptions([
@@ -44,7 +44,7 @@ describe("connector CLI options", () => {
       "connector-credential",
     ])).toEqual({
       workspaceCandidate: ".",
-      provider: "auto",
+      provider: "choose",
       probeOnly: false,
       serverOrigin: "https://telaegent.live",
       connectorInstanceId: "connector-instance-id",
@@ -62,7 +62,7 @@ describe("connector CLI options", () => {
       "pairing-code",
     ])).toEqual({
       workspaceCandidate: ".",
-      provider: "auto",
+      provider: "choose",
       probeOnly: false,
       serverOrigin: "https://telaegent.live",
       pairingCode: "pairing-code",
