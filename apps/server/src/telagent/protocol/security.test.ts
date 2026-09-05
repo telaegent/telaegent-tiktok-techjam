@@ -175,6 +175,30 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
     expect(verdict.findings.map((finding) => finding.code)).toContain("GUARD_PERMISSION_CLAIM");
   });
 
+  it("blocks a JSON credential even when its value is short and low-entropy", () => {
+    const verdict = inspectCandidate('{"password":"fake-review-password"}');
+    expect(verdict.sendable).toBe(false);
+    expect(verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SECRET_VALUE_IN_CANDIDATE",
+    );
+  });
+
+  it("allows an accurate statement that human approval is required", () => {
+    const verdict = inspectCandidate("Human approval is required before sending.");
+    expect(verdict.sendable).toBe(true);
+    expect(verdict.findings.map((finding) => finding.code)).not.toContain(
+      "GUARD_PERMISSION_CLAIM",
+    );
+  });
+
+  it("still blocks a claim that human approval is not required", () => {
+    const verdict = inspectCandidate("Human approval is not required before sending.");
+    expect(verdict.sendable).toBe(false);
+    expect(verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_PERMISSION_CLAIM",
+    );
+  });
+
   it("guards can downgrade a turn but never promote one", () => {
     // Promotion would make a guard a source of permission, which is exactly
     // what invariant I5 forbids.

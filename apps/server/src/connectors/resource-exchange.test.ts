@@ -113,6 +113,29 @@ describe("resource exchange", () => {
     expect(JSON.stringify(response)).not.toContain("SECRET");
   });
 
+  it("re-screens file contents on later reads under a task grant", async () => {
+    const configPath = path.join(workspace, "config.txt");
+    await writeFile(configPath, "mode=review\n");
+    const configId = await registry.mint(taskId, configPath);
+    const request = exchange({
+      requests: [{ kind: "resource", resourceId: configId, reason: "config" }],
+      grants: [
+        { grantId, resourceId: configId, operation: "read", mode: "task", expiresAt: null },
+      ],
+    });
+
+    const first = await fulfilResourceRequests(request, deps());
+    expect(first.outcomes[0]).toMatchObject({ status: "delivered", content: "mode=review\n" });
+
+    await writeFile(configPath, 'mode=review\n{"password":"fake-review-password"}\n');
+    const refusals: string[] = [];
+    const second = await fulfilResourceRequests(request, deps((code) => refusals.push(code)));
+
+    expect(second.outcomes[0]).toEqual({ status: "refused" });
+    expect(refusals).toEqual(["SECRET_CONTENT"]);
+    expect(JSON.stringify(second)).not.toContain("fake-review-password");
+  });
+
   it("accumulates the byte budget so many small reads cannot beat one limit", async () => {
     const response = await fulfilResourceRequests(
       exchange({

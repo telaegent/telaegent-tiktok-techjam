@@ -79,9 +79,13 @@ const PATTERNS: Pattern[] = [
     // `\??` so optional TypeScript properties (`refreshTokenHash?: string`)
     // are seen by this rule at all - and then declined below, rather than
     // silently escaping it.
+    // The key may be quoted JSON (`"password": "..."`) or an unquoted
+    // assignment (`password = ...`). Keep the leading delimiter in the match
+    // so quoted keys cannot escape the rule without consuming surrounding
+    // source text during replacement.
     expression:
-      /\b([A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|passwd|credential|private[_-]?key)[A-Za-z0-9_.-]*)(\s*\??\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;"'}\]]+)/gi,
-    replace: (match, name, separator, value) =>
+      /(^|[^A-Za-z0-9_.-])(["']?)([A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|passwd|credential|private[_-]?key)[A-Za-z0-9_.-]*)\2(\s*\??\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;"'}\]]+)/gim,
+    replace: (match, prefix, quote, name, separator, value) =>
       // A type annotation is not a credential. Found by the live evaluation:
       // asked what the Session interface looks like, the agent correctly
       // answered `refreshTokenHash: string`, and this rule redacted the word
@@ -92,7 +96,9 @@ const PATTERNS: Pattern[] = [
       // The narrowing is deliberately tiny: the value must be *exactly* a type
       // keyword or a union of them. No real credential is the literal string
       // "string", so nothing that was caught before escapes now.
-      isTypeAnnotation(separator, value) ? match : name + separator + PLACEHOLDER,
+      isTypeAnnotation(separator, value)
+        ? match
+        : prefix + quote + name + quote + separator + PLACEHOLDER,
   },
   {
     reason: "PROVIDER_SESSION_ID",
@@ -158,7 +164,12 @@ export function redactText(input: string): RedactionResult {
   if (typeof input !== "string" || input.length === 0) {
     return { value: "", reasons: [], count: 0 };
   }
-  let value = input.length > MAX_INPUT_CHARS ? input.slice(0, MAX_INPUT_CHARS) + "…" : input;
+  const bounded = input.length > MAX_INPUT_CHARS ? input.slice(0, MAX_INPUT_CHARS) + "…" : input;
+  return applyPatterns(bounded);
+}
+
+function applyPatterns(input: string): RedactionResult {
+  let value = input;
   const reasons: RedactionReason[] = [];
   let count = 0;
 
@@ -222,9 +233,16 @@ export function redactValue<T>(input: T): { value: T; reasons: RedactionReason[]
 const SENSITIVE_KEY =
   /^(?:.*(?:api[_-]?key|secret|token|password|passwd|credential|authorization|private[_-]?key).*|sessionId|threadId|providerSessionId|runtimePrompt)$/i;
 
-/** True when a value still looks like it carries a secret after redaction. */
+/**
+ * True when a value looks like it carries content the redactor would remove.
+ *
+ * Unlike `redactText`, this scans the complete input. Callers use it at bounded
+ * trust boundaries such as a brokered resource snapshot, where truncating the
+ * scan at the message-size limit could release a credential later in the file.
+ */
 export function containsSecretLikeContent(input: string): boolean {
-  return redactText(input).count > 0;
+  if (typeof input !== "string" || input.length === 0) return false;
+  return applyPatterns(input).count > 0;
 }
 
 /**

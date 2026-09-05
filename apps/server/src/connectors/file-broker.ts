@@ -6,6 +6,7 @@ import {
   RealpathWorkspaceBoundary,
   type WorkspaceBoundary,
 } from "../authorization/workspace-boundary.js";
+import { containsSecretLikeContent } from "../telagent/redaction.js";
 import { isDeniedPath, type ResourceDenyCode } from "./resource-policy.js";
 
 const NUL = String.fromCharCode(0);
@@ -174,8 +175,15 @@ export class LocalFileBroker {
         stats,
       );
       if (finalFailure) return finalFailure;
+      const content = delivered.toString("utf8");
+      // A grant authorizes a resource, not every byte it may contain forever.
+      // Re-scan each snapshot so a harmless file that later gains a credential
+      // cannot ride an existing task grant across the trust boundary.
+      if (containsSecretLikeContent(content)) {
+        return { code: "SECRET_CONTENT" };
+      }
       return {
-        content: delivered.toString("utf8"),
+        content,
         audit: {
           taskId: input.taskId,
           resourceId: input.resourceId,
