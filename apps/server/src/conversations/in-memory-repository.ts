@@ -178,7 +178,14 @@ export class InMemoryConversationRepository implements ConversationRepository {
       return null;
     }
     draft.state = "cancelled";
+    // Rejecting a draft erases what the owner typed into it, not merely the
+    // candidate that would have been sent. Mirrors cancel_private_draft.
+    draft.roughMessage = null;
+    draft.privateTurns = [];
+    draft.privateMessage = null;
     draft.sendCandidate = null;
+    draft.riskFlags = [];
+    draft.guardFindings = [];
     draft.updatedAt = input.updatedAt;
     return cloneDraft(draft);
   }
