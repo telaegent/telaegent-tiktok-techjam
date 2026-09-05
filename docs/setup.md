@@ -95,7 +95,7 @@ pairing command, open a terminal in the repository to connect, and run the exact
 command shown by the website:
 
 ```text
-npx --yes @telaegent/connector@0.1.11 connect . --url https://telaegent.live --pair ONE_TIME_CODE
+npx --yes @telaegent/connector@0.1.15 connect . --url https://telaegent.live --pair ONE_TIME_CODE
 ```
 
 The pairing code is high-entropy, expires after five minutes, and can be used
@@ -103,9 +103,13 @@ only once. The connector exchanges it directly for the longer-lived connector
 credential; that bearer never appears in browser state, the clipboard, shell
 history, or process arguments.
 
-The same command syntax works on Windows, macOS, and Linux. Run it from the
-actual Git repository root: the connector rejects a nested folder that would
-silently resolve to an ancestor checkout. It prints the canonical local root
+The same command syntax works on Windows, macOS, and Linux. The connector
+automatically uses the only authenticated Claude Code or Codex CLI it detects.
+If both are ready, it asks which provider to connect; pass `--provider claude`,
+`--provider codex`, or `--provider auto` to make that choice non-interactively.
+Run it from the actual Git repository root: the connector rejects a nested
+folder that would silently resolve to an ancestor checkout. It prints the
+canonical local root
 and exact GitHub `owner/name`, then requires `y` before consuming the pairing
 code. After confirmation it verifies local GitHub access, registers safe
 repository metadata, runs a real provider probe, and begins outbound long
