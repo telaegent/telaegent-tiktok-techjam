@@ -87,6 +87,10 @@ class FakeTransport implements ConnectorWorkerTransport {
   async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
     this.resourceResponses.push(response);
   }
+
+  async authorizeResourceRead(): Promise<boolean> {
+    return true;
+  }
 }
 
 function sessions(run: (request: MiddlewareRunRequest) => Promise<NormalizedRunResult>) {
@@ -470,6 +474,7 @@ describe("ConnectorWorker", () => {
         request: {
           requestId: "resource-during-turn",
           taskId: "task-1",
+          conversationId: job.conversationId,
           taskExpiresAt: "2126-08-31T12:00:00.000Z",
           connectorBindingId: binding.connectorBindingId,
           peerUserId: "10000000-0000-4000-8000-000000000002",
@@ -646,6 +651,32 @@ describe("ConnectorWorker", () => {
 });
 
 describe("HttpConnectorWorkerTransport", () => {
+  it("requests durable authorization for the exact resource assertion", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status: 204 }));
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+    );
+    const requestId = "resource-request-1";
+    const grantId = "30000000-0000-4000-8000-000000000001";
+    const resourceId = `resource_${"a".repeat(24)}`;
+
+    await expect(
+      transport.authorizeResourceRead({ requestId, grantId, resourceId }),
+    ).resolves.toBe(true);
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      `https://telaegent.example/api/connectors/jobs/${requestId}/resources/authorize`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ grantId, resourceId }),
+        credentials: "omit",
+        redirect: "error",
+      }),
+    );
+  });
+
   it.each([401, 403])("classifies HTTP %s as terminal credential rejection", async (status) => {
     const fetchImplementation = vi.fn(async () => new Response(null, { status }));
     const transport = new HttpConnectorWorkerTransport(

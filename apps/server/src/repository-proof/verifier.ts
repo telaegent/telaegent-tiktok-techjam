@@ -2,16 +2,13 @@ import { z } from "zod";
 import type { RepositoryProof } from "./contract.js";
 
 const MAX_GITHUB_RESPONSE_BYTES = 65_536;
-// Connector proofs refresh every five minutes. A slightly shorter successful
-// response cache coalesces a team's refresh wave without extending the
-// authorization freshness window or caching denials/outages.
-const SUCCESS_CACHE_TTL_MS = 4 * 60 * 1_000;
+// Connector proofs refresh every five minutes and authorization rejects proofs
+// older than fifteen. Ten minutes keeps a verified public repository fact
+// inside that window while reducing steady-state anonymous GitHub traffic to
+// at most six requests per repository per hour per server process.
+const SUCCESS_CACHE_TTL_MS = 10 * 60 * 1_000;
 const DENIAL_CACHE_TTL_MS = 60 * 1_000;
 const MAX_SUCCESS_CACHE_ENTRIES = 512;
-// GitHub grants an originating IP only 60 anonymous requests/hour. Keep a
-// deployment-local reserve for recovery/manual traffic and fail closed before
-// an authenticated caller can consume the whole allowance.
-const MAX_ANONYMOUS_REQUESTS_PER_HOUR = 40;
 const githubLoginSchema = z
   .string()
   .min(1)
@@ -72,7 +69,6 @@ export class GitHubPublicRepositoryProofVerifier
   >();
   private readonly denials = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<string>>();
-  private readonly requestTimes: number[] = [];
   private githubRemaining: number | null = null;
   private githubResetAt = 0;
 
@@ -138,7 +134,7 @@ export class GitHubPublicRepositoryProofVerifier
     const pending = this.inFlight.get(url);
     if (pending) return pending;
 
-    this.reserveAnonymousRequest(now);
+    this.assertGitHubCapacity(now);
     const request = this.fetchGitHubUncached(url).then(
       (text) => {
         if (this.successes.size >= MAX_SUCCESS_CACHE_ENTRIES) {
@@ -173,17 +169,17 @@ export class GitHubPublicRepositoryProofVerifier
     }
   }
 
-  private reserveAnonymousRequest(now: number): void {
-    while (this.requestTimes[0] !== undefined && this.requestTimes[0] <= now - 3_600_000) {
-      this.requestTimes.shift();
-    }
+  private assertGitHubCapacity(now: number): void {
+    // GitHub's response headers are authoritative and shared-IP aware. A
+    // process-local 40/hour counter guaranteed false outages for four healthy
+    // repositories and still could not coordinate multiple server processes.
     if (
-      this.requestTimes.length >= MAX_ANONYMOUS_REQUESTS_PER_HOUR ||
-      (this.githubRemaining !== null && this.githubRemaining <= 1 && this.githubResetAt > now)
+      this.githubRemaining !== null &&
+      this.githubRemaining <= 1 &&
+      this.githubResetAt > now
     ) {
       throw new RepositoryProofVerificationError("UNAVAILABLE");
     }
-    this.requestTimes.push(now);
   }
 
   private async fetchGitHubUncached(url: string): Promise<string> {

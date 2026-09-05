@@ -15,6 +15,11 @@ import {
   resourceExchangeResponseSchema,
 } from "./resource-exchange.js";
 import { resourceDisplayLabelSchema } from "./resource-request.js";
+import { resourceIdSchema } from "./resource-registry.js";
+import {
+  CapabilityRouteAuthorizationError,
+} from "../authorization/capability-route-authorization.js";
+import type { CapabilityRouteAuthorizer } from "../capability/follow-up-coordinator.js";
 
 /**
  * What a readiness probe is entitled to assert about a provider's answer.
@@ -40,6 +45,10 @@ const pollQuerySchema = z.strictObject({
   waitMs: z.coerce.number().int().min(0).max(25_000).default(20_000),
 });
 const jobParamsSchema = z.strictObject({ jobId: jobIdSchema });
+const resourceAuthorizationBodySchema = z.strictObject({
+  grantId: z.string().uuid(),
+  resourceId: resourceIdSchema,
+});
 const credentialBodySchema = z.strictObject({
   connectorInstanceId: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/),
 });
@@ -138,6 +147,7 @@ export interface ConnectorTransportRouteDependencies {
   credentials?: ConnectorCredentialService | undefined;
   pairings?: ConnectorPairingService | undefined;
   authenticatedUserId?: AuthenticatedUserResolver | undefined;
+  capabilityAuthorization?: CapabilityRouteAuthorizer | undefined;
 }
 
 export const connectorTransportRoutes = new Set([
@@ -146,6 +156,7 @@ export const connectorTransportRoutes = new Set([
   "/api/connectors/jobs/:jobId/result",
   "/api/connectors/jobs/:jobId/failure",
   "/api/connectors/jobs/:jobId/resources",
+  "/api/connectors/jobs/:jobId/resources/authorize",
   "/api/connectors/credentials",
   "/api/connectors/credentials/:connectorInstanceId",
   "/api/connectors/pairings",
@@ -400,6 +411,56 @@ export function registerConnectorTransportRoutes(
       ? reply.code(204).send()
       : reply.code(409).send({ error: "Resource request is no longer active" });
   });
+
+  // Last durable gate before a local file is opened. The relay binds the
+  // caller to the exact leased assertion; Supabase then rechecks the task,
+  // memberships, connection, binding, and (for reusable grants) current grant
+  // state. Any uncertainty fails closed at the connector.
+  app.post(
+    "/api/connectors/jobs/:jobId/resources/authorize",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const principal = await dependencies.resolveConnectorPrincipal(request);
+      const { jobId: requestId } = jobParamsSchema.parse(request.params);
+      const selector = resourceAuthorizationBodySchema.parse(request.body);
+      const context = dependencies.relay.leasedResourceAuthorization(
+        principal,
+        requestId,
+        selector,
+      );
+      if (!context || !dependencies.capabilityAuthorization) {
+        return reply.code(409).send({ error: "Resource read is not authorized" });
+      }
+      try {
+        const routeInput = {
+          authenticatedUserId: context.authenticatedUserId,
+          ownerUserId: context.ownerUserId,
+          githubRepositoryId: context.githubRepositoryId,
+          conversationId: context.conversationId,
+          taskId: context.taskId,
+        };
+        const authorized = context.mode === "task"
+          ? await dependencies.capabilityAuthorization.authorizeRoute({
+              ...routeInput,
+              grantId: context.grantId,
+              resourceId: context.resourceId,
+              operation: "read",
+            })
+          : await dependencies.capabilityAuthorization.resolveRoute(routeInput);
+        if (authorized.ownerRuntimeBindingId !== context.connectorBindingId) {
+          return reply.code(409).send({ error: "Resource read is not authorized" });
+        }
+        return reply.code(204).send();
+      } catch (error) {
+        if (error instanceof CapabilityRouteAuthorizationError) {
+          return error.code === "CAPABILITY_ROUTE_FORBIDDEN"
+            ? reply.code(409).send({ error: "Resource read is not authorized" })
+            : reply.code(503).send({ error: "Resource authorization unavailable" });
+        }
+        throw error;
+      }
+    },
+  );
 
   app.post("/api/connectors/jobs/:jobId/failure", async (request, reply) => {
     const principal = await dependencies.resolveConnectorPrincipal(request);

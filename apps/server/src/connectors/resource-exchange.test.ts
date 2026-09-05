@@ -18,6 +18,7 @@ import type { ResourceDenyCode } from "./resource-policy.js";
 import { InMemoryResourceTaskBudgetLedger } from "./resource-budget.js";
 
 const taskId = "task_one";
+const conversationId = "70000000-0000-4000-8000-000000000007";
 const peer = "10000000-0000-4000-8000-00000000b002";
 const bindingId = "50000000-0000-4000-8000-000000000005";
 const grantId = "30000000-0000-4000-8000-000000000001";
@@ -48,6 +49,7 @@ function exchange(overrides: Partial<ResourceExchangeRequest> = {}): ResourceExc
   return {
     requestId: "exchange-1",
     taskId,
+    conversationId,
     taskExpiresAt: "2126-08-31T12:00:00.000Z",
     connectorBindingId: bindingId,
     peerUserId: peer,
@@ -71,6 +73,7 @@ function deps(onRefusal?: (code: ResourceDenyCode | "UNREADABLE") => void) {
     budget: new InMemoryResourceTaskBudgetLedger(),
     broker: new LocalFileBroker(workspace),
     workspacePath: workspace,
+    authorizeRead: async () => true,
     now: () => now,
     ...(onRefusal ? { onRefusal: (code: ResourceDenyCode | "UNREADABLE") => onRefusal(code) } : {}),
   };
@@ -224,6 +227,24 @@ describe("resource exchange", () => {
     expect(refusal).toHaveBeenCalledWith("GRANT_EXPIRED");
   });
 
+  it("fails closed when the durable pre-read authorization is revoked", async () => {
+    const authorizeRead = vi.fn(async () => false);
+    const response = await fulfilResourceRequests(exchange(), {
+      ...deps(),
+      authorizeRead,
+    });
+
+    expect(response.outcomes).toEqual([{ status: "refused" }]);
+    expect(authorizeRead).toHaveBeenCalledWith({
+      requestId: "exchange-1",
+      taskId,
+      conversationId,
+      resourceId: landingPageId,
+      grantId,
+      mode: "task",
+    });
+  });
+
   it("refuses an identifier minted for a different task", async () => {
     const otherTask = new InMemoryResourceRegistry(() => now);
     const foreign = await otherTask.mint("task_two", path.join(workspace, "src/LandingPage.tsx"));
@@ -252,6 +273,9 @@ class ServingTransport implements ConnectorWorkerTransport {
   async failure(_jobId: string, _code: string): Promise<void> {}
   async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
     this.responses.push(response);
+  }
+  async authorizeResourceRead(): Promise<boolean> {
+    return true;
   }
 }
 

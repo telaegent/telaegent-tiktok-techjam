@@ -222,6 +222,7 @@ export class CapabilityFollowUpCoordinator {
     const response = await this.#relay.exchangeResources({
       requestId: this.#newRequestId(),
       taskId: context.taskId,
+      conversationId: context.conversationId,
       taskExpiresAt: route.taskExpiresAt,
       connectorBindingId: route.ownerRuntimeBindingId,
       peerUserId: context.peerUserId,

@@ -43,6 +43,7 @@ export const assertedGrantSchema = z.strictObject({
 export const resourceExchangeRequestSchema = z.strictObject({
   requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
   taskId: z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/),
+  conversationId: z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/),
   // Carried from the database-derived route. The local ledger uses the task
   // lifetime, not a possibly shorter individual grant lifetime, so replacing
   // a grant cannot refill a task-wide budget.
@@ -164,6 +165,19 @@ export interface ResourceExchangeDeps {
   budget?: ResourceTaskBudgetLedger;
   /** Durable connector-local check against cloud-delivered revocations. */
   revokedGrantIds?: ReadonlySet<string>;
+  /**
+   * Cloud authority recheck bound to this exact leased batch. Production
+   * connectors must call it after reserving budget and immediately before the
+   * broker opens the file. Failure is a denial, never an offline allowance.
+   */
+  authorizeRead: (input: Readonly<{
+    requestId: string;
+    taskId: string;
+    conversationId: string;
+    resourceId: string;
+    grantId: string;
+    mode: "once" | "task";
+  }>) => Promise<boolean>;
   now?: () => Date;
   /** Local-only sink for refusal codes; never sent to the cloud or the peer. */
   onRefusal?: (code: ResourceDenyCode | "UNREADABLE", taskId: string) => void;
@@ -294,6 +308,13 @@ export async function fulfilResourceRequests(
       outcomes.push({ status: "refused" });
       continue;
     }
+    if (item.kind !== "resource") {
+      // The policy never allows a hint. Keep that invariant explicit here so
+      // a future policy change cannot accidentally authorize an unnamed file.
+      deps.onRefusal?.("UNKNOWN_RESOURCE", request.taskId);
+      outcomes.push({ status: "refused" });
+      continue;
+    }
 
     const reserved = await budget.reserveRead(
       request.taskId,
@@ -307,6 +328,25 @@ export async function fulfilResourceRequests(
         reserved.outcome === "request_budget" ? "REQUEST_BUDGET" : "BYTE_BUDGET",
         request.taskId,
       );
+      outcomes.push({ status: "refused" });
+      continue;
+    }
+    let stillAuthorized = false;
+    try {
+      stillAuthorized = await deps.authorizeRead({
+        requestId: request.requestId,
+        taskId: request.taskId,
+        conversationId: request.conversationId,
+        resourceId: item.resourceId,
+        grantId: decision.grantId,
+        mode: decision.mode,
+      });
+    } catch {
+      stillAuthorized = false;
+    }
+    if (!stillAuthorized) {
+      await budget.settleRead(reserved.reservation, 0);
+      deps.onRefusal?.("GRANT_MISSING", request.taskId);
       outcomes.push({ status: "refused" });
       continue;
     }

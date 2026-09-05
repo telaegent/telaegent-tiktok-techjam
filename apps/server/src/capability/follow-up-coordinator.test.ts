@@ -222,6 +222,7 @@ describe("capability follow-up coordinator", () => {
     expect(exchangeResources).toHaveBeenCalledWith({
       requestId,
       taskId,
+      conversationId,
       taskExpiresAt: "2026-08-31T10:40:00.000Z",
       connectorBindingId: bindingId,
       peerUserId: peerId,

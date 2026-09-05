@@ -86,6 +86,10 @@ class FakeTransport implements ConnectorWorkerTransport {
   }
 
   async resourceResponse(_response: ResourceExchangeResponse): Promise<void> {}
+
+  async authorizeResourceRead(): Promise<boolean> {
+    return true;
+  }
 }
 
 function sessions(

@@ -55,6 +55,18 @@ interface PendingResourceExchange {
   revokedResourceIds: Set<string>;
 }
 
+export interface LeasedResourceAuthorizationContext {
+  authenticatedUserId: string;
+  ownerUserId: string;
+  githubRepositoryId: string;
+  conversationId: string;
+  taskId: string;
+  grantId: string;
+  resourceId: string;
+  mode: "once" | "task";
+  connectorBindingId: string;
+}
+
 interface PendingCancellation {
   principal: ConnectorPrincipal;
   jobId: string;
@@ -430,6 +442,47 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
         );
       }
     }
+  }
+
+  /**
+   * Derives a pre-read authorization query exclusively from a leased envelope
+   * and its authenticated owner connector. Caller-supplied identifiers may
+   * select an existing assertion, but can never widen or synthesize one.
+   */
+  leasedResourceAuthorization(
+    principal: Readonly<ConnectorPrincipal>,
+    requestId: string,
+    selector: Readonly<{ grantId: string; resourceId: string }>,
+  ): LeasedResourceAuthorizationContext | null {
+    const pending = this.resourceExchanges.get(requestId);
+    if (!pending || pending.state !== "leased") return null;
+    const binding = this.bindings.get(pending.request.connectorBindingId);
+    if (!binding || !samePrincipal(binding.principal, principal)) return null;
+    if (
+      !pending.request.requests.some(
+        (item) => item.kind === "resource" && item.resourceId === selector.resourceId,
+      )
+    ) {
+      return null;
+    }
+    const grant = pending.request.grants.find(
+      (item) =>
+        item.grantId === selector.grantId &&
+        item.resourceId === selector.resourceId &&
+        item.operation === "read",
+    );
+    if (!grant || pending.revokedResourceIds.has(selector.resourceId)) return null;
+    return {
+      authenticatedUserId: pending.request.peerUserId,
+      ownerUserId: principal.authenticatedUserId,
+      githubRepositoryId: binding.githubRepositoryId,
+      conversationId: pending.request.conversationId,
+      taskId: pending.request.taskId,
+      grantId: grant.grantId,
+      resourceId: grant.resourceId,
+      mode: grant.mode,
+      connectorBindingId: pending.request.connectorBindingId,
+    };
   }
 
   /**

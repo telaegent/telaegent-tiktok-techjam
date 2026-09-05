@@ -22,7 +22,11 @@ const proof: RepositoryProof = {
   },
 };
 
-function githubFetch(overrides: { repositoryStatus?: number } = {}) {
+function githubFetch(overrides: {
+  repositoryStatus?: number;
+  rateLimitRemaining?: number;
+  rateLimitReset?: number;
+} = {}) {
   return vi.fn<typeof fetch>(async (input) => {
     const url = String(input);
     if (url.includes("/user/")) {
@@ -34,7 +38,17 @@ function githubFetch(overrides: { repositoryStatus?: number } = {}) {
       '{"name":"telaegent-tiktok-techjam","owner":{"login":"telaegent"},' +
         '"private":false,"visibility":"public","default_branch":"main",' +
         '"id":1345851084}',
-      { status: overrides.repositoryStatus ?? 200 },
+      {
+        status: overrides.repositoryStatus ?? 200,
+        headers: {
+          ...(overrides.rateLimitRemaining === undefined
+            ? {}
+            : { "x-ratelimit-remaining": String(overrides.rateLimitRemaining) }),
+          ...(overrides.rateLimitReset === undefined
+            ? {}
+            : { "x-ratelimit-reset": String(overrides.rateLimitReset) }),
+        },
+      },
     );
   });
 }
@@ -122,7 +136,7 @@ describe("GitHubPublicRepositoryProofVerifier", () => {
     });
   });
 
-  it("caches repeated denials and preserves part of the anonymous hourly quota", async () => {
+  it("caches repeated denials without imposing a false process-local quota", async () => {
     const missingFetch = githubFetch({ repositoryStatus: 404 });
     const missing = new GitHubPublicRepositoryProofVerifier(5_000, missingFetch);
     await expect(missing.verify(proof)).rejects.toMatchObject({ code: "UNVERIFIED" });
@@ -131,17 +145,34 @@ describe("GitHubPublicRepositoryProofVerifier", () => {
 
     const variedFetch = githubFetch();
     const bounded = new GitHubPublicRepositoryProofVerifier(5_000, variedFetch);
-    for (let index = 0; index < 41; index += 1) {
+    // Four repositories refreshed twelve times used to hit the arbitrary
+    // 40/hour guard despite GitHub still accepting requests.
+    for (let index = 0; index < 48; index += 1) {
       await expect(
         bounded.verify({
           ...proof,
           repository: { ...proof.repository, id: String(2_000_000_000 + index) },
         }),
-      ).rejects.toMatchObject({
-        code: index < 40 ? "UNVERIFIED" : "UNAVAILABLE",
-      });
+      ).rejects.toMatchObject({ code: "UNVERIFIED" });
     }
-    expect(variedFetch).toHaveBeenCalledTimes(40);
+    expect(variedFetch).toHaveBeenCalledTimes(48);
+  });
+
+  it("honors GitHub's authoritative shared-IP rate-limit headers", async () => {
+    const reset = Math.ceil(Date.now() / 1_000) + 3_600;
+    const fetchImplementation = githubFetch({
+      rateLimitRemaining: 1,
+      rateLimitReset: reset,
+    });
+    const verifier = new GitHubPublicRepositoryProofVerifier(5_000, fetchImplementation);
+    await verifier.verify(proof);
+    await expect(
+      verifier.verify({
+        ...proof,
+        repository: { ...proof.repository, id: "1345851085" },
+      }),
+    ).rejects.toMatchObject({ code: "UNAVAILABLE" });
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
   });
 
   it("classifies rate limits and transport failures as temporary outages", async () => {

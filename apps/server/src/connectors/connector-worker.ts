@@ -79,8 +79,9 @@ const INVESTIGATION_SCHEMA_NAME = "investigation-note.schema.json";
  * existed.
  */
 const idPart = z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/);
+const transportJobId = z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/);
 const jobSchema = z.strictObject({
-  jobId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
+  jobId: transportJobId,
   connectorBindingId: z.string().uuid(),
   userId: z.string().uuid(),
   githubRepositoryId: z.string().regex(/^[1-9][0-9]{0,18}$/),
@@ -122,6 +123,11 @@ export interface ConnectorWorkerTransport {
   result(jobId: string, result: ConnectorJobResult, signal?: AbortSignal): Promise<void>;
   failure(jobId: string, code: string, signal?: AbortSignal): Promise<void>;
   resourceResponse(response: ResourceExchangeResponse): Promise<void>;
+  authorizeResourceRead(input: Readonly<{
+    requestId: string;
+    grantId: string;
+    resourceId: string;
+  }>): Promise<boolean>;
 }
 
 export interface ConnectorWorkerOptions {
@@ -344,6 +350,12 @@ export class ConnectorWorker {
         : {}),
       ...(limits ? { limits } : {}),
       ...(revokedGrantIds.size > 0 ? { revokedGrantIds } : {}),
+      authorizeRead: async (input) =>
+        this.transport.authorizeResourceRead({
+          requestId: input.requestId,
+          grantId: input.grantId,
+          resourceId: input.resourceId,
+        }),
     });
     await this.transport.resourceResponse(response);
   }
@@ -615,6 +627,27 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
 
   async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
     await this.send(response.requestId, "resources", response);
+  }
+
+  async authorizeResourceRead(input: Readonly<{
+    requestId: string;
+    grantId: string;
+    resourceId: string;
+  }>): Promise<boolean> {
+    const safeRequestId = transportJobId.parse(input.requestId);
+    const response = await this.request(
+      `/${encodeURIComponent(safeRequestId)}/resources/authorize`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ grantId: input.grantId, resourceId: input.resourceId }),
+      },
+      2,
+    );
+    assertCredentialAccepted(response);
+    if (response.status === 204) return true;
+    if (response.status === 403 || response.status === 409) return false;
+    throw await connectorHttpResponseError(response, "resource authorization");
   }
 
   private async send(
