@@ -12,8 +12,15 @@
 -- left with a draft that shows an agent working on it forever.
 --
 -- Reconciliation moves those rows into the same terminal state a lost runtime
--- would have produced, with a retryable failure so the owner can simply run the
--- draft again.
+-- would have produced, which ends the forever-spinner and lets the owner reject
+-- the draft to clear it.
+--
+-- It does NOT make the draft runnable again. `mark_private_draft_running` and
+-- the service both require state `created`, so a reconciled draft cannot be
+-- re-run, and the browser's Retry button rebuilds a new draft from React state
+-- that a page reload has already emptied. Making the original draft resumable
+-- is a separate change to the run guard and to Retry; until then the owner's
+-- path forward is a new draft, and the message below says exactly that.
 --
 -- SINGLE WRITER. This fails every `agent_working` draft, not only the ones this
 -- process started, because a restarted process cannot tell them apart -- the
@@ -22,6 +29,11 @@
 -- WRONG the moment a second replica starts, where it would fail drafts another
 -- live instance is still working on. Before scaling horizontally, give drafts
 -- an owning-instance column and scope this to the instance that is starting.
+--
+-- UNCONDITIONAL. The sweep has no age floor, so a process that crash-loops
+-- fails every in-flight draft on each restart, including ones started seconds
+-- earlier. Acceptable while a restart genuinely means every runtime is gone;
+-- an owning-instance column would fix this at the same time as the above.
 create or replace function public.reconcile_running_private_drafts(
   p_private_message text,
   p_failure         jsonb,

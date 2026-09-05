@@ -395,9 +395,11 @@ describe("a draft left running by a restart", () => {
     const recovered = await restarted.getDraft(OWNER, DRAFT);
     expect(recovered).toMatchObject({
       state: "runtime_failed",
-      // Retryable is what makes the draft actionable again: the browser only
-      // offers Retry on a failed draft whose failure is retryable.
-      failure: { code: "RUNTIME_UNAVAILABLE", retryable: true },
+      // Explicitly not retryable: this draft cannot be re-run (the run guard
+      // requires `created`), and the browser renders Retry on any failure that
+      // is not explicitly false. A button that issues no request is worse than
+      // no button, so the owner is told to start a new draft instead.
+      failure: { code: "RUNTIME_UNAVAILABLE", retryable: false },
     });
     // A candidate from a turn that never finished was never approved.
     expect(recovered.sendCandidate).toBeNull();

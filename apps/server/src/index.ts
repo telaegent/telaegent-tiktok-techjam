@@ -246,8 +246,13 @@ const conversationApi = createConversationApi(config, conversationOptions);
 
 // Drafts whose runtime died with the previous process are recovered before the
 // first request is served, so no owner is shown an agent that is still working
-// on a turn nothing is running. Startup fails loudly if this cannot be done:
-// serving with stranded drafts is the state this exists to prevent.
+// on a turn nothing is running.
+//
+// Startup fails loudly if this cannot be done: serving with stranded drafts is
+// the state this exists to prevent. Note the consequence -- persistence being
+// briefly unreachable at boot now stops the server from starting at all, where
+// before it would have started and failed on first use. That is deliberate,
+// and it is a new startup dependency.
 const reconciledDrafts = await conversationApi.service.reconcileRunningDrafts();
 if (reconciledDrafts > 0) {
   console.warn("PRIVATE_DRAFTS_RECONCILED", reconciledDrafts);
