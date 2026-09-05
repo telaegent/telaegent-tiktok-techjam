@@ -254,3 +254,85 @@ describe("a turn that asks for files it cannot see", () => {
     );
   });
 });
+
+/**
+ * Cancelling has to reach the round that is actually running.
+ *
+ * The draft keeps the turn identifier it claimed when it started, so an owner
+ * sees one turn. Each follow-up round is a separate runtime turn with its own
+ * identifier, and the coordinator only tracks the newest one as running.
+ * Addressing the draft's original identifier therefore stopped nothing once a
+ * second round had begun: the coordinator returned false and Cancel answered
+ * 409 while the agent kept reading the repository.
+ */
+describe("cancelling a turn that is on a later round", () => {
+  it("stops the round that is running, not the one that already finished", async () => {
+    const cancelled: string[] = [];
+    const starts: StartAuthorizedProtocolTurnInput[] = [];
+    let releaseSecondRound: (() => void) | undefined;
+    const secondRoundStarted = Promise.withResolvers<void>();
+
+    const runtime: PrivateDraftTurnRuntime = {
+      async start(input) {
+        starts.push(input as StartAuthorizedProtocolTurnInput);
+        const round = starts.length;
+        const turnId = input.turnId ?? `turn-${String(round)}`;
+        if (round === 1) {
+          return {
+            turnId,
+            streamId: "55555555-5555-4555-8555-555555555555",
+            initialState: "queued" as const,
+            completion: Promise.resolve(
+              turn("I need the settings file", [ask]),
+            ) as never,
+          };
+        }
+        // The second round hangs, which is the state an owner cancels from.
+        secondRoundStarted.resolve();
+        return {
+          turnId,
+          streamId: "55555555-5555-4555-8555-555555555555",
+          initialState: "queued" as const,
+          completion: new Promise<void>((resolve) => {
+            releaseSecondRound = resolve;
+          }).then(() => turn("never delivered")) as never,
+        };
+      },
+      async cancel(input) {
+        cancelled.push(input.turnId);
+        return true;
+      },
+    };
+
+    const repository = new InMemoryConversationRepository();
+    const service = new ConversationService(
+      repository,
+      { async authorize() {} },
+      runtime,
+      {
+        now: () => new Date("2026-08-31T12:00:00.000Z"),
+        createId: () => DRAFT,
+        createTurnId: () => "44444444-4444-4444-8444-444444444444",
+        followUp: {
+          run: async () => [
+            { resourceId: RESOURCE, content: "rotate();", truncated: false },
+          ],
+          end: async () => undefined,
+        },
+      },
+    );
+
+    await seedDraft(repository);
+    await service.runDraft(OWNER, DRAFT);
+    await secondRoundStarted.promise;
+
+    await service.cancelDraft(OWNER, DRAFT);
+
+    // The second round's identifier, not the identifier the draft still holds.
+    expect(starts).toHaveLength(2);
+    expect(cancelled).toEqual(["turn-2"]);
+    expect(cancelled).not.toContain("44444444-4444-4444-8444-444444444444");
+
+    releaseSecondRound?.();
+  });
+});

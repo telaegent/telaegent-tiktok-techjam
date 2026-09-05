@@ -20,6 +20,10 @@ import {
   classifyProviderFailure,
   providerFailureDetail,
 } from "./runtime-errors.js";
+import {
+  processTreeSpawnOptions,
+  terminateProcessTreeGracefully,
+} from "./process-tree.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import {
   onRuntimeCancellation,
@@ -563,6 +567,8 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       env: this.childEnvironment(),
       stdio: [stdinPayload === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       shell: false,
+      // Groups the CLI with everything it spawns, so cancelling stops the tree.
+      ...processTreeSpawnOptions,
     });
     if (stdinPayload !== undefined) {
       child.stdin?.on("error", () => undefined);
@@ -703,10 +709,8 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
 
   private terminate(active: ActiveCodexProcess): void {
     if (active.child.exitCode !== null || active.child.signalCode !== null) return;
-    active.child.kill("SIGTERM");
     if (!active.forceKillTimer) {
-      active.forceKillTimer = setTimeout(() => active.child.kill("SIGKILL"), 3_000);
-      active.forceKillTimer.unref();
+      active.forceKillTimer = terminateProcessTreeGracefully(active.child, 3_000);
     }
   }
 

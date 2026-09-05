@@ -11,6 +11,7 @@ import {
 import type { AuthorizePrivateRuntimeInput } from "../../authorization/types.js";
 import {
   PrivateRuntimeTurnCoordinator,
+  type PrivateRuntimeTurnCanceller,
   type PrivateRuntimeTurnCoordinatorOptions,
   type PrivateTurnExecutor,
   type StartedPrivateRuntimeTurn,
@@ -103,6 +104,22 @@ export interface AuthorizedProtocolTurnRuntime {
 }
 
 /**
+ * True when an executor can stop work it started.
+ *
+ * The connector executor can: it asks the relay to raise a cancellation the
+ * owner's connector observes on its next long poll. The local provider session
+ * manager cannot, and must not be presented as though it could.
+ */
+function supportsCancellation(
+  executor: PrivateTurnExecutor,
+): executor is PrivateTurnExecutor & PrivateRuntimeTurnCanceller {
+  return (
+    typeof (executor as Partial<PrivateRuntimeTurnCanceller>)
+      .cancelMiddlewareTurn === "function"
+  );
+}
+
+/**
  * Safe composition root for a server bootstrap or dependency-injection module.
  * One durable loader is deliberately shared by initial preparation and session
  * recovery, preventing different adapters or scope rules from being wired on
@@ -137,10 +154,22 @@ export function createAuthorizedProtocolTurnRuntime(
     );
     executor = sessions;
   }
+  // An executor that can stop its own work is the coordinator's canceller.
+  // Production composes the connector executor, so leaving this unset made
+  // every Cancel/No on a running draft fail closed: the coordinator returned
+  // false and the owner could not stop a turn already reading their repository.
+  // An explicit option still wins, so a test or a local script can override it.
+  const coordinatorOptions: PrivateRuntimeTurnCoordinatorOptions = {
+    ...dependencies.coordinatorOptions,
+    ...(dependencies.coordinatorOptions?.canceller === undefined &&
+    supportsCancellation(executor)
+      ? { canceller: executor }
+      : {}),
+  };
   const coordinator = new PrivateRuntimeTurnCoordinator(
     executor,
     undefined,
-    dependencies.coordinatorOptions,
+    coordinatorOptions,
   );
   const starter = new AuthorizedPrivateRuntimeTurnStarter(
     dependencies.authorizer,
