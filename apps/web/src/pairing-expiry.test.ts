@@ -60,6 +60,20 @@ describe("connectorSetupPhase", () => {
     ).toBe("verifying");
   });
 
+  it("uses an unexpired observed credential when a later snapshot is null", () => {
+    const observed = activeCredential("2026-09-04T13:00:00.000Z");
+    const now = Date.parse("2026-09-04T12:30:00.000Z");
+
+    expect(connectorSetupPhase(snapshot(), observed, now)).toBe("verifying");
+    expect(
+      connectorSetupPhase(
+        snapshot(),
+        activeCredential("2026-09-04T12:30:00.000Z"),
+        now,
+      ),
+    ).toBe("not_exchanged");
+  });
+
   it("recognizes ready and explicitly inactive connectors", () => {
     expect(
       connectorSetupPhase(

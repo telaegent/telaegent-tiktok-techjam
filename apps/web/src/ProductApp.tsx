@@ -391,14 +391,22 @@ function Onboarding({
       const { connector } = await api.connectorSetupStatus(
         connectorAttempt.connectorInstanceId,
       );
-      const setupPhase = connectorSetupPhase(connector);
+      const setupPhase = connectorSetupPhase(
+        connector,
+        connectorAttempt.credential,
+      );
       if (setupPhase === "credential_inactive") {
         throw connectorCredentialInactiveError();
       }
       if (setupPhase === "verifying") {
         setConnectorPairing(null);
         setConnectorAttempt((current) =>
-          current ? { ...current, credential: connector.credential } : current,
+          current
+            ? {
+                ...current,
+                credential: connector.credential ?? current.credential,
+              }
+            : current,
         );
         setConnectorError(connectorNotReadyError());
         return;
@@ -1126,14 +1134,22 @@ function AddProjectScreen({
       const { connector } = await api.connectorSetupStatus(
         connectorAttempt.connectorInstanceId,
       );
-      const setupPhase = connectorSetupPhase(connector);
+      const setupPhase = connectorSetupPhase(
+        connector,
+        connectorAttempt.credential,
+      );
       if (setupPhase === "credential_inactive") {
         throw connectorCredentialInactiveError();
       }
       if (setupPhase === "verifying") {
         setPairing(null);
         setConnectorAttempt((current) =>
-          current ? { ...current, credential: connector.credential } : current,
+          current
+            ? {
+                ...current,
+                credential: connector.credential ?? current.credential,
+              }
+            : current,
         );
         setError(connectorNotReadyError());
         return;
