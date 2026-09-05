@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RepositoryProofRepository } from "./repository.js";
-import { RepositoryProofService } from "./service.js";
+import { RepositoryProofError, RepositoryProofService } from "./service.js";
 
 const now = new Date("2026-08-31T02:00:00.000Z");
 const principal = {
@@ -38,6 +38,7 @@ const registration = {
 
 function fixture() {
   const repository = {
+    authorizeProofIdentity: vi.fn(async () => undefined),
     registerRepositoryProof: vi.fn(async () => registration),
     markRepositoryUnavailable: vi.fn(async () => ({
       githubRepositoryId: proof.repository.id,
@@ -66,6 +67,47 @@ describe("RepositoryProofService", () => {
       repositoryFullName: "Telaegent/codejam.repo",
     });
     expect(command.payloadDigestHex).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it.each(["private", "internal"] as const)(
+    "accepts an authenticated local gh proof for a %s repository",
+    async (visibility) => {
+      const { repository, service } = fixture();
+      const localProof = {
+        ...proof,
+        repository: {
+          ...proof.repository,
+          visibility,
+          permission: "write" as const,
+        },
+      };
+
+      await expect(service.register(principal, localProof)).resolves.toEqual(registration);
+      expect(repository.authorizeProofIdentity).toHaveBeenCalledWith(
+        principal,
+        localProof.github,
+      );
+      expect(repository.registerRepositoryProof).toHaveBeenCalledWith(
+        expect.objectContaining({ proof: localProof }),
+      );
+    },
+  );
+
+  it("rejects an unowned local GitHub identity before registration", async () => {
+    const { repository, service } = fixture();
+    repository.authorizeProofIdentity.mockRejectedValueOnce(
+      new RepositoryProofError(
+        "REPOSITORY_PROOF_FORBIDDEN",
+        "Repository proof is not authorized",
+        403,
+      ),
+    );
+
+    await expect(service.register(principal, proof)).rejects.toMatchObject({
+      code: "REPOSITORY_PROOF_FORBIDDEN",
+      statusCode: 403,
+    });
+    expect(repository.registerRepositoryProof).not.toHaveBeenCalled();
   });
 
   it("rejects body-injected identity, local paths, remotes, tokens, and raw output", async () => {
@@ -142,4 +184,3 @@ describe("RepositoryProofService", () => {
     );
   });
 });
-

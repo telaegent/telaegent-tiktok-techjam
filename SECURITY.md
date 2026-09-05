@@ -181,6 +181,17 @@ restart, but queued jobs are not durably redelivered across that restart.
 Connector packaging, signed updates, and production operational review remain
 open.
 
+Repository registration accepts only a strict, fresh proof from an
+authenticated local connector. The connector obtains repository identity,
+visibility and permission through the developer's locally authenticated `gh`;
+the control plane binds that GitHub numeric identity to the authenticated
+Telaegent account and repeats the check transactionally before creating
+membership. This supports private/internal repositories without storing a
+developer GitHub credential or spending a shared anonymous GitHub API quota.
+For P0, a compromised local connector could fabricate its attestation; use
+controlled connector builds and accounts until connector packaging and signed
+updates receive production review.
+
 ## Legacy scaffold
 
 The source tree still contains inherited ModelArk/Volcengine and fixed-workflow code for preservation and build continuity. It is not the canonical trust architecture. Standalone retired material is catalogued under `unused-code/`.

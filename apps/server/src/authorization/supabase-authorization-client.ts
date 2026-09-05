@@ -19,6 +19,11 @@ import type {
   SupabaseCapabilityGrantClient,
 } from "./capability-grants.js";
 import type {
+  ListOwnedCapabilityGrantsInput,
+  RevokeOwnedCapabilityGrantInput,
+  SupabaseOwnedCapabilityGrantClient,
+} from "./capability-grant-management.js";
+import type {
   BeginCapabilityFollowUpRoundInput,
   DecideCapabilityScopeRequestInput,
   ListPendingCapabilityScopeRequestsInput,
@@ -61,6 +66,7 @@ export class SupabaseAuthorizationRpcClient
     SupabaseCapabilitySnapshotClient,
     SupabaseCapabilityScopeRequestClient,
     SupabaseCapabilityGrantClient,
+    SupabaseOwnedCapabilityGrantClient,
     SupabaseCollaborationTaskClient
 {
   readonly #origin: string;
@@ -233,9 +239,9 @@ export class SupabaseAuthorizationRpcClient
   /**
    * Redeems one grant the owning human already delegated.
    *
-   * Called after the bytes are already in hand, because the read happened on
-   * the owner's machine under its own reference monitor. What this settles is
-   * whether the authority survives for a second round.
+   * Called before a resource exchange is dispatched. The database row lock is
+   * the concurrency boundary for Allow once: only the successful redemption
+   * is permitted to accompany a connector read.
    */
   async consumeCapabilityGrant(
     request: Readonly<ConsumeCapabilityGrantInput>,
@@ -287,6 +293,50 @@ export class SupabaseAuthorizationRpcClient
         p_task_id: request.taskId,
         p_owner_user_id: request.ownerUserId,
         p_peer_user_id: request.peerUserId,
+      },
+      options,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  /** Lists only live grants issued by this owner inside one repository. */
+  async listOwnedCapabilityGrants(
+    request: Readonly<ListOwnedCapabilityGrantsInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.ownerUserId) ||
+      !isGitHubRepositoryId(request.githubRepositoryId)
+    ) {
+      throw new Error("Supabase owned capability grant listing is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("list_owned_capability_grants"),
+      {
+        p_owner_user_id: request.ownerUserId,
+        p_github_repository_id: request.githubRepositoryId,
+      },
+      options,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  /** Narrows authority; the database still verifies exact ownership. */
+  async revokeOwnedCapabilityGrant(
+    request: Readonly<RevokeOwnedCapabilityGrantInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.ownerUserId) ||
+      !uuidPattern.test(request.grantId)
+    ) {
+      throw new Error("Supabase capability grant revocation is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("revoke_owned_capability_grant"),
+      {
+        p_owner_user_id: request.ownerUserId,
+        p_grant_id: request.grantId,
       },
       options,
       maximumScopeResponseBytes,

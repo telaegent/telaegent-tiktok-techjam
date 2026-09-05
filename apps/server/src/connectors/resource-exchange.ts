@@ -20,6 +20,10 @@ import {
 } from "./resource-request.js";
 import { resourceIdSchema, type ResourceRegistry } from "./resource-registry.js";
 import { projectRelativeDisplayLabel } from "./workspace-label.js";
+import {
+  InMemoryResourceTaskBudgetLedger,
+  type ResourceTaskBudgetLedger,
+} from "./resource-budget.js";
 
 // The request shape lives in a leaf module because a private agent's turn now
 // emits it too, and the protocol layer must not import a filesystem to say so.
@@ -39,11 +43,26 @@ export const assertedGrantSchema = z.strictObject({
 export const resourceExchangeRequestSchema = z.strictObject({
   requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
   taskId: z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/),
+  conversationId: z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/),
+  // Carried from the database-derived route. The local ledger uses the task
+  // lifetime, not a possibly shorter individual grant lifetime, so replacing
+  // a grant cannot refill a task-wide budget.
+  taskExpiresAt: z.string().datetime({ offset: true }),
   connectorBindingId: z.string().uuid(),
   /** The peer the delivered bytes are for; recorded in the audit trail. */
   peerUserId: z.string().uuid(),
   requests: z.array(connectorResourceRequestSchema).min(1).max(16),
   grants: z.array(assertedGrantSchema).max(64),
+  /** Connector-local tombstones for grants revoked after a batch was queued. */
+  revokedGrants: z
+    .array(
+      z.strictObject({
+        grantId: z.string().uuid(),
+        expiresAt: z.string().datetime().nullable(),
+      }),
+    )
+    .max(64)
+    .optional(),
 });
 
 export type ResourceExchangeRequest = z.infer<typeof resourceExchangeRequestSchema>;
@@ -142,6 +161,23 @@ export interface ResourceExchangeDeps {
   broker: LocalFileBroker;
   workspacePath: string;
   limits?: ResourcePolicyLimits;
+  /** Shared for the life of the connector binding; durable in production. */
+  budget?: ResourceTaskBudgetLedger;
+  /** Durable connector-local check against cloud-delivered revocations. */
+  revokedGrantIds?: ReadonlySet<string>;
+  /**
+   * Cloud authority recheck bound to this exact leased batch. Production
+   * connectors must call it after reserving budget and immediately before the
+   * broker opens the file. Failure is a denial, never an offline allowance.
+   */
+  authorizeRead: (input: Readonly<{
+    requestId: string;
+    taskId: string;
+    conversationId: string;
+    resourceId: string;
+    grantId: string;
+    mode: "once" | "task";
+  }>) => Promise<boolean>;
   now?: () => Date;
   /** Local-only sink for refusal codes; never sent to the cloud or the peer. */
   onRefusal?: (code: ResourceDenyCode | "UNREADABLE", taskId: string) => void;
@@ -154,8 +190,9 @@ export interface ResourceExchangeDeps {
  * is delivered in the same batch in which a new file goes for approval, so the
  * peer can keep working while a human decides.
  *
- * Budgets accumulate across the batch, so a peer cannot bypass the per-task
- * byte limit by splitting one large read into many small requests.
+ * Budgets accumulate across every batch for the task (and connector restarts
+ * in production), so a peer cannot bypass a task-wide limit by splitting one
+ * large read into many requests.
  */
 /**
  * Prepares the handle a human approval would grant authority over.
@@ -208,11 +245,32 @@ export async function fulfilResourceRequests(
 ): Promise<ResourceExchangeResponse> {
   const limits = deps.limits ?? DEFAULT_RESOURCE_POLICY_LIMITS;
   const now = deps.now ?? (() => new Date());
+  const budget = deps.budget ?? inMemoryBudgetFor(deps.registry);
   const outcomes: ResourceOutcome[] = [];
-  let requestsMade = 0;
-  let bytesRead = 0;
 
   for (const item of request.requests) {
+    const currentTime = now();
+    if (Date.parse(request.taskExpiresAt) <= currentTime.getTime()) {
+      deps.onRefusal?.("GRANT_EXPIRED", request.taskId);
+      outcomes.push({ status: "refused" });
+      continue;
+    }
+    if (
+      item.kind === "resource" &&
+      request.grants.some(
+        (grant) =>
+          grant.resourceId === item.resourceId &&
+          deps.revokedGrantIds?.has(grant.grantId),
+      )
+    ) {
+      // A stale cloud assertion for an explicitly revoked grant is a denial,
+      // not a fresh approval request. Otherwise revocation could immediately
+      // re-prompt the owner for the same authority it just narrowed.
+      deps.onRefusal?.("GRANT_MISSING", request.taskId);
+      outcomes.push({ status: "refused" });
+      continue;
+    }
+    const usage = await budget.usage(request.taskId, currentTime);
     const canonicalPath =
       item.kind === "resource"
         ? await deps.registry.resolve(request.taskId, item.resourceId)
@@ -221,14 +279,16 @@ export async function fulfilResourceRequests(
       {
         taskId: request.taskId,
         request: item,
-        grants: request.grants as readonly AssertedGrant[],
+        grants: request.grants.filter(
+          (grant) => !deps.revokedGrantIds?.has(grant.grantId),
+        ) as readonly AssertedGrant[],
         canonicalPath,
         // Containment is proven for real by the broker immediately before the
         // read; this is the policy's cheap precondition, not the check itself.
         withinWorkspace: canonicalPath !== null,
-        requestsAlreadyMade: requestsMade,
-        bytesAlreadyRead: bytesRead,
-        now: now(),
+        requestsAlreadyMade: usage.requestsMade,
+        bytesAlreadyRead: usage.bytesRead,
+        now: currentTime,
       },
       deps.workspacePath,
       limits,
@@ -248,9 +308,48 @@ export async function fulfilResourceRequests(
       outcomes.push({ status: "refused" });
       continue;
     }
+    if (item.kind !== "resource") {
+      // The policy never allows a hint. Keep that invariant explicit here so
+      // a future policy change cannot accidentally authorize an unnamed file.
+      deps.onRefusal?.("UNKNOWN_RESOURCE", request.taskId);
+      outcomes.push({ status: "refused" });
+      continue;
+    }
 
-    requestsMade += 1;
-    const remaining = Math.max(0, limits.maxBytesPerTask - bytesRead);
+    const reserved = await budget.reserveRead(
+      request.taskId,
+      limits.maxBytesPerResource,
+      limits,
+      request.taskExpiresAt,
+      currentTime,
+    );
+    if (reserved.outcome !== "reserved") {
+      deps.onRefusal?.(
+        reserved.outcome === "request_budget" ? "REQUEST_BUDGET" : "BYTE_BUDGET",
+        request.taskId,
+      );
+      outcomes.push({ status: "refused" });
+      continue;
+    }
+    let stillAuthorized = false;
+    try {
+      stillAuthorized = await deps.authorizeRead({
+        requestId: request.requestId,
+        taskId: request.taskId,
+        conversationId: request.conversationId,
+        resourceId: item.resourceId,
+        grantId: decision.grantId,
+        mode: decision.mode,
+      });
+    } catch {
+      stillAuthorized = false;
+    }
+    if (!stillAuthorized) {
+      await budget.settleRead(reserved.reservation, 0);
+      deps.onRefusal?.("GRANT_MISSING", request.taskId);
+      outcomes.push({ status: "refused" });
+      continue;
+    }
     const read = await deps.broker.read(
       {
         taskId: request.taskId,
@@ -258,16 +357,17 @@ export async function fulfilResourceRequests(
         recipientUserId: request.peerUserId,
         canonicalPath: decision.canonicalPath,
         authorizationMode: decision.mode,
-        maxBytes: Math.min(limits.maxBytesPerResource, remaining),
+        maxBytes: reserved.reservation.reservedBytes,
       },
       now,
     );
     if (isBrokerFailure(read)) {
+      await budget.settleRead(reserved.reservation, 0);
       deps.onRefusal?.(read.code, request.taskId);
       outcomes.push({ status: "refused" });
       continue;
     }
-    bytesRead += read.audit.byteLength;
+    await budget.settleRead(reserved.reservation, read.audit.byteLength);
     outcomes.push({
       status: "delivered",
       resourceId: read.audit.resourceId,
@@ -278,4 +378,14 @@ export async function fulfilResourceRequests(
   }
 
   return { requestId: request.requestId, outcomes };
+}
+
+const implicitBudgets = new WeakMap<ResourceRegistry, ResourceTaskBudgetLedger>();
+
+function inMemoryBudgetFor(registry: ResourceRegistry): ResourceTaskBudgetLedger {
+  const existing = implicitBudgets.get(registry);
+  if (existing) return existing;
+  const created = new InMemoryResourceTaskBudgetLedger();
+  implicitBudgets.set(registry, created);
+  return created;
 }

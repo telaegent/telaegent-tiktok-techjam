@@ -22,7 +22,11 @@ import { repositoryProofResultSchema } from "../repository-proof/contract.js";
 import { connectorPrincipalSchema } from "../repository-proof/contract.js";
 import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worker.js";
 import { parseConnectorCliOptions } from "./connector-cli-options.js";
-import { createConnectorResourceRegistry } from "./connector-local-state.js";
+import {
+  createConnectorResourceBudgetLedger,
+  createConnectorGrantRevocationStore,
+  createConnectorResourceRegistry,
+} from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
 import { refreshEstablishedReadiness } from "./connector-readiness.js";
@@ -189,6 +193,12 @@ async function main(): Promise<void> {
         },
         resources: {
           registry: createConnectorResourceRegistry(registered.connectorBindingId),
+          budget: createConnectorResourceBudgetLedger(
+            registered.connectorBindingId,
+          ),
+          revocations: createConnectorGrantRevocationStore(
+            registered.connectorBindingId,
+          ),
         },
       },
     );

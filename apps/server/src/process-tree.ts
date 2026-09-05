@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawnSync, type ChildProcess } from "node:child_process";
 
 /**
  * Terminating a provider CLI has to stop everything it started.
@@ -42,16 +42,23 @@ export function terminateProcessTree(
 
   if (process.platform === "win32") {
     try {
-      // Detached and unref'd: this is a cleanup helper, and the caller already
-      // waits on the child's own close event rather than on taskkill.
-      const killer = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
+      // Wait for taskkill to finish. An asynchronous fire-and-forget spawn can
+      // report success here and fail on its later `error`/`close` event, which
+      // suppresses the caller's parent-process fallback and can leave a
+      // descendant alive after Cancel returns.
+      const result = spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
         stdio: "ignore",
         windowsHide: true,
-        detached: true,
+        shell: false,
+        // Cleanup must not freeze the connector if Windows process inspection
+        // itself is unhealthy. A timeout is a failure and activates the
+        // caller's direct-parent fallback.
+        timeout: 5_000,
       });
-      killer.on("error", () => undefined);
-      killer.unref();
-      return true;
+      // taskkill uses 128 when the target disappeared before it was signalled;
+      // that is already the desired terminal state. Every other failure lets
+      // the runner fall back to signalling the parent directly.
+      return !result.error && (result.status === 0 || result.status === 128);
     } catch {
       return false;
     }

@@ -46,6 +46,9 @@ import { CapabilityScopeExpansionService } from "./capability/service.js";
 import { createPrivateDraftFollowUp } from "./capability/follow-up-factory.js";
 import { SupabaseCapabilityScopeRequestRepository } from "./authorization/capability-scope-requests.js";
 import { SupabaseAuthorizationRpcClient } from "./authorization/supabase-authorization-client.js";
+import { SupabaseOwnedCapabilityGrantRepository } from "./authorization/capability-grant-management.js";
+import { CapabilityRouteAuthorizationService } from "./authorization/capability-route-authorization.js";
+import { SupabaseCapabilityRouteAuthorizationRepository } from "./authorization/supabase-capability-repository.js";
 
 const config = loadConfig();
 // Preserve the inherited Starter Kit only when its legacy Ark credentials are
@@ -169,8 +172,18 @@ if (config.telaegentIdentityProvider === "github") {
       supabaseUrl: config.supabaseUrl,
       secretKey: config.supabaseSecretKey,
     });
+    // Resource reads re-query durable authorization from the connector route
+    // immediately before the local broker opens a file. This remains separate
+    // from relay revocation notifications, which are only defense in depth.
+    connectorTransportApi.capabilityAuthorization =
+      new CapabilityRouteAuthorizationService(
+        new SupabaseCapabilityRouteAuthorizationRepository(authorizationRpc),
+        { repositoryReadTimeoutMs: 5_000 },
+      );
     capabilityScope = new CapabilityScopeExpansionService({
       repository: new SupabaseCapabilityScopeRequestRepository(authorizationRpc),
+      grantManagement: new SupabaseOwnedCapabilityGrantRepository(authorizationRpc),
+      onGrantRevoked: (grant) => relay.revokeCapabilityGrant(grant),
     });
     capabilityScopeApi = { service: capabilityScope, authenticatedUserId };
   }

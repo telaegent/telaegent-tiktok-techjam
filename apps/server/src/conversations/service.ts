@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AuthorizePrivateRuntimeInput } from "../authorization/types.js";
 import type { PrivateDraftFollowUp } from "../capability/draft-follow-up.js";
-import { HttpError } from "../errors.js";
+import { HttpError, RunCancelledError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import type { AgentProvider } from "../runtime-contract.js";
 import { normalizeRuntimeFailure, RuntimeProviderError } from "../runtime-errors.js";
@@ -148,7 +148,9 @@ export class ConversationService {
    * has begun stops nothing, because the coordinator no longer tracks it as
    * running. This map is process-local, matching the coordinator it addresses.
    */
-  private readonly activeRuntimeTurns = new Map<string, string>();
+  private readonly activeRuntimeTurns = new Map<string, string | null>();
+  /** Drafts cancelled while moving between runtime rounds. */
+  private readonly cancellationRequested = new Set<string>();
 
   constructor(
     private readonly repository: ConversationRepository,
@@ -304,6 +306,10 @@ export class ConversationService {
     });
     if (!running) throw new HttpError(409, "Private draft cannot be run");
 
+    // `null` means the draft owns an execution lifecycle but is currently
+    // authorizing/starting a round. It lets Cancel distinguish that safe gap
+    // from a running draft stranded by a previous process.
+    this.activeRuntimeTurns.set(draft.draftId, null);
     let started: StartedPrivateRuntimeTurn<ProtocolTurnOutput>;
     try {
       started = await this.runtime.start<ProtocolTurnOutput>({
@@ -314,6 +320,8 @@ export class ConversationService {
         turnId,
       });
     } catch (error) {
+      this.activeRuntimeTurns.delete(draft.draftId);
+      this.cancellationRequested.delete(draft.draftId);
       await this.failTurn(draft.draftId, turnId, error);
       throw error;
     }
@@ -328,11 +336,21 @@ export class ConversationService {
         "INVALID_AGENT_OUTPUT",
         "Private runtime returned an unexpected turn identifier",
       );
+      this.activeRuntimeTurns.delete(draft.draftId);
+      this.cancellationRequested.delete(draft.draftId);
       await this.failTurn(draft.draftId, turnId, error);
       throw error;
     }
 
     this.activeRuntimeTurns.set(draft.draftId, turnId);
+    if (this.cancellationRequested.has(draft.draftId)) {
+      await this.runtime.cancel({
+        turnId,
+        authenticatedUserId,
+        githubRepositoryId: draft.githubRepositoryId,
+        conversationId: draft.conversationId,
+      }).catch(() => false);
+    }
     void this.settleTurn(draft, turnId, started.completion);
     return toPrivateDraftView(running);
   }
@@ -368,16 +386,32 @@ export class ConversationService {
 
     if (draft.state === "agent_working") {
       if (!draft.turnId) throw new HttpError(409, "Private draft cannot be cancelled");
+      const ownsExecution = this.activeRuntimeTurns.has(draftId);
+      if (ownsExecution) this.cancellationRequested.add(draftId);
       // The round that is running now, which is the first turn until a
       // follow-up round replaces it.
-      const runtimeTurnId = this.activeRuntimeTurns.get(draftId) ?? draft.turnId;
-      const cancelled = await this.runtime.cancel({
-        turnId: runtimeTurnId,
-        authenticatedUserId,
-        githubRepositoryId: draft.githubRepositoryId,
-        conversationId: draft.conversationId,
-      });
-      if (!cancelled) throw new HttpError(409, "Private draft cannot be cancelled");
+      const runtimeTurnId = ownsExecution
+        ? this.activeRuntimeTurns.get(draftId)
+        : draft.turnId;
+      if (runtimeTurnId) {
+        const cancelled = await this.runtime.cancel({
+          turnId: runtimeTurnId,
+          authenticatedUserId,
+          githubRepositoryId: draft.githubRepositoryId,
+          conversationId: draft.conversationId,
+        });
+        // A completion can race this call. If settling moved the lifecycle into
+        // its between-round gap, there is no provider left to cancel and the
+        // cancellation flag prevents another one from starting.
+        if (!cancelled && this.activeRuntimeTurns.get(draftId) === runtimeTurnId) {
+          throw new HttpError(409, "Private draft cannot be cancelled");
+        }
+      } else if (!ownsExecution) {
+        // No process-local owner means this is a stranded durable draft. The
+        // startup reconciler normally removes this state; fail closed if it is
+        // observed before reconciliation rather than pretending work stopped.
+        throw new HttpError(409, "Private draft cannot be cancelled");
+      }
     }
 
     const updated = await this.repository.cancelDraft({
@@ -541,6 +575,7 @@ export class ConversationService {
     for (let round = 0; round < MAX_FOLLOW_UP_ROUNDS; round += 1) {
       const requests = result.resourceRequests ?? [];
       if (requests.length === 0) return result;
+      this.throwIfCancellationRequested(draft.draftId);
 
       const delivered = await this.followUp.run(
         {
@@ -551,6 +586,7 @@ export class ConversationService {
         },
         requests,
       );
+      this.throwIfCancellationRequested(draft.draftId);
       if (delivered.length === 0) return result;
 
       // A fresh runtime turn, carrying the approved files in its prompt. The
@@ -566,7 +602,17 @@ export class ConversationService {
       // Cancellation has to follow the work, so point it at this round before
       // awaiting it. The draft's own turn identifier never changes.
       this.activeRuntimeTurns.set(draft.draftId, started.turnId);
+      if (this.cancellationRequested.has(draft.draftId)) {
+        await this.runtime.cancel({
+          turnId: started.turnId,
+          authenticatedUserId: draft.ownerUserId,
+          githubRepositoryId: draft.githubRepositoryId,
+          conversationId: draft.conversationId,
+        }).catch(() => false);
+        throw new RunCancelledError();
+      }
       result = await started.completion;
+      this.activeRuntimeTurns.set(draft.draftId, null);
     }
     return result;
   }
@@ -578,7 +624,10 @@ export class ConversationService {
   ): Promise<void> {
     const draftId = draft.draftId;
     try {
-      const result = await this.runFollowUpRounds(draft, await completion);
+      const first = await completion;
+      this.activeRuntimeTurns.set(draftId, null);
+      this.throwIfCancellationRequested(draftId);
+      const result = await this.runFollowUpRounds(draft, first);
       await this.completeTurn(draftId, draft.role, turnId, result.final);
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe
@@ -595,6 +644,7 @@ export class ConversationService {
       // to cancel. Clearing the entry keeps this map bounded by the drafts
       // currently running rather than by every draft the process has seen.
       this.activeRuntimeTurns.delete(draftId);
+      this.cancellationRequested.delete(draftId);
     }
   }
 
@@ -611,6 +661,10 @@ export class ConversationService {
       },
       updatedAt: this.now().toISOString(),
     });
+  }
+
+  private throwIfCancellationRequested(draftId: string): void {
+    if (this.cancellationRequested.has(draftId)) throw new RunCancelledError();
   }
 
   private async ownedDraft(authenticatedUserId: string, draftId: string): Promise<PrivateDraft> {

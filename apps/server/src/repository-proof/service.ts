@@ -44,6 +44,15 @@ export class RepositoryProofService {
     const proof = parseProof(untrustedProof);
     this.assertFresh(proof.observedAt);
 
+    // Bind the local gh identity to the authenticated Telaegent account before
+    // registration. The atomic write repeats this check; this preflight is only
+    // an early, side-effect-free denial and is never repository proof by itself.
+    try {
+      await this.repository.authorizeProofIdentity(principal, proof.github);
+    } catch (error) {
+      throw normalizeRepositoryError(error);
+    }
+
     const repositoryFullName = `${proof.repository.owner}/${proof.repository.name}`;
     const payloadDigestHex = createHash("sha256")
       .update(

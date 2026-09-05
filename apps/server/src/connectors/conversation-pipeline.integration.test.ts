@@ -386,6 +386,10 @@ class RelayWorkerTransport implements ConnectorWorkerTransport {
     throw new Error("This pipeline test does not serve resource requests");
   }
 
+  async authorizeResourceRead(): Promise<boolean> {
+    throw new Error("This pipeline test does not serve resource requests");
+  }
+
   async failure(jobId: string, code: string): Promise<void> {
     this.relay.fail(
       this.principal,

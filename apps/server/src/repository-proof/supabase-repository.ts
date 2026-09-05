@@ -47,6 +47,28 @@ export class SupabaseRepositoryProofRepository
     }
   }
 
+  async authorizeProofIdentity(
+    principal: Readonly<RegisterRepositoryProofCommand["principal"]>,
+    github: Readonly<RegisterRepositoryProofCommand["proof"]["github"]>,
+  ): Promise<void> {
+    const value = await this.rpc("authorize_local_github_proof_identity", {
+      p_user_id: principal.authenticatedUserId,
+      p_connector_instance_id: principal.connectorInstanceId,
+      p_github_user_id: github.userId,
+    });
+    const parsed = z.strictObject({ outcome: z.literal("authorized") }).safeParse(value);
+    if (parsed.success) return;
+    const denial = policyDenialSchema.safeParse(value);
+    if (denial.success) {
+      throw new RepositoryProofError(
+        "REPOSITORY_PROOF_FORBIDDEN",
+        "Repository proof is not authorized",
+        403,
+      );
+    }
+    throw unavailable();
+  }
+
   async registerRepositoryProof(
     command: Readonly<RegisterRepositoryProofCommand>,
   ): Promise<RepositoryProofResult> {

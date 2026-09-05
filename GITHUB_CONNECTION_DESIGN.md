@@ -59,7 +59,16 @@ A repository becomes a Telaegent project only when:
 3. the developer deliberately selects one local repository/worktree;
 4. local Git/GitHub CLI proves access to its stable GitHub repository ID;
 5. the connector registers safe repository metadata;
-6. the cloud creates an opaque connector binding for that user × repository.
+6. the cloud binds the connector's local GitHub numeric identity to the
+   authenticated Telaegent account;
+7. the cloud atomically creates an opaque binding for that user × repository.
+
+This P0 proof is an attestation from an authenticated local connector running
+allowlisted `gh` and `git` commands. It supports public, private, internal,
+organization, and collaborator-access repositories without putting a GitHub
+credential in Telaegent cloud. The cloud validates the safe payload, freshness,
+account identity, stable repository scope, revocation state, and replay state;
+it does not repeat local GitHub authorization through an anonymous API call.
 
 Safe registration metadata may include:
 
@@ -128,8 +137,8 @@ Use mutual proof of access rather than requiring one user to enumerate every
 GitHub collaborator:
 
 ```text
-User A's connector proves repo ID 123
-User B's connector independently proves repo ID 123
+User A's authenticated connector proves repo ID 123 with User A's local gh
+User B's authenticated connector proves repo ID 123 with User B's local gh
         -> both are eligible for a project-scoped request
         -> User B explicitly accepts
 ```
@@ -210,6 +219,10 @@ GitHub CLI custody must not be revived as the product onboarding path.
 - [ ] Implement `telaegent connect .` or equivalent.
 - [ ] Authenticate connector-to-cloud without exposing local credentials.
 - [ ] Verify `gh auth status` locally.
+- [x] Bind the connector's local GitHub numeric identity to the authenticated
+      Telaegent account before repository registration.
+- [x] Accept the same strict local proof contract for public, private, and
+      internal repositories.
 - [ ] Resolve normalized remote and stable numeric GitHub repository ID locally.
 - [ ] Register safe repository/branch/commit metadata only.
 - [ ] Store an opaque cloud connector binding with presence state.

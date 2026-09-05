@@ -45,6 +45,24 @@ function repository(fetchImplementation: typeof fetch) {
 }
 
 describe("SupabaseRepositoryProofRepository", () => {
+  it("preflights the authenticated user's GitHub identity without mutation", async () => {
+    const request = vi.fn<typeof fetch>(async () =>
+      Response.json({ outcome: "authorized" }),
+    );
+    await expect(
+      repository(request).authorizeProofIdentity(principal, proof.github),
+    ).resolves.toBeUndefined();
+
+    expect(request.mock.calls[0]?.[0]).toBe(
+      "https://project.supabase.co/rest/v1/rpc/authorize_local_github_proof_identity",
+    );
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
+      p_user_id: principal.authenticatedUserId,
+      p_connector_instance_id: principal.connectorInstanceId,
+      p_github_user_id: proof.github.userId,
+    });
+  });
+
   it("calls the backend-only registration RPC with precision-safe safe metadata", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json(result));
     await expect(

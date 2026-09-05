@@ -4,6 +4,7 @@ import { createApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import type { ConnectorJobRequest } from "./connector-turn-executor.js";
 import { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
+import { CapabilityRouteAuthorizationError } from "../authorization/capability-route-authorization.js";
 
 const principal = {
   authenticatedUserId: "10000000-0000-4000-8000-000000000001",
@@ -29,6 +30,71 @@ const job: ConnectorJobRequest = {
 };
 
 describe("connector long-poll HTTP transport", () => {
+  it("rechecks durable grant state for the exact leased resource before read", async () => {
+    const relay = new LongPollConnectorJobRelay({ resourceTimeoutMs: 5_000 });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    const authorizeRoute = vi.fn(async () => {
+      throw new CapabilityRouteAuthorizationError(
+        "CAPABILITY_ROUTE_FORBIDDEN",
+        "grant_unavailable",
+      );
+    });
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay,
+        resolveConnectorPrincipal: async () => principal,
+        capabilityAuthorization: {
+          authorizeRoute,
+          resolveRoute: vi.fn(),
+        },
+      },
+    );
+    const requestId = "resource-authorization-race";
+    const resourceId = `resource_${"a".repeat(24)}`;
+    const grantId = "30000000-0000-4000-8000-000000000001";
+    const completion = relay.exchangeResources({
+      requestId,
+      taskId: "task-1",
+      conversationId: job.conversationId,
+      taskExpiresAt: "2126-08-31T12:00:00.000Z",
+      connectorBindingId: bindingId,
+      peerUserId: "10000000-0000-4000-8000-000000000002",
+      requests: [{ kind: "resource", resourceId, reason: "Approved task" }],
+      grants: [{ grantId, resourceId, operation: "read", mode: "task", expiresAt: null }],
+    });
+    await relay.poll(principal, bindingId, 0);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/connectors/jobs/${requestId}/resources/authorize`,
+      payload: { grantId, resourceId },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(authorizeRoute).toHaveBeenCalledWith({
+      authenticatedUserId: "10000000-0000-4000-8000-000000000002",
+      ownerUserId: principal.authenticatedUserId,
+      githubRepositoryId: job.githubRepositoryId,
+      conversationId: job.conversationId,
+      taskId: "task-1",
+      grantId,
+      resourceId,
+      operation: "read",
+    });
+
+    relay.completeResourceExchange(principal, requestId, {
+      requestId,
+      outcomes: [{ status: "refused" }],
+    });
+    await completion;
+    await app.close();
+  });
+
   it("authenticates every connector request and completes a dispatched job", async () => {
     const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);

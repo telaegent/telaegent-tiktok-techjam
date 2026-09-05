@@ -235,6 +235,20 @@ export type CapabilityScopeDecisionResult =
   | { outcome: "denied" }
   | { outcome: "approved"; grantId: string; mode: "once" | "task" };
 
+export type OwnedCapabilityGrant = {
+  grantId: string;
+  taskId: string;
+  conversationId: string;
+  githubRepositoryId: string;
+  peerUserId: string;
+  resourceId: string;
+  resourceDisplayLabel: string;
+  operation: "read";
+  mode: "once" | "task";
+  grantedAt: string;
+  expiresAt: string;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -403,6 +417,17 @@ export const api = {
     request<CapabilityScopeDecisionResult>(
       `/api/capability/scope-requests/${encodeURIComponent(scopeRequestId)}/decision`,
       { method: "POST", body: JSON.stringify({ decision }) },
+    ),
+  /** Lists the selected owner's live exact-file grants for one repository. */
+  capabilityGrants: (githubRepositoryId: string) =>
+    request<{ grants: OwnedCapabilityGrant[] }>(
+      `/api/capability/grants?githubRepositoryId=${encodeURIComponent(githubRepositoryId)}`,
+    ),
+  /** Permanently narrows one grant; repeated revocation is idempotent. */
+  revokeCapabilityGrant: (grantId: string) =>
+    request<{ outcome: "revoked" }>(
+      `/api/capability/grants/${encodeURIComponent(grantId)}`,
+      { method: "DELETE" },
     ),
   system: () => request<SystemInfo>("/api/system"),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),

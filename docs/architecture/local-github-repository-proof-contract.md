@@ -1,7 +1,7 @@
 # Local GitHub Repository Proof Contract
 
-**Status:** cloud ingestion and persistence implemented; local collection and
-connector transport authentication remain open connector gates.
+**Status:** cloud ingestion and persistence of authenticated local GitHub
+repository proofs implemented for public, private, and internal repositories.
 
 ## Purpose and ownership
 
@@ -70,6 +70,19 @@ The local connector should construct the request from parsed, allowlisted
 fields. It must not upload raw `gh auth status`, `gh api`, `git remote`, or
 process output.
 
+The request is an attestation from an authenticated local connector, not an
+arbitrary browser assertion. The connector constructs it from allowlisted,
+parsed `gh api` and `git` results on the developer's machine. Before calling
+the atomic registration RPC, the control plane checks that the proof's GitHub
+numeric user ID is the one linked to the authenticated Telaegent account. The
+RPC repeats that identity check and validates freshness, stable repository
+scope, revocation state, and replay state before creating membership.
+
+This contract is identical for public, private, and internal repositories.
+Telaegent does not send a second anonymous request to `api.github.com`: such a
+request cannot prove private access, introduces a deployment-wide shared-IP
+quota, and would contradict the canonical local-GitHub authorization flow.
+
 ## Atomic authorization result
 
 `register_local_github_repository_proof` performs one transaction and returns:
@@ -90,6 +103,8 @@ process output.
 ```
 
 Before any mutation, the transaction locks and validates all existing state.
+The service reaches this transaction only after connector authentication,
+strict proof parsing, freshness validation, and the identity preflight above.
 It requires:
 
 - an active Telaegent account;
@@ -197,3 +212,5 @@ private draft.
 - local `gh`/`git` parsing implementation and controlled live experiments;
 - safe repository metadata refresh and branch/worktree policy;
 - retention/pruning policy for accepted proof idempotency records.
+- controlled live experiments covering private, internal, organization, and
+  collaborator-not-owner repositories.

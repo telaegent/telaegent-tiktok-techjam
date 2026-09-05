@@ -21,6 +21,7 @@ import {
   type ConnectorPairing,
   type ConversationMessage,
   type PrivateDraftView,
+  type OwnedCapabilityGrant,
   type ProjectCollaborator,
   type ProjectConversation,
   type ProjectSummary,
@@ -2194,6 +2195,9 @@ function ProjectChat({
   const [decidingScopeRequestId, setDecidingScopeRequestId] = useState<
     string | null
   >(null);
+  const [ownedGrants, setOwnedGrants] = useState<OwnedCapabilityGrant[]>([]);
+  const [grantError, setGrantError] = useState<ApiError | null>(null);
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PrivateDraftView | null>(null);
   // Set only while a reply draft is open, so the private room can show what is
   // being answered and Retry can reopen the same reply.
@@ -2217,6 +2221,7 @@ function ProjectChat({
   const scopeRequestsInFlight = useRef(
     new SingleFlightByKey<CapabilityScopeRequest[]>(),
   );
+  const grantsInFlight = useRef(new SingleFlightByKey<OwnedCapabilityGrant[]>());
   const scopeMutationEpoch = useRef(0);
   const configurationError = projectConfigurationError(
     project.githubRepositoryId,
@@ -2234,6 +2239,46 @@ function ProjectChat({
     return fresh
       ? scopeRequestsInFlight.current.runFresh(repositoryId, request)
       : scopeRequestsInFlight.current.run(repositoryId, request);
+  }
+
+  function requestOwnedGrants(repositoryId: string, fresh = false) {
+    const request = async () => (await api.capabilityGrants(repositoryId)).grants;
+    return fresh
+      ? grantsInFlight.current.runFresh(repositoryId, request)
+      : grantsInFlight.current.run(repositoryId, request);
+  }
+
+  async function loadOwnedGrants(showError = true, fresh = false) {
+    if (configurationError) {
+      setOwnedGrants([]);
+      return;
+    }
+    const repositoryId = project.githubRepositoryId;
+    try {
+      const grants = await requestOwnedGrants(repositoryId, fresh);
+      if (activeRepositoryScope.current !== repositoryId) return;
+      setOwnedGrants(grants);
+      setGrantError(null);
+    } catch (error) {
+      if (showError && activeRepositoryScope.current === repositoryId) {
+        setGrantError(normalizeApiError(error));
+      }
+    }
+  }
+
+  async function revokeGrant(grantId: string) {
+    setRevokingGrantId(grantId);
+    setGrantError(null);
+    try {
+      await api.revokeCapabilityGrant(grantId);
+      setOwnedGrants((current) => current.filter((grant) => grant.grantId !== grantId));
+      await loadOwnedGrants(false, true);
+    } catch (error) {
+      setGrantError(normalizeApiError(error));
+      await loadOwnedGrants(false, true);
+    } finally {
+      setRevokingGrantId(null);
+    }
   }
 
   function requestMessages(
@@ -2290,7 +2335,10 @@ function ProjectChat({
       setScopeRequests((current) =>
         current.filter((request) => request.scopeRequestId !== scopeRequestId),
       );
-      await loadScopeRequests(false, true);
+      await Promise.all([
+        loadScopeRequests(false, true),
+        loadOwnedGrants(false, true),
+      ]);
     } catch (error) {
       scopeMutationEpoch.current += 1;
       setScopeRequestError(normalizeApiError(error));
@@ -2462,6 +2510,29 @@ function ProjectChat({
       active = false;
       stop();
     };
+  }, [configurationError, project.githubRepositoryId]);
+
+  useEffect(() => {
+    if (configurationError) {
+      setOwnedGrants([]);
+      setGrantError(null);
+      return;
+    }
+    let active = true;
+    const repositoryId = project.githubRepositoryId;
+    setOwnedGrants([]);
+    setGrantError(null);
+    void requestOwnedGrants(repositoryId, true)
+      .then((grants) => {
+        if (!active || activeRepositoryScope.current !== repositoryId) return;
+        setOwnedGrants(grants);
+      })
+      .catch((error: unknown) => {
+        if (active && activeRepositoryScope.current === repositoryId) {
+          setGrantError(normalizeApiError(error));
+        }
+      });
+    return () => { active = false; };
   }, [configurationError, project.githubRepositoryId]);
 
   useEffect(() => {
@@ -2738,6 +2809,43 @@ function ProjectChat({
       </div>
 
       <div className="shared-thread" aria-live="polite">
+        {(ownedGrants.length > 0 || grantError) && (
+          <section className="grant-inventory" aria-label="Active file grants">
+            <header>
+              <div>
+                <span className="scope-approval-kicker">Active file access</span>
+                <h2>Granted read scopes</h2>
+              </div>
+              <small>You can revoke each scope independently.</small>
+            </header>
+            {grantError && (
+              <div className="scope-approval-error" role="alert">
+                <span>{apiErrorGuidance(grantError)}</span>
+                <button type="button" onClick={() => void loadOwnedGrants()}>
+                  Try again
+                </button>
+              </div>
+            )}
+            {ownedGrants.map((grant) => (
+              <article className="grant-inventory-row" key={grant.grantId}>
+                <div>
+                  <strong>{grant.resourceDisplayLabel}</strong>
+                  <small>
+                    {grant.mode === "task" ? "Task access" : "One-time access"}
+                    {` · expires ${formatTaskExpiry(grant.expiresAt)}`}
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  disabled={revokingGrantId === grant.grantId}
+                  onClick={() => void revokeGrant(grant.grantId)}
+                >
+                  {revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}
+                </button>
+              </article>
+            ))}
+          </section>
+        )}
         {(scopeRequests.length > 0 || scopeRequestError) && (
           <section
             className="scope-approval-queue"

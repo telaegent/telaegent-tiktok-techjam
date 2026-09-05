@@ -147,6 +147,15 @@ export type {
   ListTaskCapabilityGrantsOutcome,
   SupabaseCapabilityGrantClient,
 } from "./capability-grants.js";
+export { SupabaseOwnedCapabilityGrantRepository } from "./capability-grant-management.js";
+export type {
+  ListOwnedCapabilityGrantsInput,
+  OwnedCapabilityGrant,
+  OwnedCapabilityGrantRepository,
+  RevokeOwnedCapabilityGrantInput,
+  RevokeOwnedCapabilityGrantOutcome,
+  SupabaseOwnedCapabilityGrantClient,
+} from "./capability-grant-management.js";
 export { SupabaseCollaborationTaskRepository } from "./collaboration-tasks.js";
 export type {
   CollaborationTaskEndStatus,

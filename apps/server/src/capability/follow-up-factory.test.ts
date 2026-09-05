@@ -165,7 +165,10 @@ function build(
     fetchCapabilityRouteAuthorizationSnapshot: vi.fn(
       async (query: { grantId: string | null }) => snapshot(query.grantId),
     ),
-    consumeCapabilityGrant: vi.fn(async () => ({ outcome: "unavailable" })),
+    consumeCapabilityGrant: vi.fn(async () => ({
+      outcome: "reusable",
+      mode: "task" as const,
+    })),
     listTaskCapabilityGrants: vi.fn(async () => ({
       outcome: "listed",
       grants: [{ grantId: GRANT, resourceId: RESOURCE }],

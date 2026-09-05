@@ -1556,6 +1556,71 @@ html[data-theme="dark"] .app-rail button > img {
   gap: 12px;
 }
 
+.grant-inventory {
+  width: min(740px, 100%);
+  margin: 0 auto 20px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  background: var(--surface-raised);
+}
+
+.grant-inventory > header,
+.grant-inventory-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.grant-inventory h2 {
+  margin: 2px 0 0;
+  font-size: 18px;
+}
+
+.grant-inventory > header > small,
+.grant-inventory-row small {
+  color: var(--quiet);
+  font-size: 11px;
+}
+
+.grant-inventory-row {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.grant-inventory-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.grant-inventory-row strong {
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.grant-inventory-row button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--caution) 50%, var(--line));
+  border-radius: 7px;
+  color: var(--caution);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.grant-inventory-row button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .scope-approval-card {
   padding: 20px 22px 18px;
   border: 1px solid var(--line-strong);

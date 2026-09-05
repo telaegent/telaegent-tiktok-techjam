@@ -15,8 +15,10 @@ import {
 } from "./resource-exchange.js";
 import { InMemoryResourceRegistry } from "./resource-registry.js";
 import type { ResourceDenyCode } from "./resource-policy.js";
+import { InMemoryResourceTaskBudgetLedger } from "./resource-budget.js";
 
 const taskId = "task_one";
+const conversationId = "70000000-0000-4000-8000-000000000007";
 const peer = "10000000-0000-4000-8000-00000000b002";
 const bindingId = "50000000-0000-4000-8000-000000000005";
 const grantId = "30000000-0000-4000-8000-000000000001";
@@ -47,6 +49,8 @@ function exchange(overrides: Partial<ResourceExchangeRequest> = {}): ResourceExc
   return {
     requestId: "exchange-1",
     taskId,
+    conversationId,
+    taskExpiresAt: "2126-08-31T12:00:00.000Z",
     connectorBindingId: bindingId,
     peerUserId: peer,
     requests: [{ kind: "resource", resourceId: landingPageId, reason: "needs the page" }],
@@ -66,8 +70,10 @@ function exchange(overrides: Partial<ResourceExchangeRequest> = {}): ResourceExc
 function deps(onRefusal?: (code: ResourceDenyCode | "UNREADABLE") => void) {
   return {
     registry,
+    budget: new InMemoryResourceTaskBudgetLedger(),
     broker: new LocalFileBroker(workspace),
     workspacePath: workspace,
+    authorizeRead: async () => true,
     now: () => now,
     ...(onRefusal ? { onRefusal: (code: ResourceDenyCode | "UNREADABLE") => onRefusal(code) } : {}),
   };
@@ -151,6 +157,94 @@ describe("resource exchange", () => {
     expect(response.outcomes[1]).toEqual({ status: "refused" });
   });
 
+  it("keeps request and byte budgets across separate exchange batches", async () => {
+    const shared = {
+      ...deps(),
+      limits: {
+        maxRequestsPerTask: 1,
+        maxBytesPerTask: 1_048_576,
+        maxBytesPerResource: 262_144,
+      },
+    };
+
+    const first = await fulfilResourceRequests(exchange({ requestId: "batch-1" }), shared);
+    const second = await fulfilResourceRequests(exchange({ requestId: "batch-2" }), shared);
+
+    expect(first.outcomes[0]).toMatchObject({ status: "delivered" });
+    expect(second.outcomes[0]).toEqual({ status: "refused" });
+  });
+
+  it("does not refill a task budget when an individual grant is replaced", async () => {
+    const budget = new InMemoryResourceTaskBudgetLedger();
+    const shared = {
+      ...deps(),
+      budget,
+      limits: {
+        maxRequestsPerTask: 1,
+        maxBytesPerTask: 1_048_576,
+        maxBytesPerResource: 262_144,
+      },
+    };
+    const first = await fulfilResourceRequests(
+      exchange({
+        requestId: "grant-1",
+        grants: [{
+          grantId,
+          resourceId: landingPageId,
+          operation: "read",
+          mode: "once",
+          expiresAt: "2026-08-31T12:01:00.000Z",
+        }],
+      }),
+      shared,
+    );
+    const second = await fulfilResourceRequests(
+      exchange({
+        requestId: "grant-2",
+        grants: [{
+          grantId: "30000000-0000-4000-8000-000000000002",
+          resourceId: landingPageId,
+          operation: "read",
+          mode: "task",
+          expiresAt: "2126-08-31T11:00:00.000Z",
+        }],
+      }),
+      shared,
+    );
+
+    expect(first.outcomes[0]).toMatchObject({ status: "delivered" });
+    expect(second.outcomes[0]).toEqual({ status: "refused" });
+  });
+
+  it("refuses an exchange after the database-derived task expiry", async () => {
+    const refusal = vi.fn();
+    const response = await fulfilResourceRequests(
+      exchange({ taskExpiresAt: "2026-08-31T11:59:59.999Z" }),
+      deps(refusal),
+    );
+
+    expect(response.outcomes).toEqual([{ status: "refused" }]);
+    expect(refusal).toHaveBeenCalledWith("GRANT_EXPIRED");
+  });
+
+  it("fails closed when the durable pre-read authorization is revoked", async () => {
+    const authorizeRead = vi.fn(async () => false);
+    const response = await fulfilResourceRequests(exchange(), {
+      ...deps(),
+      authorizeRead,
+    });
+
+    expect(response.outcomes).toEqual([{ status: "refused" }]);
+    expect(authorizeRead).toHaveBeenCalledWith({
+      requestId: "exchange-1",
+      taskId,
+      conversationId,
+      resourceId: landingPageId,
+      grantId,
+      mode: "task",
+    });
+  });
+
   it("refuses an identifier minted for a different task", async () => {
     const otherTask = new InMemoryResourceRegistry(() => now);
     const foreign = await otherTask.mint("task_two", path.join(workspace, "src/LandingPage.tsx"));
@@ -179,6 +273,9 @@ class ServingTransport implements ConnectorWorkerTransport {
   async failure(_jobId: string, _code: string): Promise<void> {}
   async resourceResponse(response: ResourceExchangeResponse): Promise<void> {
     this.responses.push(response);
+  }
+  async authorizeResourceRead(): Promise<boolean> {
+    return true;
   }
 }
 
@@ -322,7 +419,9 @@ describe("connector worker serving resource requests", () => {
         // taskExpiresAt after LEGACY_ENTRY_RETENTION_MS, which made this suite
         // start failing permanently once 24h had passed since that fixed date.
         now: () => now.getTime(),
-        ...(withRegistry ? { resources: { registry } } : {}),
+        ...(withRegistry
+          ? { resources: { registry, budget: new InMemoryResourceTaskBudgetLedger() } }
+          : {}),
       },
     );
   }
@@ -350,6 +449,34 @@ describe("connector worker serving resource requests", () => {
     // A connector that cannot prove any identifier fails closed rather than
     // guessing which file was meant.
     expect(transport.responses[0]?.outcomes).toEqual([{ status: "refused" }]);
+  });
+
+  it("remembers a cloud revocation locally across later stale batches", async () => {
+    const transport = new ServingTransport([
+      {
+        kind: "resource_request",
+        request: exchange({
+          requestId: "revoked-1",
+          revokedGrants: [{
+            grantId,
+            expiresAt: "2126-08-31T12:00:00.000Z",
+          }],
+        }),
+      },
+      {
+        kind: "resource_request",
+        request: exchange({ requestId: "revoked-2" }),
+      },
+    ]);
+    const connector = worker(transport);
+
+    await connector.runOnce();
+    await connector.runOnce();
+
+    expect(transport.responses).toEqual([
+      { requestId: "revoked-1", outcomes: [{ status: "refused" }] },
+      { requestId: "revoked-2", outcomes: [{ status: "refused" }] },
+    ]);
   });
 
   it("rejects a request addressed to another binding", async () => {

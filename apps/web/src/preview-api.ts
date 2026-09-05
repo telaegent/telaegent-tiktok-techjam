@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   CapabilityScopeDecisionResult,
   CapabilityScopeRequest,
+  OwnedCapabilityGrant,
   ConversationMessage,
   PrivateDraftView,
   ProjectCollaborator,
@@ -154,6 +155,7 @@ let scopeRequests: CapabilityScopeRequest[] = [
     taskExpiresAt: "2026-09-01T01:29:00.000Z",
   },
 ];
+let ownedGrants: OwnedCapabilityGrant[] = [];
 
 const drafts = new Map<string, PrivateDraftView>();
 
@@ -327,10 +329,21 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
   if (url.startsWith("/api/capability/scope-requests?") && method === "GET") {
     return { requests: copy(scopeRequests) };
   }
+  if (url.startsWith("/api/capability/grants?") && method === "GET") {
+    return { grants: copy(ownedGrants) };
+  }
+  if (url.match(/^\/api\/capability\/grants\/[^/]+$/) && method === "DELETE") {
+    const grantId = decodeURIComponent(url.split("/")[4] ?? "");
+    ownedGrants = ownedGrants.filter((grant) => grant.grantId !== grantId);
+    return { outcome: "revoked" };
+  }
   if (url.match(/^\/api\/capability\/scope-requests\/[^/]+\/decision$/) && method === "POST") {
     const body = jsonBody(options);
     const encodedId = url.split("/")[4] ?? "";
     const scopeRequestId = decodeURIComponent(encodedId);
+    const scopeRequest = scopeRequests.find(
+      (request) => request.scopeRequestId === scopeRequestId,
+    );
     scopeRequests = scopeRequests.filter((request) => request.scopeRequestId !== scopeRequestId);
     const decision = body["decision"];
     const result: CapabilityScopeDecisionResult = decision === "deny"
@@ -340,6 +353,21 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
           grantId: crypto.randomUUID(),
           mode: decision === "task" ? "task" : "once",
         };
+    if (result.outcome === "approved" && scopeRequest) {
+      ownedGrants.push({
+        grantId: result.grantId,
+        taskId: scopeRequest.taskId,
+        conversationId: scopeRequest.conversationId,
+        githubRepositoryId: scopeRequest.githubRepositoryId,
+        peerUserId: scopeRequest.peerUserId,
+        resourceId: scopeRequest.candidateResourceId,
+        resourceDisplayLabel: scopeRequest.resourceDisplayLabel,
+        operation: "read",
+        mode: result.mode,
+        grantedAt: new Date().toISOString(),
+        expiresAt: scopeRequest.taskExpiresAt,
+      });
+    }
     return result;
   }
   if (url.match(/^\/api\/conversations\/[^/]+\/drafts$/) && method === "POST") {

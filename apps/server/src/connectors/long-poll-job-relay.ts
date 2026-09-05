@@ -52,6 +52,19 @@ interface PendingResourceExchange {
   resolve: (response: ResourceExchangeResponse) => void;
   reject: (error: unknown) => void;
   timeout: NodeJS.Timeout;
+  revokedResourceIds: Set<string>;
+}
+
+export interface LeasedResourceAuthorizationContext {
+  authenticatedUserId: string;
+  ownerUserId: string;
+  githubRepositoryId: string;
+  conversationId: string;
+  taskId: string;
+  grantId: string;
+  resourceId: string;
+  mode: "once" | "task";
+  connectorBindingId: string;
 }
 
 interface PendingCancellation {
@@ -89,6 +102,10 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
   private readonly cancellations = new Map<string, PendingCancellation>();
   private readonly resourceExchanges = new Map<string, PendingResourceExchange>();
   private readonly resourceQueueByBinding = new Map<string, string[]>();
+  private readonly revokedGrants = new Map<
+    string,
+    Readonly<{ expiresAt: string | null; resourceId: string }>
+  >();
   private readonly jobTimeoutMs: number;
   private readonly presenceTimeoutMs: number;
   private readonly resourceTimeoutMs: number;
@@ -360,18 +377,112 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
         );
       }, this.resourceTimeoutMs);
       timeout.unref?.();
+      const sanitized = this.applyGrantRevocations(
+        structuredClone(request) as ResourceExchangeRequest,
+      );
       this.resourceExchanges.set(request.requestId, {
-        request: structuredClone(request) as ResourceExchangeRequest,
+        request: sanitized,
         state: "queued",
         resolve,
         reject,
         timeout,
+        revokedResourceIds: new Set(
+          sanitized.revokedGrants?.flatMap((revoked) => {
+            const match = request.grants.find(
+              (grant) => grant.grantId === revoked.grantId,
+            );
+            return match &&
+              !sanitized.grants.some(
+                (remaining) => remaining.resourceId === match.resourceId,
+              )
+              ? [match.resourceId]
+              : [];
+          }) ?? [],
+        ),
       });
       const queue = this.resourceQueueByBinding.get(request.connectorBindingId) ?? [];
       queue.push(request.requestId);
       this.resourceQueueByBinding.set(request.connectorBindingId, queue);
       this.wake(request.connectorBindingId);
     });
+  }
+
+  /**
+   * Linearizes browser revocation with queued connector reads. A tombstone is
+   * retained through the grant lifetime, stripped from every stale batch, and
+   * sent to the connector so its local reference monitor remembers it too.
+   * Leased replies are filtered as a final barrier if revocation wins while a
+   * connector is already reading.
+   */
+  revokeCapabilityGrant(
+    grant: Readonly<{ grantId: string; resourceId: string; expiresAt: string }>,
+  ): void {
+    this.revokedGrants.set(grant.grantId, {
+      expiresAt: grant.expiresAt,
+      resourceId: grant.resourceId,
+    });
+    for (const pending of this.resourceExchanges.values()) {
+      const revoked = pending.request.grants.filter(
+        (assertion) => assertion.grantId === grant.grantId,
+      );
+      pending.request.grants = pending.request.grants.filter(
+        (assertion) => assertion.grantId !== grant.grantId,
+      );
+      for (const assertion of revoked) {
+        if (
+          !pending.request.grants.some(
+            (remaining) => remaining.resourceId === assertion.resourceId,
+          )
+        ) {
+          pending.revokedResourceIds.add(assertion.resourceId);
+        }
+        pending.request.revokedGrants = mergeRevocations(
+          pending.request.revokedGrants,
+          { grantId: grant.grantId, expiresAt: grant.expiresAt },
+        );
+      }
+    }
+  }
+
+  /**
+   * Derives a pre-read authorization query exclusively from a leased envelope
+   * and its authenticated owner connector. Caller-supplied identifiers may
+   * select an existing assertion, but can never widen or synthesize one.
+   */
+  leasedResourceAuthorization(
+    principal: Readonly<ConnectorPrincipal>,
+    requestId: string,
+    selector: Readonly<{ grantId: string; resourceId: string }>,
+  ): LeasedResourceAuthorizationContext | null {
+    const pending = this.resourceExchanges.get(requestId);
+    if (!pending || pending.state !== "leased") return null;
+    const binding = this.bindings.get(pending.request.connectorBindingId);
+    if (!binding || !samePrincipal(binding.principal, principal)) return null;
+    if (
+      !pending.request.requests.some(
+        (item) => item.kind === "resource" && item.resourceId === selector.resourceId,
+      )
+    ) {
+      return null;
+    }
+    const grant = pending.request.grants.find(
+      (item) =>
+        item.grantId === selector.grantId &&
+        item.resourceId === selector.resourceId &&
+        item.operation === "read",
+    );
+    if (!grant || pending.revokedResourceIds.has(selector.resourceId)) return null;
+    return {
+      authenticatedUserId: pending.request.peerUserId,
+      ownerUserId: principal.authenticatedUserId,
+      githubRepositoryId: binding.githubRepositoryId,
+      conversationId: pending.request.conversationId,
+      taskId: pending.request.taskId,
+      grantId: grant.grantId,
+      resourceId: grant.resourceId,
+      mode: grant.mode,
+      connectorBindingId: pending.request.connectorBindingId,
+    };
   }
 
   /**
@@ -398,7 +509,20 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
       return false;
     }
     this.removeResourceExchange(requestId, pending);
-    pending.resolve(structuredClone(response) as ResourceExchangeResponse);
+    const safeResponse = structuredClone(response) as ResourceExchangeResponse;
+    safeResponse.outcomes = safeResponse.outcomes.map((outcome, index) => {
+      const requested = pending.request.requests[index];
+      return (
+        pending.revokedResourceIds.has(
+          outcome.status === "delivered"
+            ? outcome.resourceId
+            : requested?.kind === "resource"
+              ? requested.resourceId
+              : "",
+        )
+      ) ? { status: "refused" as const } : outcome;
+    });
+    pending.resolve(safeResponse);
     return true;
   }
 
@@ -513,6 +637,27 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     return null;
   }
 
+  private applyGrantRevocations(request: ResourceExchangeRequest): ResourceExchangeRequest {
+    const now = this.now();
+    for (const [grantId, revoked] of this.revokedGrants) {
+      if (revoked.expiresAt !== null && Date.parse(revoked.expiresAt) <= now) {
+        this.revokedGrants.delete(grantId);
+      }
+    }
+    for (const grant of request.grants) {
+      const revoked = this.revokedGrants.get(grant.grantId);
+      if (!revoked) continue;
+      request.revokedGrants = mergeRevocations(request.revokedGrants, {
+        grantId: grant.grantId,
+        expiresAt: revoked.expiresAt,
+      });
+    }
+    request.grants = request.grants.filter(
+      (grant) => !this.revokedGrants.has(grant.grantId),
+    );
+    return request;
+  }
+
   private removeResourceExchange(
     requestId: string,
     pending: PendingResourceExchange,
@@ -590,6 +735,16 @@ function unavailable(): RuntimeProviderError {
     "RUNTIME_UNAVAILABLE",
     "No authenticated local connector is attached to this runtime binding",
   );
+}
+
+function mergeRevocations(
+  existing: ResourceExchangeRequest["revokedGrants"],
+  revoked: Readonly<{ grantId: string; expiresAt: string | null }>,
+): NonNullable<ResourceExchangeRequest["revokedGrants"]> {
+  return [
+    ...(existing ?? []).filter((item) => item.grantId !== revoked.grantId),
+    { ...revoked },
+  ].slice(-64);
 }
 
 function safeFailureMessage(code: RuntimeProviderError["code"]): string {

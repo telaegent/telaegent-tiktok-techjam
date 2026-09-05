@@ -42,6 +42,7 @@ const job: ConnectorJobRequest = {
 const exchange: ResourceExchangeRequest = {
   requestId: "exchange-1",
   taskId: "80000000-0000-4000-8000-000000000008",
+  taskExpiresAt: "2126-08-31T12:00:00.000Z",
   connectorBindingId: bindingId,
   peerUserId: "10000000-0000-4000-8000-00000000b002",
   requests: [{ kind: "resource", resourceId, reason: "the page imports it" }],
@@ -127,6 +128,52 @@ describe("routing a resource batch to the owning connector", () => {
       durationMs: 4,
     });
     await expect(completion).resolves.toMatchObject({ exitCode: 0 });
+  });
+
+  it("strips a grant revoked while its resource batch is queued", async () => {
+    const relay = relayWithBinding();
+    const answer = relay.exchangeResources(exchange);
+    relay.revokeCapabilityGrant({
+      grantId: exchange.grants[0]!.grantId,
+      resourceId,
+      expiresAt: "2126-08-31T12:00:00.000Z",
+    });
+
+    const delivery = await relay.poll(principal, bindingId, 0);
+    expect(delivery).toMatchObject({
+      kind: "resource_request",
+      request: {
+        grants: [],
+        revokedGrants: [{ grantId: exchange.grants[0]!.grantId }],
+      },
+    });
+    relay.completeResourceExchange(principal, exchange.requestId, {
+      requestId: exchange.requestId,
+      outcomes: [{ status: "refused" }],
+    });
+    await expect(answer).resolves.toEqual({
+      requestId: exchange.requestId,
+      outcomes: [{ status: "refused" }],
+    });
+  });
+
+  it("filters bytes returned by a lease that loses revocation mid-read", async () => {
+    const relay = relayWithBinding();
+    const answer = relay.exchangeResources(exchange);
+    await relay.poll(principal, bindingId, 0);
+
+    relay.revokeCapabilityGrant({
+      grantId: exchange.grants[0]!.grantId,
+      resourceId,
+      expiresAt: "2126-08-31T12:00:00.000Z",
+    });
+    expect(
+      relay.completeResourceExchange(principal, exchange.requestId, delivered),
+    ).toBe(true);
+    await expect(answer).resolves.toEqual({
+      requestId: exchange.requestId,
+      outcomes: [{ status: "refused" }],
+    });
   });
 
   it("refuses an answer whose outcomes do not line up with the requests", async () => {
