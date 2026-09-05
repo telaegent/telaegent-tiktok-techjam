@@ -380,6 +380,16 @@ export class AgentService {
   }
 
   /**
+   * Stops every local provider run this process owns. Call on shutdown.
+   *
+   * Only the legacy local playground builds a runner in the control plane; the
+   * cloud composition has none, and this is then a no-op.
+   */
+  async cancelLocalRuns(): Promise<void> {
+    await this.runtimeProviders.cancelAll();
+  }
+
+  /**
    * Cancels an active managed provider turn without stopping the Agent.
    * Authorization belongs at the owner-scoped coordinator/transport boundary;
    * this runtime primitive accepts only the already-bound Agent ID.

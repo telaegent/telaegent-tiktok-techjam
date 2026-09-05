@@ -193,6 +193,27 @@ async function main(): Promise<void> {
       },
     );
 
+    // Provider children are spawned into their own process group so a cancel
+    // can reach the whole tree. That same detachment means Ctrl-C no longer
+    // reaches them -- the signal goes to this CLI's group, which the provider
+    // is deliberately no longer in -- so quitting the connector would leave a
+    // provider CLI running against the owner's repository. Stop them here.
+    let stopping = false;
+    const stopLocalProviders = (signal: NodeJS.Signals): void => {
+      if (stopping) return;
+      stopping = true;
+      process.stderr.write(`TELAEGENT STOPPING (${signal})
+`);
+      void providers
+        .cancelAll()
+        .catch(() => undefined)
+        .finally(() => {
+          process.exit(0);
+        });
+    };
+    process.once("SIGINT", () => stopLocalProviders("SIGINT"));
+    process.once("SIGTERM", () => stopLocalProviders("SIGTERM"));
+
     const capabilities = await providers.capabilities();
     const selectedProviders = providerSelection === "auto"
       ? (["claude", "codex"] as const)
