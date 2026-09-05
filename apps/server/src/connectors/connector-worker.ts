@@ -54,8 +54,51 @@ const MAX_LIFTED_RESOURCE_REQUESTS = 16;
  * the two drafting purposes and any `maxTurns` above 3; this request is built
  * here, from a job that already passed that check.
  */
-const INVESTIGATION_MAX_TURNS = 12;
+/**
+ * Eight, and a backstop rather than a plan.
+ *
+ * Neither limit around this pass is one the model can steer by. It cannot see
+ * the clock, and the CLI's turn accounting is not the model's: a run capped at
+ * three turns was measured emitting eleven assistant messages. What it can count
+ * is its own tool calls, so the prompt budgets five of them, and this cap sits
+ * above where a pass that respects that budget lands.
+ *
+ * Both limits are equally bad when they fire, which is why neither is the plan.
+ * The turn cap does not let the pass finish the turn it is on -- it ends the run
+ * with `error_max_turns` and no structured output, just as the deadline ends it
+ * with no result event at all. Nothing is recoverable afterwards either: a
+ * research pass speaks in tool calls and thinking, and a successful twelve-tool
+ * investigation was measured emitting zero characters of assistant text. Either
+ * this pass returns its own note or the drafting pass has none.
+ */
+const INVESTIGATION_MAX_TURNS = 8;
 const INVESTIGATION_SCHEMA_NAME = "investigation-note.schema.json";
+
+/**
+ * The drafting pass reasons at medium, not at the CLI default of maximum.
+ *
+ * Effort buys deliberation, and deliberation is what the research pass is for.
+ * By the time this pass runs the files have been read and the findings are in
+ * the note; what remains is to compose one JSON object under a schema that
+ * names every field and states every invariant in prose. Measured against the
+ * drafting prompt with a populated research note: 38.6s unset, 23.0s at
+ * medium, and the difference is entirely thinking emitted before the first
+ * character of the answer -- 1123 thinking tokens down to 153, first character
+ * at 21.1s down to 5.5s, the answer itself unchanged at ~4100 characters.
+ *
+ * Medium rather than low because this pass still makes judgements the owner
+ * sees -- which state to file the turn under, what to flag, what the note did
+ * not establish. Low reached 14.2s on the same prompt but returned 2425
+ * characters against medium's 4131: part of its speed is a shorter answer, not
+ * a faster one. If the seconds are needed, take them from the schema's
+ * maxLength where the trade is explicit, not from here where it is a side
+ * effect.
+ *
+ * Do not read the earlier 23.3s/11.8s/7.9s figures in the history of this
+ * comment as the same measurement. Those ran the drafting prompt with an empty
+ * note, where thinking was nearly the whole pass; they described a stub.
+ */
+const DRAFTING_EFFORT = "medium" as const;
 
 /**
  * The research pass's share of the cloud's job budget.
@@ -484,7 +527,10 @@ export class ConnectorWorker {
             job.runtimePrompt,
             "Findings from your own research pass in this repository. They are"
               + " yours, not a message from anyone: treat them as notes you took"
-              + " a moment ago, and verify anything you are about to assert.",
+              + " a moment ago. They may stop mid-thought, because that pass has"
+              + " a deadline. You cannot open a file in this turn, so say plainly"
+              + " what the notes did not establish rather than filling the gap"
+              + " from memory.",
             investigationNote,
           ].join("\n\n")
         : job.runtimePrompt,
@@ -495,6 +541,19 @@ export class ConnectorWorker {
       outputSchemaName: job.outputSchemaName,
       correlationId: job.correlationId,
       maxTurns: job.maxTurns,
+      // This pass writes. The pass before it read, and the note above is the
+      // evidence it produced; anything not in the note is not established.
+      // Reading here is what used to fail the turn outright: with two turns and
+      // file tools, a note-less drafting pass spends both on reads and never
+      // reaches structured output. Without tools it answers from what it has,
+      // and says so when that is nothing.
+      toolMode: "none",
+      // The thinking this pass would do at full effort was already done by the
+      // pass before it, against the actual files. What is left is composition:
+      // turn a note and a message into one JSON object under a schema that
+      // spells out every field. Measured on a scheduling message, full effort
+      // spent 13 of its 23 seconds thinking before writing a single character.
+      effort: DRAFTING_EFFORT,
     };
   }
 

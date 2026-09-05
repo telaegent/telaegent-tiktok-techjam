@@ -16,6 +16,7 @@ import type { ConnectorDelivery } from "./long-poll-job-relay.js";
 import type { ResourceExchangeResponse } from "./resource-exchange.js";
 
 const workspacePath = path.resolve("/repo");
+const SYNTHETIC_PROGRESS_SECRET = ["sk", "live", "1234"].join("-");
 
 const binding = {
   connectorBindingId: "50000000-0000-4000-8000-000000000005",
@@ -136,7 +137,11 @@ describe("activity target containment", () => {
           activity: "tool",
           target: path.join(workspacePath, "..", "other", "a.ts"),
         });
-        onProgress?.({ type: "text_delta", provider: "claude", text: "sk-live-1234" });
+        onProgress?.({
+          type: "text_delta",
+          provider: "claude",
+          text: SYNTHETIC_PROGRESS_SECRET,
+        });
         onProgress?.({ type: "turn_completed", provider: "claude" });
         return ok(draftFinal);
       }),
@@ -159,7 +164,9 @@ describe("activity target containment", () => {
       { type: "activity_started", provider: "claude", activity: "tool" },
       { type: "activity_started", provider: "claude", activity: "tool" },
     ]);
-    expect(JSON.stringify(transport.progressEvents)).not.toContain("sk-live-1234");
+    expect(JSON.stringify(transport.progressEvents)).not.toContain(
+      SYNTHETIC_PROGRESS_SECRET,
+    );
     expect(JSON.stringify(transport.progressEvents)).not.toContain(".aws");
     expect(transport.progressEvents.some((event) => event.type === "turn_completed")).toBe(
       true,
@@ -201,7 +208,7 @@ describe("two-pass private turn", () => {
       sandboxMode: "read-only",
       networkMode: "none",
       purpose: "recipient_answer",
-      maxTurns: 12,
+      maxTurns: 8,
     });
     expect(requests[1]).toMatchObject({
       outputSchemaName: "recipient-turn.schema.json",
@@ -211,6 +218,35 @@ describe("two-pass private turn", () => {
     });
     // The draft went through the session store; the investigation did not.
     expect(requests[1]?.sessionMode).not.toBe("ephemeral");
+  });
+
+  it("gives the research pass tools and the drafting pass none", async () => {
+    const { worker, requests } = twoPassWorker(byPass);
+    await worker.runOnce();
+
+    // The split is the whole point of two passes: one reads, one writes. A
+    // drafting pass that can read will read, and with two turns it then has
+    // none left to return structured output.
+    expect(requests[0]?.toolMode).not.toBe("none");
+    expect(requests[1]?.toolMode).toBe("none");
+  });
+
+  it("still drafts, without tools, when the research pass returns no note", async () => {
+    // The degradation path. It used to end the turn in RUNTIME_FAILED: an empty
+    // note sent a tool-equipped drafting pass off to read the repository itself,
+    // and it exhausted its two turns before reaching structured output.
+    const { worker, transport, requests } = twoPassWorker(async (request) =>
+      request.outputSchemaName === "investigation-note.schema.json"
+        ? ok({ note: "" })
+        : ok(draftFinal),
+    );
+    await worker.runOnce();
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.toolMode).toBe("none");
+    expect(requests[1]?.runtimePrompt).toContain("How does session refresh work?");
+    expect(transport.results).toHaveLength(1);
+    expect(transport.failures).toEqual([]);
   });
 
   it("feeds the note into the drafting prompt", async () => {

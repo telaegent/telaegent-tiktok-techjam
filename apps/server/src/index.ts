@@ -214,7 +214,21 @@ if (config.telaegentIdentityProvider === "github") {
       connector: relay,
       memoryProfile: config.agentMemoryV2 ? "continuity-v2" : "baseline",
       policy: {
-        maxTurns: 2,
+        // Three, because two leaves the drafting pass no slack at all.
+        //
+        // With no file tools the pass has exactly one tool it can call, and a
+        // successful turn already spends two: one message that calls
+        // StructuredOutput, one that acknowledges the call. Anything that adds
+        // a third -- a schema retry, a self-correction, a stray paragraph -- ends
+        // the run with `error_max_turns` and no structured output, which the
+        // runner classifies as a provider failure and the owner sees as
+        // RUNTIME_FAILED. Measured: the recipient drafting pass used both of its
+        // two turns on every run and failed the one time it wanted a third.
+        //
+        // The connector job schema still caps this at 3
+        // (`connector-worker.ts`), so this raises the policy to the existing
+        // ceiling rather than moving it.
+        maxTurns: 3,
         maximumRuntimePromptBytes: 1_048_576,
         maximumPersistedSummaryBytes: 524_288,
       },
