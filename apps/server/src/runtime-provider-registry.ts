@@ -207,6 +207,22 @@ export class RuntimeProviderRegistry {
     return results.some(Boolean);
   }
 
+  /**
+   * Stops every run every registered runner owns. Call on shutdown.
+   *
+   * Local provider children are spawned into their own process group so a
+   * cancel reaches the whole tree; that same detachment means a terminal
+   * Ctrl-C no longer reaches them, so they must be stopped explicitly or they
+   * keep running against the owner's repository after the process quits.
+   */
+  async cancelAll(): Promise<void> {
+    await Promise.all(
+      [...this.runners.values()].map((runner) =>
+        runner.cancelAll?.().catch(() => undefined) ?? Promise.resolve(),
+      ),
+    );
+  }
+
   async capabilities(): Promise<RuntimeCapabilities> {
     const entries = await Promise.all(
       (["codex", "claude"] as const).map(async (provider) => {

@@ -22,7 +22,7 @@ import {
 } from "./runtime-errors.js";
 import {
   processTreeSpawnOptions,
-  terminateProcessTreeGracefully,
+  terminateProcessTree,
 } from "./process-tree.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import {
@@ -468,6 +468,23 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     return true;
   }
 
+  /**
+   * Stops every run this process owns. Call on shutdown.
+   *
+   * Children are spawned into their own process group so cancellation can
+   * reach the whole tree, and that same detachment means a terminal Ctrl-C no
+   * longer reaches them: the signal goes to the server's group, which the
+   * provider is deliberately no longer in. Without this, quitting the server
+   * left a provider CLI running against the owner's repository.
+   */
+  async cancelAll(): Promise<void> {
+    await Promise.all(
+      [...this.active.keys()].map((agentId) =>
+        this.cancel(agentId).catch(() => false),
+      ),
+    );
+  }
+
   async run(request: RunnerRequest): Promise<RunnerResult> {
     const result = await this.runProcess({
       agentId: request.agentId,
@@ -709,8 +726,16 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
 
   private terminate(active: ActiveCodexProcess): void {
     if (active.child.exitCode !== null || active.child.signalCode !== null) return;
+    // Re-signalling on a repeated call is intentional and predates the tree
+    // kill; only the escalation timer is armed once.
+    if (!terminateProcessTree(active.child, "SIGTERM")) active.child.kill("SIGTERM");
     if (!active.forceKillTimer) {
-      active.forceKillTimer = terminateProcessTreeGracefully(active.child, 3_000);
+      active.forceKillTimer = setTimeout(() => {
+        if (!terminateProcessTree(active.child, "SIGKILL")) {
+          active.child.kill("SIGKILL");
+        }
+      }, 3_000);
+      active.forceKillTimer.unref();
     }
   }
 

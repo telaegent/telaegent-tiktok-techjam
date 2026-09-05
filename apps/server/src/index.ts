@@ -257,6 +257,11 @@ const app = await createApp(
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");
   await app.close();
+  // Only the legacy local playground constructs a provider runner in this
+  // process; the cloud control plane never does. When one exists its children
+  // are in their own process group and no longer receive this signal, so they
+  // have to be stopped explicitly rather than left running.
+  await service?.cancelLocalRuns();
   process.exit(0);
 };
 

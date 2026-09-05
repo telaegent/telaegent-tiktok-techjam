@@ -68,21 +68,3 @@ export function terminateProcessTree(
     return false;
   }
 }
-
-/**
- * Escalating termination: ask the tree to stop, then force it.
- *
- * Returns the force timer so a caller that settles first can clear it. The
- * timer is unref'd so a pending force kill never holds the process open.
- */
-export function terminateProcessTreeGracefully(
-  child: ChildProcess,
-  forceAfterMs: number,
-): NodeJS.Timeout {
-  if (!terminateProcessTree(child, "SIGTERM")) child.kill("SIGTERM");
-  const timer = setTimeout(() => {
-    if (!terminateProcessTree(child, "SIGKILL")) child.kill("SIGKILL");
-  }, forceAfterMs);
-  timer.unref();
-  return timer;
-}

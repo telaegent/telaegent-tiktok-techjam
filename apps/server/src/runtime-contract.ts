@@ -178,6 +178,13 @@ export interface MiddlewareProviderRunner {
     signal?: AbortSignal,
   ): Promise<NormalizedRunResult>;
   cancel(agentId: string): Promise<boolean>;
+  /**
+   * Stops every run this runner owns, for shutdown.
+   *
+   * Optional: a runner whose children are not detached from this process's
+   * group already receives the terminal's signal and needs nothing here.
+   */
+  cancelAll?(): Promise<void>;
   capability(): Promise<RuntimeProviderCapability>;
 }
 
