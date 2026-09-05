@@ -277,6 +277,75 @@ describe("AuthorizedProtocolTurnService", () => {
     );
   });
 
+  /**
+   * Cancel/No has to reach the machine actually running the turn.
+   *
+   * Production composes this factory, and it used to build the coordinator with
+   * no canceller at all. Every Cancel on a running draft therefore failed
+   * closed: the coordinator returned false without asking anyone, and the owner
+   * could not stop an agent already reading their repository.
+   */
+  it("lets the owner cancel a running cloud turn through the connector", async () => {
+    const cancelled: string[] = [];
+    let release: (() => void) | undefined;
+    const connector: ConnectorJobRelay = {
+      async dispatch(job) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return {
+          provider: job.provider,
+          final: { state: "ready" },
+          changedFiles: [],
+          exitCode: 0,
+          durationMs: 1,
+        };
+      },
+      async cancel(connectorBindingId) {
+        cancelled.push(connectorBindingId);
+        return true;
+      },
+    };
+    const runtime = createAuthorizedProtocolTurnRuntime({
+      authorizer: fakeAuthorizer(),
+      loadContext: async () => durableContext(),
+      connector,
+      policy: POLICY,
+    });
+
+    const started = await runtime.turns.start({
+      authorization: AUTHORIZATION,
+      provider: "claude",
+      role: "recipient",
+      correlationId: "corr-1",
+    });
+    // The turn only becomes cancellable once it is running, which the executor
+    // reports as it hands the job to the relay.
+    await expect
+      .poll(() =>
+        runtime.coordinator.status(started.turnId, {
+          userId: AUTHORIZATION.authenticatedUserId,
+          githubRepositoryId: AUTHORIZATION.githubRepositoryId,
+          conversationId: AUTHORIZATION.conversationId,
+        })?.state,
+      )
+      .toBe("running");
+
+    await expect(
+      runtime.coordinator.cancel(started.turnId, {
+        userId: AUTHORIZATION.authenticatedUserId,
+        githubRepositoryId: AUTHORIZATION.githubRepositoryId,
+        conversationId: AUTHORIZATION.conversationId,
+      }),
+    ).resolves.toBe(true);
+    // Addressed by binding, so the cancellation reaches exactly the connector
+    // holding that repository and no other.
+    expect(cancelled).toEqual(["binding-1"]);
+
+    release?.();
+    await started.completion;
+  });
+
   it("threads the opt-in continuity memory profile into cloud-built prompts", async () => {
     const jobs: ConnectorJobRequest[] = [];
     const connector: ConnectorJobRelay = {

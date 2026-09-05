@@ -83,6 +83,17 @@ export class ConversationService {
   private readonly createId: () => string;
   private readonly createTurnId: () => string;
   private readonly followUp: PrivateDraftFollowUp | undefined;
+  /**
+   * Draft ID to the runtime turn currently executing for it.
+   *
+   * The draft keeps the turn identifier it claimed when it started running, so
+   * an owner still sees one turn. Each follow-up round is a separate runtime
+   * turn with its own identifier, and cancelling has to reach the round that is
+   * actually running: cancelling the first round's identifier once round two
+   * has begun stops nothing, because the coordinator no longer tracks it as
+   * running. This map is process-local, matching the coordinator it addresses.
+   */
+  private readonly activeRuntimeTurns = new Map<string, string>();
 
   constructor(
     private readonly repository: ConversationRepository,
@@ -227,6 +238,7 @@ export class ConversationService {
       throw error;
     }
 
+    this.activeRuntimeTurns.set(draft.draftId, turnId);
     void this.settleTurn(draft, turnId, started.completion);
     return toPrivateDraftView(running);
   }
@@ -262,8 +274,11 @@ export class ConversationService {
 
     if (draft.state === "agent_working") {
       if (!draft.turnId) throw new HttpError(409, "Private draft cannot be cancelled");
+      // The round that is running now, which is the first turn until a
+      // follow-up round replaces it.
+      const runtimeTurnId = this.activeRuntimeTurns.get(draftId) ?? draft.turnId;
       const cancelled = await this.runtime.cancel({
-        turnId: draft.turnId,
+        turnId: runtimeTurnId,
         authenticatedUserId,
         githubRepositoryId: draft.githubRepositoryId,
         conversationId: draft.conversationId,
@@ -420,6 +435,9 @@ export class ConversationService {
         correlationId: draft.draftId,
         deliveredResources: delivered,
       });
+      // Cancellation has to follow the work, so point it at this round before
+      // awaiting it. The draft's own turn identifier never changes.
+      this.activeRuntimeTurns.set(draft.draftId, started.turnId);
       result = await started.completion;
     }
     return result;
@@ -444,6 +462,11 @@ export class ConversationService {
         // this through its own safe audit/alerting path; never create an
         // unhandled rejection containing infrastructure details.
       }
+    } finally {
+      // The draft has reached a terminal state either way, so nothing is left
+      // to cancel. Clearing the entry keeps this map bounded by the drafts
+      // currently running rather than by every draft the process has seen.
+      this.activeRuntimeTurns.delete(draftId);
     }
   }
 
