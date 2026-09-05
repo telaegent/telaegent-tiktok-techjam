@@ -41,6 +41,16 @@ export type ConnectorSetupPollOutcome =
     }>
   | Readonly<{ kind: "ready" }>;
 
+/**
+ * Returns a new attempt identity so a React polling effect can restart without
+ * replacing the connector installation or its already-issued credential.
+ */
+export function restartConnectorSetupPolling<T extends object>(
+  attempt: T | null,
+): T | null {
+  return attempt === null ? null : { ...attempt };
+}
+
 /** Returns null once a pairing is unusable; otherwise the next bounded delay. */
 export function nextPairingPollDelay(
   expiresAt: string,

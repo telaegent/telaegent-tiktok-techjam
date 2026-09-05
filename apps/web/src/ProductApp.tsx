@@ -46,6 +46,7 @@ import {
   ConnectorSetupPollTracker,
   connectorSetupPhase,
   nextPairingPollDelay,
+  restartConnectorSetupPolling,
 } from "./pairing-expiry";
 import {
   connectorPresence,
@@ -96,6 +97,15 @@ function connectorSetupTimedOutError(): ApiError {
     "Automatic setup checks timed out. Keep the connector running and check again, or generate a new command if it exited.",
     408,
     "CONNECTOR_SETUP_TIMED_OUT",
+    true,
+  );
+}
+
+function connectorNotReadyError(): ApiError {
+  return new ApiError(
+    "The connector has not finished verifying this repository yet. Keep it running and check again.",
+    409,
+    "CONNECTOR_NOT_READY",
     true,
   );
 }
@@ -386,6 +396,8 @@ function Onboarding({
       }
       if (setupPhase === "verifying") {
         setConnectorPairing(null);
+        setConnectorAttempt(restartConnectorSetupPolling);
+        setConnectorError(connectorNotReadyError());
         return;
       }
       if (setupPhase !== "ready") {
@@ -395,12 +407,7 @@ function Onboarding({
         ) {
           throw pairingExpiredError();
         }
-        throw new ApiError(
-          "The connector has not finished verifying this repository yet. Keep it running and check again.",
-          409,
-          "CONNECTOR_NOT_READY",
-          true,
-        );
+        throw connectorNotReadyError();
       }
       // Remove the already-consumed pairing code from React state as soon as
       // onboarding no longer needs to render it.
@@ -459,7 +466,9 @@ function Onboarding({
       if (outcome.credentialObserved) {
         setConnectorPairing(null);
         setConnectorCommandCopied(false);
-        setConnectorError(null);
+        setConnectorError((current) =>
+          current?.code === "CONNECTOR_NOT_READY" ? current : null,
+        );
       }
       timer = window.setTimeout(() => void poll(), outcome.delayMs);
     };
@@ -1116,6 +1125,8 @@ function AddProjectScreen({
       }
       if (setupPhase === "verifying") {
         setPairing(null);
+        setConnectorAttempt(restartConnectorSetupPolling);
+        setError(connectorNotReadyError());
         return;
       }
       if (setupPhase !== "ready") {
@@ -1125,12 +1136,7 @@ function AddProjectScreen({
         ) {
           throw pairingExpiredError();
         }
-        throw new ApiError(
-          "The connector has not finished verifying this repository yet. Keep it running and check again.",
-          409,
-          "CONNECTOR_NOT_READY",
-          true,
-        );
+        throw connectorNotReadyError();
       }
       setPairing(null);
       setConnectorAttempt(null);
@@ -1185,7 +1191,9 @@ function AddProjectScreen({
       if (outcome.credentialObserved) {
         setPairing(null);
         setCopied(false);
-        setError(null);
+        setError((current) =>
+          current?.code === "CONNECTOR_NOT_READY" ? current : null,
+        );
       }
       timer = window.setTimeout(() => void poll(), outcome.delayMs);
     };

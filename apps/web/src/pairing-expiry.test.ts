@@ -7,11 +7,27 @@ import {
   ConnectorSetupPollTracker,
   connectorSetupPhase,
   nextPairingPollDelay,
+  restartConnectorSetupPolling,
   type ConnectorSetupSnapshot,
 } from "./pairing-expiry";
 
 const pairingExpiresAt = "2026-09-04T12:05:00.000Z";
 const pairingExpiresMs = Date.parse(pairingExpiresAt);
+
+describe("restartConnectorSetupPolling", () => {
+  it("keeps the connector attempt but gives the polling effect a new identity", () => {
+    const attempt = {
+      connectorInstanceId: "connector_instance_0001",
+      expiresAt: pairingExpiresAt,
+    };
+
+    const restarted = restartConnectorSetupPolling(attempt);
+
+    expect(restarted).toEqual(attempt);
+    expect(restarted).not.toBe(attempt);
+    expect(restartConnectorSetupPolling(null)).toBeNull();
+  });
+});
 
 function snapshot(
   overrides: Partial<ConnectorSetupSnapshot> = {},
