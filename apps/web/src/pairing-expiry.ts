@@ -54,6 +54,8 @@ export function nextPairingPollDelay(
 /** Maps the browser-safe status across pairing, credential, and ready states. */
 export function connectorSetupPhase(
   connector: ConnectorSetupSnapshot,
+  observedCredential: ConnectorCredentialLease | null = null,
+  nowMs = Date.now(),
 ): ConnectorSetupPhase {
   if (
     connector.credential !== null &&
@@ -74,6 +76,13 @@ export function connectorSetupPhase(
     return "ready";
   }
   if (connector.credential?.status === "active") return "verifying";
+  if (
+    observedCredential?.status === "active" &&
+    Number.isFinite(Date.parse(observedCredential.expiresAt)) &&
+    Date.parse(observedCredential.expiresAt) > nowMs
+  ) {
+    return "verifying";
+  }
   return "not_exchanged";
 }
 
@@ -87,11 +96,19 @@ export function connectorSetupPhase(
  * deadline.
  */
 export class ConnectorSetupPollTracker {
-  private credential: ConnectorCredentialLease | null = null;
-  private credentialObservedAtMs: number | null = null;
+  private credential: ConnectorCredentialLease | null;
+  private credentialObservedAtMs: number | null;
   private activeCredentialPolls = 0;
 
-  constructor(private readonly pairingExpiresAt: string) {}
+  constructor(
+    private readonly pairingExpiresAt: string,
+    credential: ConnectorCredentialLease | null = null,
+    now: () => number = Date.now,
+  ) {
+    this.credential = credential;
+    this.credentialObservedAtMs =
+      credential?.status === "active" ? now() : null;
+  }
 
   async check(
     loadStatus: () => Promise<ConnectorSetupSnapshot>,
@@ -100,7 +117,11 @@ export class ConnectorSetupPollTracker {
     try {
       const connector = await loadStatus();
       const checkedAtMs = now();
-      const phase = connectorSetupPhase(connector);
+      const phase = connectorSetupPhase(
+        connector,
+        this.credential,
+        checkedAtMs,
+      );
       if (phase === "ready") return { kind: "ready" };
       if (phase === "credential_inactive") {
         return { kind: "stop", reason: "credential_inactive" };

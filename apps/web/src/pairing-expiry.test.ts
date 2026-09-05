@@ -60,6 +60,20 @@ describe("connectorSetupPhase", () => {
     ).toBe("verifying");
   });
 
+  it("uses an unexpired observed credential when a later snapshot is null", () => {
+    const observed = activeCredential("2026-09-04T13:00:00.000Z");
+    const now = Date.parse("2026-09-04T12:30:00.000Z");
+
+    expect(connectorSetupPhase(snapshot(), observed, now)).toBe("verifying");
+    expect(
+      connectorSetupPhase(
+        snapshot(),
+        activeCredential("2026-09-04T12:30:00.000Z"),
+        now,
+      ),
+    ).toBe("not_exchanged");
+  });
+
   it("recognizes ready and explicitly inactive connectors", () => {
     expect(
       connectorSetupPhase(
@@ -156,6 +170,26 @@ describe("ConnectorSetupPollTracker", () => {
     ).resolves.toEqual({
       kind: "wait",
       delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS * 2,
+      credentialObserved: true,
+    });
+  });
+
+  it("seeds a restarted tracker with the credential already observed manually", async () => {
+    const restartedAt = pairingExpiresMs + CONNECTOR_SETUP_POLL_WINDOW_MS;
+    const tracker = new ConnectorSetupPollTracker(
+      pairingExpiresAt,
+      activeCredential("2026-09-20T00:00:00.000Z"),
+      () => restartedAt,
+    );
+    const loadStatus = vi.fn(async () => {
+      throw new Error("temporary outage after manual check");
+    });
+
+    await expect(
+      tracker.check(loadStatus, () => restartedAt + 1),
+    ).resolves.toEqual({
+      kind: "wait",
+      delayMs: CONNECTOR_PAIRING_POLL_INTERVAL_MS,
       credentialObserved: true,
     });
   });
