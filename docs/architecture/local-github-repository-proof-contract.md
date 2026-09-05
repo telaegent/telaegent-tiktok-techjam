@@ -1,9 +1,7 @@
 # Local GitHub Repository Proof Contract
 
-**Status:** cloud ingestion, persistence, and independent public-repository
-verification implemented. Private/internal repository verification remains a
-closed gate until the product has a GitHub-trusted witness that does not put a
-developer credential in cloud custody.
+**Status:** cloud ingestion and persistence of authenticated local GitHub
+repository proofs implemented for public, private, and internal repositories.
 
 ## Purpose and ownership
 
@@ -17,8 +15,6 @@ Telaegent website GitHub identity
 authenticated outbound connector principal (user + connector instance)
         +
 safe local gh/git repository observation
-        +
-independent GitHub API verification (public repositories)
         ↓
 atomic repository proof RPC
         ↓
@@ -74,20 +70,18 @@ The local connector should construct the request from parsed, allowlisted
 fields. It must not upload raw `gh auth status`, `gh api`, `git remote`, or
 process output.
 
-The request is an assertion, not proof by itself. Before calling the atomic
-registration RPC, the control plane independently loads the asserted GitHub
-user and public repository from `api.github.com`, compares their numeric IDs
-and names, verifies public visibility, and replaces the connector's claimed
-permission with the independently justified `read` permission. A mismatch or
-404 creates no membership. GitHub/network/rate-limit failures fail temporarily
-closed.
+The request is an attestation from an authenticated local connector, not an
+arbitrary browser assertion. The connector constructs it from allowlisted,
+parsed `gh api` and `git` results on the developer's machine. Before calling
+the atomic registration RPC, the control plane checks that the proof's GitHub
+numeric user ID is the one linked to the authenticated Telaegent account. The
+RPC repeats that identity check and validates freshness, stable repository
+scope, revocation state, and replay state before creating membership.
 
-Anonymous GitHub API access cannot prove a particular user's private or
-internal repository access. The current implementation therefore rejects
-those registrations with `REPOSITORY_PROOF_UNVERIFIED`; it does not silently
-fall back to trusting the connector. Supporting them requires a separately
-approved GitHub App or another GitHub-verifiable one-time proof while retaining
-the rule that user credentials are never stored by Telaegent cloud.
+This contract is identical for public, private, and internal repositories.
+Telaegent does not send a second anonymous request to `api.github.com`: such a
+request cannot prove private access, introduces a deployment-wide shared-IP
+quota, and would contradict the canonical local-GitHub authorization flow.
 
 ## Atomic authorization result
 
@@ -109,8 +103,9 @@ the rule that user credentials are never stored by Telaegent cloud.
 ```
 
 Before any mutation, the transaction locks and validates all existing state.
-The service reaches this transaction only after the external verification
-above succeeds. It requires:
+The service reaches this transaction only after connector authentication,
+strict proof parsing, freshness validation, and the identity preflight above.
+It requires:
 
 - an active Telaegent account;
 - the local stable GitHub user ID to equal the account's website-verified
@@ -217,5 +212,5 @@ private draft.
 - local `gh`/`git` parsing implementation and controlled live experiments;
 - safe repository metadata refresh and branch/worktree policy;
 - retention/pruning policy for accepted proof idempotency records.
-- a GitHub-trusted, no-user-credential-custody verifier for private/internal
-  repositories; until it exists those repository registrations fail closed.
+- controlled live experiments covering private, internal, organization, and
+  collaborator-not-owner repositories.

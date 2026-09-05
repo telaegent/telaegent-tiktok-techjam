@@ -41,7 +41,7 @@ test("the packaged CLI accepts a one-time pairing code without a connector beare
     ]),
     {
       workspaceCandidate: ".",
-      provider: "auto",
+      provider: "choose",
       probeOnly: false,
       serverOrigin: "https://telaegent.live",
       pairingCode: "pairing-code",

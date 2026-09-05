@@ -29,7 +29,6 @@ import type { ConnectorTransportRouteDependencies } from "./connectors/routes.js
 import type { RepositoryProofRouteDependencies } from "./repository-proof/routes.js";
 import { RepositoryProofService } from "./repository-proof/service.js";
 import { SupabaseRepositoryProofRepository } from "./repository-proof/supabase-repository.js";
-import { GitHubPublicRepositoryProofVerifier } from "./repository-proof/verifier.js";
 import { createConfiguredAuthorizationRepository } from "./authorization/authorization-repository-factory.js";
 import { PrivateRuntimeAuthorizationService } from "./authorization/private-runtime-authorization.js";
 import { REPOSITORY_ACCESS_MAX_AGE_MS } from "./repository-proof/lifetime.js";
@@ -156,7 +155,6 @@ if (config.telaegentIdentityProvider === "github") {
         config.supabaseSecretKey,
         config.githubOAuthTimeoutMs,
       ),
-      new GitHubPublicRepositoryProofVerifier(config.githubOAuthTimeoutMs),
     ),
     resolveConnectorPrincipal,
     onBindingRegistered: (principal, connectorBindingId, githubRepositoryId) => {

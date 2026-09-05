@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { AgentProvider } from "../runtime-contract.js";
 
-export type ConnectorProviderSelection = AgentProvider | "auto";
+export type ConnectorProviderSelection = AgentProvider | "auto" | "choose";
 
 export interface ConnectorCliOptions {
   workspaceCandidate: string;
@@ -13,7 +13,7 @@ export interface ConnectorCliOptions {
   pairingCode?: string;
 }
 
-const providerSchema = z.enum(["auto", "codex", "claude"]);
+const providerSchema = z.enum(["choose", "auto", "codex", "claude"]);
 
 /** Parse only local operator input; provider selection is never cloud-controlled. */
 export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliOptions {
@@ -21,7 +21,7 @@ export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliO
 
   let workspaceCandidate = ".";
   let workspaceSeen = false;
-  let provider: ConnectorProviderSelection = "auto";
+  let provider: ConnectorProviderSelection = "choose";
   let probeOnly = false;
   let serverOrigin: string | undefined;
   let connectorInstanceId: string | undefined;
@@ -86,6 +86,6 @@ function requiredOptionValue(argv: readonly string[], index: number): string {
 
 function usageError(): Error {
   return new Error(
-    "Usage: telaegent connect [workspace] [--url origin] [--pair code | --instance-id id --credential bearer] [--provider auto|codex|claude] [--probe-only]",
+    "Usage: telaegent connect [workspace] [--url origin] [--pair code | --instance-id id --credential bearer] [--provider choose|auto|codex|claude] [--probe-only]",
   );
 }

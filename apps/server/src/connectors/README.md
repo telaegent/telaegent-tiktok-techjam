@@ -45,7 +45,7 @@ legacy shared API token is not connector authentication.
 4. Run the cross-platform command rendered by the browser:
 
    ```text
-   npx --yes @telaegent/connector@0.1.11 connect . --url ORIGIN --pair ONE_TIME_CODE
+   npx --yes @telaegent/connector@0.1.15 connect . --url ORIGIN --pair ONE_TIME_CODE
    ```
 
 The npm artifact is built from the canonical compiled connector with
@@ -53,10 +53,13 @@ The npm artifact is built from the canonical compiled connector with
 source-checkout developer may continue to put the three values in the ignored
 `connector.env` and run `npm run connector:connect -- connect .`.
 
-Use `--provider codex` or `--provider claude` to allow only one locally chosen
-provider for this connector process. The default, `--provider auto`, allows all
-locally authenticated providers; a cloud job still names its provider
-explicitly and the connector never silently substitutes another one.
+By default, the connector detects locally authenticated providers before it
+consumes the pairing code. It automatically selects the only available
+provider, or asks the local operator to choose Claude Code, Codex, or both when
+both are ready. Use `--provider codex` or `--provider claude` to make the choice
+directly. `--provider auto` allows every locally authenticated provider without
+an interactive choice. A cloud job still names its provider explicitly and the
+connector never silently substitutes another one.
 Add `--probe-only` to exercise the real repository/provider/relay path and exit
 after `TELAEGENT LIVE READINESS VERIFIED`; unlike the static `npm run doctor`,
 this may spend a provider call.
