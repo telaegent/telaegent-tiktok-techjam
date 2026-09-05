@@ -433,3 +433,87 @@ describe("a draft left running by a restart", () => {
     });
   });
 });
+
+/**
+ * Rejecting a draft erases what the owner typed into it.
+ *
+ * A private draft holds the rawest input in the product -- the rough message,
+ * the owner's steering, and the clarification transcript -- and none of it is
+ * redacted on the way in, deliberately: it is private-side content that has
+ * crossed no boundary. Cancelling used to clear only the send candidate, so a
+ * draft an owner rejected *because* they had pasted a credential into it kept
+ * that credential in the row indefinitely.
+ */
+describe("rejecting a draft", () => {
+  it("erases the owner's input, not just the candidate", async () => {
+    const repository = new InMemoryConversationRepository();
+    const service = new ConversationService(
+      repository,
+      { async authorize() {} },
+      {
+        async start() {
+          throw new Error("not started");
+        },
+        async cancel() {
+          return true;
+        },
+      },
+      { now: () => new Date("2026-08-31T12:00:00.000Z"), createId: () => DRAFT },
+    );
+
+    const secret = "pat_ghp_ExampleTokenPastedByMistake";
+    await service.createDraft({
+      authenticatedUserId: OWNER,
+      githubRepositoryId: REPOSITORY,
+      conversationId: CONVERSATION,
+      provider: "codex",
+      roughMessage: `ask about ${secret}`,
+    });
+
+    await service.cancelDraft(OWNER, DRAFT);
+
+    const cancelled = await service.getDraft(OWNER, DRAFT);
+    expect(cancelled.state).toBe("cancelled");
+    expect(cancelled.roughMessage).toBeNull();
+    expect(cancelled.privateTurns).toEqual([]);
+    expect(cancelled.privateMessage).toBeNull();
+    expect(cancelled.sendCandidate).toBeNull();
+    // The whole record, so a field added later cannot quietly reintroduce it.
+    expect(JSON.stringify(cancelled)).not.toContain(secret);
+  });
+
+  it("keeps the draft's identity and audit timestamps", async () => {
+    const repository = new InMemoryConversationRepository();
+    const service = new ConversationService(
+      repository,
+      { async authorize() {} },
+      {
+        async start() {
+          throw new Error("not started");
+        },
+        async cancel() {
+          return true;
+        },
+      },
+      { now: () => new Date("2026-08-31T12:00:00.000Z"), createId: () => DRAFT },
+    );
+
+    await service.createDraft({
+      authenticatedUserId: OWNER,
+      githubRepositoryId: REPOSITORY,
+      conversationId: CONVERSATION,
+      provider: "codex",
+      roughMessage: "ask about rotation",
+    });
+    await service.cancelDraft(OWNER, DRAFT);
+
+    // Purging content is not deleting the row: the draft still exists, still
+    // belongs to its owner, and still says when it was created.
+    await expect(service.getDraft(OWNER, DRAFT)).resolves.toMatchObject({
+      draftId: DRAFT,
+      conversationId: CONVERSATION,
+      createdAt: "2026-08-31T12:00:00.000Z",
+      state: "cancelled",
+    });
+  });
+});
