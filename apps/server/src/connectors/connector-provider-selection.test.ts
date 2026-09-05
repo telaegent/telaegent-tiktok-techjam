@@ -3,7 +3,10 @@ import type {
   RuntimeCapabilities,
   RuntimeProviderCapability,
 } from "../runtime-contract.js";
-import { selectConnectorProviders } from "./connector-provider-selection.js";
+import {
+  connectorProviderCandidates,
+  selectConnectorProviders,
+} from "./connector-provider-selection.js";
 
 const connected: RuntimeProviderCapability = {
   installed: true,
@@ -29,6 +32,15 @@ function capabilities(
 }
 
 describe("connector provider selection", () => {
+  it.each([
+    ["claude", ["claude"]],
+    ["codex", ["codex"]],
+    ["choose", ["claude", "codex"]],
+    ["auto", ["claude", "codex"]],
+  ] as const)("only detects provider candidates allowed by %s", (selection, expected) => {
+    expect(connectorProviderCandidates(selection)).toEqual(expected);
+  });
+
   it.each([
     ["claude", connected, missing],
     ["codex", missing, connected],

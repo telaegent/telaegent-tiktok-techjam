@@ -8,6 +8,15 @@ import type { ConnectorProviderSelection } from "./connector-cli-options.js";
 
 const providerOrder = ["claude", "codex"] as const;
 
+/** Keep an explicit local choice from even probing the unselected executable. */
+export function connectorProviderCandidates(
+  selection: ConnectorProviderSelection,
+): readonly AgentProvider[] {
+  return selection === "claude" || selection === "codex"
+    ? [selection]
+    : providerOrder;
+}
+
 export async function selectConnectorProviders(
   selection: ConnectorProviderSelection,
   capabilities: RuntimeCapabilities,

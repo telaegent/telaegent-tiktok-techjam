@@ -36,7 +36,10 @@ import {
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
 } from "./connector-repository-selection.js";
-import { selectConnectorProviders } from "./connector-provider-selection.js";
+import {
+  connectorProviderCandidates,
+  selectConnectorProviders,
+} from "./connector-provider-selection.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -98,11 +101,14 @@ async function main(): Promise<void> {
     ENABLE_LEGACY_LOCAL_PLAYGROUND: "0",
     CODEX_HOME: process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"),
   });
-  const allRunners = [new ClaudeCodeRunner(config), new CodexRunner(config)];
+  const providerCandidates = connectorProviderCandidates(providerSelection);
+  const candidateRunners = [new ClaudeCodeRunner(config), new CodexRunner(config)].filter(
+    (runner) => providerCandidates.includes(runner.provider),
+  );
   const schemas = new FileOutputSchemaResolver(
     fileURLToPath(new URL("../telagent/output-schemas", import.meta.url)),
   );
-  const providerDetector = new RuntimeProviderRegistry(allRunners, schemas);
+  const providerDetector = new RuntimeProviderRegistry(candidateRunners, schemas);
   const selectedProviders = await selectConnectorProviders(
     providerSelection,
     await providerDetector.capabilities(),
@@ -111,7 +117,7 @@ async function main(): Promise<void> {
     `TELAEGENT PROVIDER SELECTED (${selectedProviders.join(", ")})\n`,
   );
   const providers = new RuntimeProviderRegistry(
-    allRunners.filter((runner) => selectedProviders.includes(runner.provider)),
+    candidateRunners.filter((runner) => selectedProviders.includes(runner.provider)),
     schemas,
   );
 
