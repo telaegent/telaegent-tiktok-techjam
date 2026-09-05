@@ -181,6 +181,13 @@ restart, but queued jobs are not durably redelivered across that restart.
 Connector packaging, signed updates, and production operational review remain
 open.
 
+Repository registration no longer promotes a connector assertion directly
+into membership. The control plane independently verifies public GitHub user
+and repository IDs and records no more than public read access. Because an
+anonymous GitHub request cannot prove private/internal access, those repository
+registrations currently fail closed until a GitHub-trusted verifier is added;
+Telaegent does not resolve that gap by storing a developer GitHub credential.
+
 ## Legacy scaffold
 
 The source tree still contains inherited ModelArk/Volcengine and fixed-workflow code for preservation and build continuity. It is not the canonical trust architecture. Standalone retired material is catalogued under `unused-code/`.

@@ -111,7 +111,11 @@ export type CapabilityFollowUpOutcome =
   | { outcome: "task_unavailable" };
 
 export class CapabilityFollowUpError extends Error {
-  constructor(public readonly code: "CAPABILITY_BINDING_MISMATCH") {
+  constructor(
+    public readonly code:
+      | "CAPABILITY_BINDING_MISMATCH"
+      | "CAPABILITY_GRANT_STATE_MISMATCH",
+  ) {
     super("Capability follow-up cannot be routed");
     this.name = "CapabilityFollowUpError";
   }
@@ -208,18 +212,30 @@ export class CapabilityFollowUpCoordinator {
     }
 
     const held = await this.#loadHeldGrants(context);
-    const grants = await this.#assertGrants(context, requests, held, route);
+    const prepared = await this.#prepareGrantAssertions(
+      context,
+      requests,
+      held,
+      route,
+    );
 
     const response = await this.#relay.exchangeResources({
       requestId: this.#newRequestId(),
       taskId: context.taskId,
+      taskExpiresAt: route.taskExpiresAt,
       connectorBindingId: route.ownerRuntimeBindingId,
       peerUserId: context.peerUserId,
       requests: [...requests],
-      grants,
+      grants: prepared.grants,
     });
 
-    return await this.#collect(context, requests, held, response, round.round);
+    return await this.#collect(
+      context,
+      requests,
+      prepared,
+      response,
+      round.round,
+    );
   }
 
   /**
@@ -250,13 +266,15 @@ export class CapabilityFollowUpCoordinator {
    * human. That is the intended shape of an expired authority - it becomes a
    * question again, never an error the peer can read a fact out of.
    */
-  async #assertGrants(
+  async #prepareGrantAssertions(
     context: Readonly<CapabilityFollowUpContext>,
     requests: readonly ConnectorResourceRequest[],
     held: ReadonlyMap<string, HeldCapabilityGrant>,
     route: Readonly<ResolvedCapabilityRoute>,
-  ): Promise<AssertedGrant[]> {
+  ): Promise<PreparedGrantAssertions> {
     const grants: AssertedGrant[] = [];
+    const redeemedGrantByResource = new Map<string, string>();
+    const spentGrantIds: string[] = [];
     for (const item of requests) {
       if (item.kind !== "resource") continue;
       const grant = held.get(item.resourceId);
@@ -288,6 +306,31 @@ export class CapabilityFollowUpCoordinator {
       if (authorized.ownerRuntimeBindingId !== route.ownerRuntimeBindingId) {
         throw new CapabilityFollowUpError("CAPABILITY_BINDING_MISMATCH");
       }
+
+      // Redeem before asking the connector to read. The database row lock is
+      // the concurrency boundary for Allow once: only the winner is permitted
+      // to put the grant on a resource-exchange envelope. An unavailable or
+      // expired redemption therefore turns into a bare request and can never
+      // accompany delivered bytes.
+      const redemption = await this.#grants.consumeGrant({
+        grantId: grant.grantId,
+        ownerUserId: context.ownerUserId,
+        peerUserId: context.peerUserId,
+        resourceId: item.resourceId,
+      });
+      if (redemption.outcome === "unavailable" || redemption.outcome === "expired") {
+        spentGrantIds.push(grant.grantId);
+        continue;
+      }
+      if (
+        (authorized.grantMode === "once" &&
+          (redemption.outcome !== "consumed" || redemption.mode !== "once")) ||
+        (authorized.grantMode === "task" &&
+          (redemption.outcome !== "reusable" || redemption.mode !== "task"))
+      ) {
+        throw new CapabilityFollowUpError("CAPABILITY_GRANT_STATE_MISMATCH");
+      }
+      if (redemption.outcome === "consumed") spentGrantIds.push(grant.grantId);
       grants.push({
         grantId: authorized.grantId,
         resourceId: authorized.resourceId,
@@ -295,8 +338,9 @@ export class CapabilityFollowUpCoordinator {
         mode: authorized.grantMode,
         expiresAt: authorized.grantExpiresAt,
       });
+      redeemedGrantByResource.set(item.resourceId, grant.grantId);
     }
-    return grants;
+    return { grants, redeemedGrantByResource, spentGrantIds };
   }
 
   /**
@@ -309,13 +353,13 @@ export class CapabilityFollowUpCoordinator {
   async #collect(
     context: Readonly<CapabilityFollowUpContext>,
     requests: readonly ConnectorResourceRequest[],
-    held: ReadonlyMap<string, HeldCapabilityGrant>,
+    prepared: Readonly<PreparedGrantAssertions>,
     response: Readonly<ResourceExchangeResponse>,
     round: number,
   ): Promise<CapabilityFollowUpOutcome> {
     const delivered: DeliveredResource[] = [];
     const queued: QueuedScopeRequest[] = [];
-    const spentGrantIds: string[] = [];
+    const spentGrantIds = [...prepared.spentGrantIds];
     let pendingWithoutCandidate = 0;
     let refused = 0;
 
@@ -356,23 +400,24 @@ export class CapabilityFollowUpCoordinator {
         continue;
       }
 
-      // Delivered. The bytes are already in hand; what is settled now is
-      // whether the authority that produced them survives another round.
+      // A connector response is untrusted. Only a resource whose grant was
+      // successfully redeemed before dispatch may contribute bytes to the
+      // peer's result. This also prevents a stale or compromised connector
+      // from turning a bare escalation request into content.
+      if (
+        item.kind !== "resource" ||
+        outcome.resourceId !== item.resourceId ||
+        !prepared.redeemedGrantByResource.has(outcome.resourceId)
+      ) {
+        refused += 1;
+        continue;
+      }
       delivered.push({
         resourceId: outcome.resourceId,
         content: outcome.content,
         truncated: outcome.truncated,
         byteLength: outcome.audit.byteLength,
       });
-      const grant = held.get(outcome.resourceId);
-      if (!grant) continue;
-      const redemption = await this.#grants.consumeGrant({
-        grantId: grant.grantId,
-        ownerUserId: context.ownerUserId,
-        peerUserId: context.peerUserId,
-        resourceId: outcome.resourceId,
-      });
-      if (redemption.outcome !== "reusable") spentGrantIds.push(grant.grantId);
     }
 
     return {
@@ -385,6 +430,12 @@ export class CapabilityFollowUpCoordinator {
       spentGrantIds,
     };
   }
+}
+
+interface PreparedGrantAssertions {
+  grants: AssertedGrant[];
+  redeemedGrantByResource: ReadonlyMap<string, string>;
+  spentGrantIds: string[];
 }
 
 /**

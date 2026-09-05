@@ -5,17 +5,23 @@ import {
   repositoryProofSchema,
   repositoryUnavailableSchema,
   type ConnectorPrincipal,
+  type RepositoryProof,
   type RepositoryProofResult,
   type RepositoryUnavailableResult,
 } from "./contract.js";
 import type { RepositoryProofRepository } from "./repository.js";
 import { REPOSITORY_ACCESS_MAX_AGE_MS } from "./lifetime.js";
+import {
+  RepositoryProofVerificationError,
+  type RepositoryProofVerifier,
+} from "./verifier.js";
 
 const maximumClockLeadMs = 5 * 60 * 1_000;
 
 export type RepositoryProofErrorCode =
   | "REPOSITORY_PROOF_INVALID"
   | "REPOSITORY_PROOF_FORBIDDEN"
+  | "REPOSITORY_PROOF_UNVERIFIED"
   | "REPOSITORY_PROOF_CONFLICT"
   | "REPOSITORY_PROOF_UNAVAILABLE";
 
@@ -33,6 +39,7 @@ export class RepositoryProofError extends Error {
 export class RepositoryProofService {
   constructor(
     private readonly repository: RepositoryProofRepository,
+    private readonly verifier: RepositoryProofVerifier,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -44,12 +51,57 @@ export class RepositoryProofService {
     const proof = parseProof(untrustedProof);
     this.assertFresh(proof.observedAt);
 
-    const repositoryFullName = `${proof.repository.owner}/${proof.repository.name}`;
+    let verified;
+    try {
+      verified = await this.verifier.verify(proof);
+    } catch (error) {
+      if (error instanceof RepositoryProofVerificationError) {
+        if (error.code === "UNVERIFIED") {
+          throw new RepositoryProofError(
+            "REPOSITORY_PROOF_UNVERIFIED",
+            "Repository access could not be independently verified",
+            403,
+          );
+        }
+        throw new RepositoryProofError(
+          "REPOSITORY_PROOF_UNAVAILABLE",
+          "Repository proof service is temporarily unavailable",
+          503,
+        );
+      }
+      throw new RepositoryProofError(
+        "REPOSITORY_PROOF_UNAVAILABLE",
+        "Repository proof service is temporarily unavailable",
+        503,
+      );
+    }
+    const verifiedProofCandidate: RepositoryProof = {
+      ...proof,
+      github: verified.github,
+      repository: {
+        ...proof.repository,
+        ...verified.repository,
+      },
+    };
+    const verifiedProofResult = repositoryProofSchema.safeParse(
+      verifiedProofCandidate,
+    );
+    if (!verifiedProofResult.success) {
+      throw new RepositoryProofError(
+        "REPOSITORY_PROOF_UNAVAILABLE",
+        "Repository proof service is temporarily unavailable",
+        503,
+      );
+    }
+    const verifiedProof = verifiedProofResult.data;
+
+    const repositoryFullName =
+      `${verifiedProof.repository.owner}/${verifiedProof.repository.name}`;
     const payloadDigestHex = createHash("sha256")
       .update(
         JSON.stringify({
           principal,
-          proof,
+          proof: verifiedProof,
           repositoryFullName,
         }),
         "utf8",
@@ -59,7 +111,7 @@ export class RepositoryProofService {
     try {
       return await this.repository.registerRepositoryProof({
         principal,
-        proof,
+        proof: verifiedProof,
         repositoryFullName,
         payloadDigestHex,
       });

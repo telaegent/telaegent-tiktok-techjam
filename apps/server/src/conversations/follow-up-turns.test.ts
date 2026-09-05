@@ -336,6 +336,71 @@ describe("cancelling a turn that is on a later round", () => {
 
     releaseSecondRound?.();
   });
+
+  it("cancels while resources are in flight without starting another round", async () => {
+    const resourceExchangeStarted = Promise.withResolvers<void>();
+    const releaseResourceExchange = Promise.withResolvers<void>();
+    const cancelled: string[] = [];
+    const starts: StartAuthorizedProtocolTurnInput[] = [];
+    const runtime: PrivateDraftTurnRuntime = {
+      async start(input) {
+        starts.push(input as StartAuthorizedProtocolTurnInput);
+        return {
+          turnId: input.turnId ?? `turn-${String(starts.length)}`,
+          streamId: "55555555-5555-4555-8555-555555555555",
+          initialState: "queued" as const,
+          completion: Promise.resolve(
+            turn("I need the settings file", [ask]),
+          ) as never,
+        };
+      },
+      async cancel(input) {
+        cancelled.push(input.turnId);
+        return false;
+      },
+    };
+    const end = vi.fn<NonNullable<PrivateDraftFollowUp["end"]>>(async () => undefined);
+    const repository = new InMemoryConversationRepository();
+    const service = new ConversationService(
+      repository,
+      { async authorize() {} },
+      runtime,
+      {
+        now: () => new Date("2026-08-31T12:00:00.000Z"),
+        createId: () => DRAFT,
+        createTurnId: () => "44444444-4444-4444-8444-444444444444",
+        followUp: {
+          async run() {
+            resourceExchangeStarted.resolve();
+            await releaseResourceExchange.promise;
+            return [{ resourceId: RESOURCE, content: "rotate();", truncated: false }];
+          },
+          end,
+        },
+      },
+    );
+
+    await seedDraft(repository);
+    await service.runDraft(OWNER, DRAFT);
+    await resourceExchangeStarted.promise;
+
+    // The first provider round is complete and the next one does not exist yet.
+    // Cancel must terminate the draft without trying the completed turn ID.
+    await expect(service.cancelDraft(OWNER, DRAFT)).resolves.toMatchObject({
+      state: "cancelled",
+    });
+    expect(cancelled).toEqual([]);
+    expect(end).toHaveBeenCalledWith(
+      expect.objectContaining({ incomingMessageId: MESSAGE, ownerUserId: OWNER }),
+      "cancelled",
+    );
+
+    releaseResourceExchange.resolve();
+    await expect.poll(() => starts.length).toBe(1);
+    await expect(service.getDraft(OWNER, DRAFT)).resolves.toMatchObject({
+      state: "cancelled",
+    });
+  });
 });
 
 /**

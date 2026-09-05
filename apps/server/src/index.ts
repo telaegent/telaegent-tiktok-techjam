@@ -29,6 +29,7 @@ import type { ConnectorTransportRouteDependencies } from "./connectors/routes.js
 import type { RepositoryProofRouteDependencies } from "./repository-proof/routes.js";
 import { RepositoryProofService } from "./repository-proof/service.js";
 import { SupabaseRepositoryProofRepository } from "./repository-proof/supabase-repository.js";
+import { GitHubPublicRepositoryProofVerifier } from "./repository-proof/verifier.js";
 import { createConfiguredAuthorizationRepository } from "./authorization/authorization-repository-factory.js";
 import { PrivateRuntimeAuthorizationService } from "./authorization/private-runtime-authorization.js";
 import { REPOSITORY_ACCESS_MAX_AGE_MS } from "./repository-proof/lifetime.js";
@@ -46,6 +47,7 @@ import { CapabilityScopeExpansionService } from "./capability/service.js";
 import { createPrivateDraftFollowUp } from "./capability/follow-up-factory.js";
 import { SupabaseCapabilityScopeRequestRepository } from "./authorization/capability-scope-requests.js";
 import { SupabaseAuthorizationRpcClient } from "./authorization/supabase-authorization-client.js";
+import { SupabaseOwnedCapabilityGrantRepository } from "./authorization/capability-grant-management.js";
 
 const config = loadConfig();
 // Preserve the inherited Starter Kit only when its legacy Ark credentials are
@@ -152,6 +154,7 @@ if (config.telaegentIdentityProvider === "github") {
         config.supabaseSecretKey,
         config.githubOAuthTimeoutMs,
       ),
+      new GitHubPublicRepositoryProofVerifier(config.githubOAuthTimeoutMs),
     ),
     resolveConnectorPrincipal,
     onBindingRegistered: (principal, connectorBindingId, githubRepositoryId) => {
@@ -171,6 +174,7 @@ if (config.telaegentIdentityProvider === "github") {
     });
     capabilityScope = new CapabilityScopeExpansionService({
       repository: new SupabaseCapabilityScopeRequestRepository(authorizationRpc),
+      grantManagement: new SupabaseOwnedCapabilityGrantRepository(authorizationRpc),
     });
     capabilityScopeApi = { service: capabilityScope, authenticatedUserId };
   }

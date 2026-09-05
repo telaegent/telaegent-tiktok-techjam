@@ -59,7 +59,15 @@ A repository becomes a Telaegent project only when:
 3. the developer deliberately selects one local repository/worktree;
 4. local Git/GitHub CLI proves access to its stable GitHub repository ID;
 5. the connector registers safe repository metadata;
-6. the cloud creates an opaque connector binding for that user × repository.
+6. the cloud independently verifies the GitHub user and repository facts;
+7. the cloud creates an opaque connector binding for that user × repository.
+
+For the currently implemented credential-free verifier, step 6 supports public
+repositories and proves read access using GitHub's public API. Private/internal
+repositories fail closed rather than being accepted from a connector
+assertion. Enabling them requires a GitHub-trusted witness (for example an
+approved GitHub App design) that does not store a developer's credential in
+Telaegent cloud.
 
 Safe registration metadata may include:
 
@@ -128,8 +136,8 @@ Use mutual proof of access rather than requiring one user to enumerate every
 GitHub collaborator:
 
 ```text
-User A's connector proves repo ID 123
-User B's connector independently proves repo ID 123
+User A submits repo ID 123; GitHub independently confirms it
+User B submits repo ID 123; GitHub independently confirms it
         -> both are eligible for a project-scoped request
         -> User B explicitly accepts
 ```
@@ -210,6 +218,9 @@ GitHub CLI custody must not be revived as the product onboarding path.
 - [ ] Implement `telaegent connect .` or equivalent.
 - [ ] Authenticate connector-to-cloud without exposing local credentials.
 - [ ] Verify `gh auth status` locally.
+- [x] Independently verify public GitHub user/repository IDs in the control plane.
+- [ ] Add an approved independent verifier for private/internal repositories;
+      reject them until then.
 - [ ] Resolve normalized remote and stable numeric GitHub repository ID locally.
 - [ ] Register safe repository/branch/commit metadata only.
 - [ ] Store an opaque cloud connector binding with presence state.

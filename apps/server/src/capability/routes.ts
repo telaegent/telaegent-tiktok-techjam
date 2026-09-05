@@ -8,6 +8,7 @@ import type { CapabilityScopeExpansionService } from "./service.js";
 
 const uuid = z.string().uuid();
 const scopeRequestParams = z.object({ scopeRequestId: uuid });
+const grantParams = z.object({ grantId: uuid });
 const listQuery = z.strictObject({
   // Decimal text, never a JSON number: a BIGINT repository id does not survive
   // a round trip through a JavaScript number intact.
@@ -31,6 +32,8 @@ export interface CapabilityScopeRouteDependencies {
 export const userAuthenticatedCapabilityRoutes = new Set([
   "/api/capability/scope-requests",
   "/api/capability/scope-requests/:scopeRequestId/decision",
+  "/api/capability/grants",
+  "/api/capability/grants/:grantId",
 ]);
 
 export function registerCapabilityScopeRoutes(
@@ -47,6 +50,41 @@ export function registerCapabilityScopeRoutes(
     try {
       return await dependencies.service.listPendingScopeRequests(
         { authenticatedUserId, githubRepositoryId },
+        { signal: disconnect.signal },
+      );
+    } finally {
+      disconnect.cleanup();
+    }
+  });
+
+  // The owner-facing inventory contains only active, unexpired grants for the
+  // selected repository. It exposes a connector-derived display label and an
+  // opaque ID, never the canonical local path.
+  app.get("/api/capability/grants", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const authenticatedUserId = await user(request, dependencies.authenticatedUserId);
+    const { githubRepositoryId } = listQuery.parse(request.query);
+    const disconnect = abortWhenClientLeaves(request, reply);
+    try {
+      return await dependencies.service.listOwnedGrants(
+        { authenticatedUserId, githubRepositoryId },
+        { signal: disconnect.signal },
+      );
+    } finally {
+      disconnect.cleanup();
+    }
+  });
+
+  // Revocation is an owner-only narrowing action. DELETE is idempotent at the
+  // database boundary for a grant this owner already revoked.
+  app.delete("/api/capability/grants/:grantId", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const authenticatedUserId = await user(request, dependencies.authenticatedUserId);
+    const { grantId } = grantParams.parse(request.params);
+    const disconnect = abortWhenClientLeaves(request, reply);
+    try {
+      return await dependencies.service.revokeOwnedGrant(
+        { authenticatedUserId, grantId },
         { signal: disconnect.signal },
       );
     } finally {

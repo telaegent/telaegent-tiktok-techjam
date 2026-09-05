@@ -195,8 +195,16 @@ describe("capability follow-up coordinator", () => {
   });
 
   it("asserts a held grant, routes the batch, and brings the bytes back", async () => {
+    const order: string[] = [];
     const { coordinator, exchangeResources, authorizeRoute, consumeGrant } = build({
-      exchangeResources: async () => ({ requestId, outcomes: [delivered("export const a = 1;")] }),
+      consumeGrant: async () => {
+        order.push("consume");
+        return { outcome: "consumed", mode: "once" };
+      },
+      exchangeResources: async () => {
+        order.push("exchange");
+        return { requestId, outcomes: [delivered("export const a = 1;")] };
+      },
     });
 
     const result = await coordinator.runRound(context, [askForHeld]);
@@ -214,6 +222,7 @@ describe("capability follow-up coordinator", () => {
     expect(exchangeResources).toHaveBeenCalledWith({
       requestId,
       taskId,
+      taskExpiresAt: "2026-08-31T10:40:00.000Z",
       connectorBindingId: bindingId,
       peerUserId: peerId,
       requests: [askForHeld],
@@ -231,10 +240,11 @@ describe("capability follow-up coordinator", () => {
       outcome: "completed",
       round: 1,
       delivered: [{ resourceId, content: "export const a = 1;", truncated: false }],
-      // Allow once means once: the grant is redeemed after the read, and the
+      // Allow once means once: the grant is redeemed before the read, and the
       // caller is told to drop it before it can be asserted a second time.
       spentGrantIds: [grantId],
     });
+    expect(order).toEqual(["consume", "exchange"]);
     expect(consumeGrant).toHaveBeenCalledWith({
       grantId,
       ownerUserId: ownerId,
@@ -245,6 +255,7 @@ describe("capability follow-up coordinator", () => {
 
   it("keeps a task-scoped grant alive across rounds", async () => {
     const { coordinator } = build({
+      authorizeRoute: async () => ({ ...route, grantMode: "task" }),
       exchangeResources: async () => ({ requestId, outcomes: [delivered("hello")] }),
       consumeGrant: async () => ({ outcome: "reusable", mode: "task" }),
     });
@@ -253,6 +264,50 @@ describe("capability follow-up coordinator", () => {
 
     // Allow for this task is the one authority that survives redemption.
     expect(result).toMatchObject({ spentGrantIds: [] });
+  });
+
+  it("never delivers bytes when grant redemption is unavailable", async () => {
+    const { coordinator, exchangeResources } = build({
+      consumeGrant: async () => ({ outcome: "unavailable" }),
+      // Treat the connector as untrusted: even if it incorrectly returns bytes
+      // for the now-bare request, the coordinator must discard them.
+      exchangeResources: async () => ({ requestId, outcomes: [delivered("secret")] }),
+    });
+
+    const result = await coordinator.runRound(context, [askForHeld]);
+
+    expect(exchangeResources).toHaveBeenCalledWith(
+      expect.objectContaining({ grants: [] }),
+    );
+    expect(result).toMatchObject({
+      delivered: [],
+      refused: 1,
+      spentGrantIds: [grantId],
+    });
+  });
+
+  it("serializes racing Allow once redemptions before either connector read", async () => {
+    let calls = 0;
+    const { coordinator } = build({
+      consumeGrant: async () =>
+        ++calls === 1
+          ? { outcome: "consumed", mode: "once" }
+          : { outcome: "unavailable" },
+      exchangeResources: async (request) => ({
+        requestId,
+        outcomes: request.grants.length === 1
+          ? [delivered("winner")]
+          : [delivered("loser must be discarded")],
+      }),
+    });
+
+    const [first, second] = await Promise.all([
+      coordinator.runRound(context, [askForHeld]),
+      coordinator.runRound(context, [askForHeld]),
+    ]);
+
+    expect(first).toMatchObject({ delivered: [{ content: "winner" }] });
+    expect(second).toMatchObject({ delivered: [], refused: 1 });
   });
 
   it("puts a named candidate in front of the owning human", async () => {

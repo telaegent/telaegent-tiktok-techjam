@@ -470,6 +470,7 @@ describe("ConnectorWorker", () => {
         request: {
           requestId: "resource-during-turn",
           taskId: "task-1",
+          taskExpiresAt: "2126-08-31T12:00:00.000Z",
           connectorBindingId: binding.connectorBindingId,
           peerUserId: "10000000-0000-4000-8000-000000000002",
           requests: [{

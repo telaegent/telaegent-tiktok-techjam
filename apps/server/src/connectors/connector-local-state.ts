@@ -2,6 +2,10 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { FileResourceRegistry, type ResourceRegistry } from "./resource-registry.js";
+import {
+  FileResourceTaskBudgetLedger,
+  type ResourceTaskBudgetLedger,
+} from "./resource-budget.js";
 
 const connectorBindingIdSchema = z.string().uuid();
 
@@ -80,5 +84,24 @@ export function createConnectorResourceRegistry(
   }
   return new FileResourceRegistry(
     path.join(stateDirectory, "resource-registries", `${bindingId}.json`),
+  );
+}
+
+/**
+ * Creates the durable task-wide byte/request ledger for one connector binding.
+ * It intentionally shares the binding lifecycle with the resource registry so
+ * neither a new HTTP batch nor a connector restart refills a live task.
+ */
+export function createConnectorResourceBudgetLedger(
+  connectorBindingId: string,
+  options: ConnectorResourceRegistryOptions = {},
+): ResourceTaskBudgetLedger {
+  const bindingId = connectorBindingIdSchema.parse(connectorBindingId);
+  const stateDirectory = options.stateDirectory ?? connectorStateDirectory(options);
+  if (!path.isAbsolute(stateDirectory)) {
+    throw new Error("Connector state directory must be absolute");
+  }
+  return new FileResourceTaskBudgetLedger(
+    path.join(stateDirectory, "resource-budgets", `${bindingId}.jsonl`),
   );
 }

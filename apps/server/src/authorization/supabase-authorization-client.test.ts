@@ -57,6 +57,41 @@ describe("SupabaseAuthorizationRpcClient", () => {
     });
   });
 
+  it("calls owner grant listing and revocation RPCs without exposing a browser role", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () => Response.json([]));
+    const rpc = client(fetchImplementation);
+    const ownerUserId = request.authenticatedUserId;
+    const grantId = "cccccccc-0000-4000-8000-000000000003";
+
+    await rpc.listOwnedCapabilityGrants({
+      ownerUserId,
+      githubRepositoryId: request.githubRepositoryId,
+    });
+    await rpc.revokeOwnedCapabilityGrant({ ownerUserId, grantId });
+
+    const [listUrl, listInit] = fetchImplementation.mock.calls[0]!;
+    expect(listUrl).toBe(
+      "https://example-project.supabase.co/rest/v1/rpc/list_owned_capability_grants",
+    );
+    expect(JSON.parse(String(listInit?.body))).toEqual({
+      p_owner_user_id: ownerUserId,
+      p_github_repository_id: request.githubRepositoryId,
+    });
+    const [revokeUrl, revokeInit] = fetchImplementation.mock.calls[1]!;
+    expect(revokeUrl).toBe(
+      "https://example-project.supabase.co/rest/v1/rpc/revoke_owned_capability_grant",
+    );
+    expect(JSON.parse(String(revokeInit?.body))).toEqual({
+      p_owner_user_id: ownerUserId,
+      p_grant_id: grantId,
+    });
+    for (const [, init] of fetchImplementation.mock.calls) {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("apikey")).toBe(secretKey);
+      expect(headers.get("authorization")).toBeNull();
+    }
+  });
+
   it("returns an opaque malformed value for invalid successful JSON", async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async () =>
       new Response("not-json", {

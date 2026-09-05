@@ -9,6 +9,7 @@ import type {
   RuntimeProgressEvent,
   RuntimeProgressFailure,
 } from "./runtime-contract.js";
+import { RunCancelledError } from "./errors.js";
 import { normalizeRuntimeFailure } from "./runtime-errors.js";
 import {
   RuntimeProgressChannel,
@@ -73,6 +74,7 @@ interface TrackedPrivateRuntimeTurn {
   state: PrivateRuntimeTurnState;
   failure?: RuntimeProgressFailure | undefined;
   allowedActions: RuntimeAllowedAction[];
+  cancelRequested: boolean;
 }
 
 const defaultTerminalRetentionMs = 60_000;
@@ -125,6 +127,7 @@ export class PrivateRuntimeTurnCoordinator {
       agentId: request.agentId,
       state: "queued",
       allowedActions: [],
+      cancelRequested: false,
     });
     this.turnIdsByStream.set(streamId, turnId);
     const completion = this.sessions
@@ -139,7 +142,12 @@ export class PrivateRuntimeTurnCoordinator {
           const tracked = this.turns.get(turnId);
           if (tracked) tracked.state = "running";
         },
-        beforeExecution,
+        async () => {
+          const tracked = this.turns.get(turnId);
+          if (tracked?.cancelRequested) throw new RunCancelledError();
+          await beforeExecution?.();
+          if (tracked?.cancelRequested) throw new RunCancelledError();
+        },
       )
       .then((result) => {
         const tracked = this.turns.get(turnId);
@@ -190,12 +198,18 @@ export class PrivateRuntimeTurnCoordinator {
     const tracked = this.turns.get(turnId);
     if (
       !tracked ||
-      tracked.state !== "running" ||
-      !sameOwner(tracked.owner, owner) ||
-      !this.options.canceller
+      !sameOwner(tracked.owner, owner)
     ) {
       return false;
     }
+    if (tracked.state === "queued") {
+      // A queued turn has not crossed into provider execution. Cancelling by
+      // agent ID here could stop an older active turn using the same binding,
+      // so mark this turn and let the guarded before-execution hook reject it.
+      tracked.cancelRequested = true;
+      return true;
+    }
+    if (tracked.state !== "running" || !this.options.canceller) return false;
     return this.options.canceller.cancelMiddlewareTurn(tracked.agentId);
   }
 

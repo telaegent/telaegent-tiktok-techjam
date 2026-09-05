@@ -42,6 +42,7 @@ const job: ConnectorJobRequest = {
 const exchange: ResourceExchangeRequest = {
   requestId: "exchange-1",
   taskId: "80000000-0000-4000-8000-000000000008",
+  taskExpiresAt: "2126-08-31T12:00:00.000Z",
   connectorBindingId: bindingId,
   peerUserId: "10000000-0000-4000-8000-00000000b002",
   requests: [{ kind: "resource", resourceId, reason: "the page imports it" }],

@@ -22,6 +22,7 @@ import type { ConnectorDelivery } from "./long-poll-job-relay.js";
 import { connectorHttpResponseError } from "./connector-http-error.js";
 import { LocalFileBroker } from "./file-broker.js";
 import type { ResourcePolicyLimits } from "./resource-policy.js";
+import type { ResourceTaskBudgetLedger } from "./resource-budget.js";
 import {
   connectorResourceRequestSchema,
   type ConnectorResourceRequest,
@@ -136,6 +137,7 @@ export interface ConnectorWorkerOptions {
    */
   resources?: {
     registry: ResourceRegistry;
+    budget?: ResourceTaskBudgetLedger;
     limits?: ResourcePolicyLimits;
   };
   /** Local-only maintenance cadence; never causes a cloud/database request. */
@@ -320,6 +322,9 @@ export class ConnectorWorker {
       registry,
       broker: new LocalFileBroker(this.binding.workspacePath),
       workspacePath: this.binding.workspacePath,
+      ...(this.options.resources?.budget
+        ? { budget: this.options.resources.budget }
+        : {}),
       ...(limits ? { limits } : {}),
     });
     await this.transport.resourceResponse(response);

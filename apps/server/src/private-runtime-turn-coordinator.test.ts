@@ -275,7 +275,7 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     await expect(coordinator.cancel(started.turnId, scope)).resolves.toBe(false);
   });
 
-  it("does not let a queued turn cancel the active turn ahead of it", async () => {
+  it("cancels a queued turn without cancelling the active turn ahead of it", async () => {
     let finishFirst!: (value: NormalizedRunResult) => void;
     const firstPending = new Promise<NormalizedRunResult>((resolve) => {
       finishFirst = resolve;
@@ -297,13 +297,13 @@ describe("PrivateRuntimeTurnCoordinator", () => {
     });
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
 
-    await expect(coordinator.cancel(second.turnId, scope)).resolves.toBe(false);
+    await expect(coordinator.cancel(second.turnId, scope)).resolves.toBe(true);
     expect(canceller.cancelMiddlewareTurn).not.toHaveBeenCalled();
 
     finishFirst(result());
     await first.completion;
-    await second.completion;
-    expect(run).toHaveBeenCalledTimes(2);
+    await expect(second.completion).rejects.toBeInstanceOf(RunCancelledError);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("retains terminal replay briefly, then removes the stream", async () => {

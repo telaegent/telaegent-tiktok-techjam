@@ -9,9 +9,14 @@ import type {
   RecordCapabilityScopeRequestOutcome,
 } from "../authorization/capability-scope-requests.js";
 import type { GitHubRepositoryId } from "../authorization/types.js";
+import type {
+  OwnedCapabilityGrant,
+  OwnedCapabilityGrantRepository,
+} from "../authorization/capability-grant-management.js";
 
 export interface CapabilityScopeExpansionServiceDependencies {
   repository: CapabilityScopeRequestRepository;
+  grantManagement?: OwnedCapabilityGrantRepository;
   /**
    * Identifiers this service allocates before it calls the database, so a
    * retried request lands on the same row and the same grant instead of
@@ -29,6 +34,16 @@ export interface DecideScopeRequestInput {
   authenticatedUserId: string;
   scopeRequestId: string;
   decision: CapabilityScopeDecision;
+}
+
+export interface ListOwnedGrantsInput {
+  authenticatedUserId: string;
+  githubRepositoryId: GitHubRepositoryId;
+}
+
+export interface RevokeOwnedGrantInput {
+  authenticatedUserId: string;
+  grantId: string;
 }
 
 export interface QueueScopeRequestInput {
@@ -58,11 +73,43 @@ export interface ScopeDecisionResult {
  */
 export class CapabilityScopeExpansionService {
   readonly #repository: CapabilityScopeRequestRepository;
+  readonly #grantManagement: OwnedCapabilityGrantRepository | undefined;
   readonly #newId: () => string;
 
   constructor(dependencies: Readonly<CapabilityScopeExpansionServiceDependencies>) {
     this.#repository = dependencies.repository;
+    this.#grantManagement = dependencies.grantManagement;
     this.#newId = dependencies.newId ?? randomUUID;
+  }
+
+  /** Returns the exact live read scopes this owner can still revoke. */
+  async listOwnedGrants(
+    input: Readonly<ListOwnedGrantsInput>,
+    options?: Readonly<CapabilityScopeRequestOptions>,
+  ): Promise<{ grants: readonly OwnedCapabilityGrant[] }> {
+    const grants = await this.grants().listOwnedGrants(
+      {
+        ownerUserId: input.authenticatedUserId,
+        githubRepositoryId: input.githubRepositoryId,
+      },
+      options,
+    );
+    return { grants };
+  }
+
+  /** Revokes one owner-issued grant without exposing any other grant state. */
+  async revokeOwnedGrant(
+    input: Readonly<RevokeOwnedGrantInput>,
+    options?: Readonly<CapabilityScopeRequestOptions>,
+  ): Promise<{ outcome: "revoked" }> {
+    const result = await this.grants().revokeOwnedGrant(
+      { ownerUserId: input.authenticatedUserId, grantId: input.grantId },
+      options,
+    );
+    if (result.outcome !== "revoked") {
+      throw new HttpError(404, "That grant is not available to revoke");
+    }
+    return { outcome: "revoked" };
   }
 
   /**
@@ -158,5 +205,12 @@ export class CapabilityScopeExpansionService {
     options?: Readonly<CapabilityScopeRequestOptions>,
   ): Promise<CapabilityFollowUpRoundOutcome> {
     return this.#repository.beginFollowUpRound(input, options);
+  }
+
+  private grants(): OwnedCapabilityGrantRepository {
+    if (!this.#grantManagement) {
+      throw new HttpError(503, "Capability grant management is unavailable");
+    }
+    return this.#grantManagement;
   }
 }

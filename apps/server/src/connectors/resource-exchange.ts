@@ -20,6 +20,10 @@ import {
 } from "./resource-request.js";
 import { resourceIdSchema, type ResourceRegistry } from "./resource-registry.js";
 import { projectRelativeDisplayLabel } from "./workspace-label.js";
+import {
+  InMemoryResourceTaskBudgetLedger,
+  type ResourceTaskBudgetLedger,
+} from "./resource-budget.js";
 
 // The request shape lives in a leaf module because a private agent's turn now
 // emits it too, and the protocol layer must not import a filesystem to say so.
@@ -39,6 +43,10 @@ export const assertedGrantSchema = z.strictObject({
 export const resourceExchangeRequestSchema = z.strictObject({
   requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/),
   taskId: z.string().min(1).max(256).regex(/^[^\u0000\r\n]+$/),
+  // Carried from the database-derived route. The local ledger uses the task
+  // lifetime, not a possibly shorter individual grant lifetime, so replacing
+  // a grant cannot refill a task-wide budget.
+  taskExpiresAt: z.string().datetime({ offset: true }),
   connectorBindingId: z.string().uuid(),
   /** The peer the delivered bytes are for; recorded in the audit trail. */
   peerUserId: z.string().uuid(),
@@ -142,6 +150,8 @@ export interface ResourceExchangeDeps {
   broker: LocalFileBroker;
   workspacePath: string;
   limits?: ResourcePolicyLimits;
+  /** Shared for the life of the connector binding; durable in production. */
+  budget?: ResourceTaskBudgetLedger;
   now?: () => Date;
   /** Local-only sink for refusal codes; never sent to the cloud or the peer. */
   onRefusal?: (code: ResourceDenyCode | "UNREADABLE", taskId: string) => void;
@@ -154,8 +164,9 @@ export interface ResourceExchangeDeps {
  * is delivered in the same batch in which a new file goes for approval, so the
  * peer can keep working while a human decides.
  *
- * Budgets accumulate across the batch, so a peer cannot bypass the per-task
- * byte limit by splitting one large read into many small requests.
+ * Budgets accumulate across every batch for the task (and connector restarts
+ * in production), so a peer cannot bypass a task-wide limit by splitting one
+ * large read into many requests.
  */
 /**
  * Prepares the handle a human approval would grant authority over.
@@ -208,11 +219,17 @@ export async function fulfilResourceRequests(
 ): Promise<ResourceExchangeResponse> {
   const limits = deps.limits ?? DEFAULT_RESOURCE_POLICY_LIMITS;
   const now = deps.now ?? (() => new Date());
+  const budget = deps.budget ?? inMemoryBudgetFor(deps.registry);
   const outcomes: ResourceOutcome[] = [];
-  let requestsMade = 0;
-  let bytesRead = 0;
 
   for (const item of request.requests) {
+    const currentTime = now();
+    if (Date.parse(request.taskExpiresAt) <= currentTime.getTime()) {
+      deps.onRefusal?.("GRANT_EXPIRED", request.taskId);
+      outcomes.push({ status: "refused" });
+      continue;
+    }
+    const usage = await budget.usage(request.taskId, currentTime);
     const canonicalPath =
       item.kind === "resource"
         ? await deps.registry.resolve(request.taskId, item.resourceId)
@@ -226,9 +243,9 @@ export async function fulfilResourceRequests(
         // Containment is proven for real by the broker immediately before the
         // read; this is the policy's cheap precondition, not the check itself.
         withinWorkspace: canonicalPath !== null,
-        requestsAlreadyMade: requestsMade,
-        bytesAlreadyRead: bytesRead,
-        now: now(),
+        requestsAlreadyMade: usage.requestsMade,
+        bytesAlreadyRead: usage.bytesRead,
+        now: currentTime,
       },
       deps.workspacePath,
       limits,
@@ -249,8 +266,21 @@ export async function fulfilResourceRequests(
       continue;
     }
 
-    requestsMade += 1;
-    const remaining = Math.max(0, limits.maxBytesPerTask - bytesRead);
+    const reserved = await budget.reserveRead(
+      request.taskId,
+      limits.maxBytesPerResource,
+      limits,
+      request.taskExpiresAt,
+      currentTime,
+    );
+    if (reserved.outcome !== "reserved") {
+      deps.onRefusal?.(
+        reserved.outcome === "request_budget" ? "REQUEST_BUDGET" : "BYTE_BUDGET",
+        request.taskId,
+      );
+      outcomes.push({ status: "refused" });
+      continue;
+    }
     const read = await deps.broker.read(
       {
         taskId: request.taskId,
@@ -258,16 +288,17 @@ export async function fulfilResourceRequests(
         recipientUserId: request.peerUserId,
         canonicalPath: decision.canonicalPath,
         authorizationMode: decision.mode,
-        maxBytes: Math.min(limits.maxBytesPerResource, remaining),
+        maxBytes: reserved.reservation.reservedBytes,
       },
       now,
     );
     if (isBrokerFailure(read)) {
+      await budget.settleRead(reserved.reservation, 0);
       deps.onRefusal?.(read.code, request.taskId);
       outcomes.push({ status: "refused" });
       continue;
     }
-    bytesRead += read.audit.byteLength;
+    await budget.settleRead(reserved.reservation, read.audit.byteLength);
     outcomes.push({
       status: "delivered",
       resourceId: read.audit.resourceId,
@@ -278,4 +309,14 @@ export async function fulfilResourceRequests(
   }
 
   return { requestId: request.requestId, outcomes };
+}
+
+const implicitBudgets = new WeakMap<ResourceRegistry, ResourceTaskBudgetLedger>();
+
+function inMemoryBudgetFor(registry: ResourceRegistry): ResourceTaskBudgetLedger {
+  const existing = implicitBudgets.get(registry);
+  if (existing) return existing;
+  const created = new InMemoryResourceTaskBudgetLedger();
+  implicitBudgets.set(registry, created);
+  return created;
 }

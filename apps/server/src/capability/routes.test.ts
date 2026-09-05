@@ -7,6 +7,9 @@ import type {
   PendingCapabilityScopeRequest,
 } from "../authorization/capability-scope-requests.js";
 import { CapabilityScopeExpansionService } from "./service.js";
+import type {
+  OwnedCapabilityGrantRepository,
+} from "../authorization/capability-grant-management.js";
 
 const ownerId = "10000000-0000-4000-8000-000000000001";
 const peerId = "10000000-0000-4000-8000-000000000002";
@@ -49,6 +52,7 @@ async function appWith(
   repository: CapabilityScopeRequestRepository,
   authenticatedUserId: () => Promise<string> = async () => ownerId,
   newId: () => string = () => grantId,
+  grantManagement?: OwnedCapabilityGrantRepository,
 ) {
   return createApp(
     loadConfig({ NODE_ENV: "test", APP_AUTH_TOKEN: "legacy-admin-token" }),
@@ -60,7 +64,11 @@ async function appWith(
     undefined,
     undefined,
     {
-      service: new CapabilityScopeExpansionService({ repository, newId }),
+      service: new CapabilityScopeExpansionService({
+        repository,
+        newId,
+        ...(grantManagement ? { grantManagement } : {}),
+      }),
       authenticatedUserId,
     },
   );
@@ -287,6 +295,104 @@ describe("scope expansion approval routes", () => {
     });
 
     expect(response.statusCode).toBe(409);
+    await app.close();
+  });
+});
+
+describe("owned capability grant routes", () => {
+  const ownedGrant = {
+    grantId,
+    taskId,
+    conversationId,
+    githubRepositoryId: githubRepositoryId as never,
+    peerUserId: peerId,
+    resourceId: candidateResourceId,
+    resourceDisplayLabel: "src/settings.ts",
+    operation: "read" as const,
+    mode: "task" as const,
+    grantedAt: "2026-08-31T09:40:00.000Z",
+    expiresAt: "2026-08-31T10:40:00.000Z",
+  };
+
+  function grantRepository(
+    overrides: Partial<OwnedCapabilityGrantRepository> = {},
+  ): OwnedCapabilityGrantRepository {
+    return {
+      listOwnedGrants: async () => [ownedGrant],
+      revokeOwnedGrant: async () => ({ outcome: "revoked" }),
+      ...overrides,
+    };
+  }
+
+  it("lists only the signed-in owner's live grants for one repository", async () => {
+    const listOwnedGrants = vi.fn<OwnedCapabilityGrantRepository["listOwnedGrants"]>(
+      async () => [ownedGrant],
+    );
+    const app = await appWith(
+      stubRepository(),
+      async () => ownerId,
+      () => grantId,
+      grantRepository({ listOwnedGrants }),
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/capability/grants?githubRepositoryId=${githubRepositoryId}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(response.json()).toEqual({ grants: [ownedGrant] });
+    expect(listOwnedGrants).toHaveBeenCalledWith(
+      { ownerUserId: ownerId, githubRepositoryId },
+      expect.anything(),
+    );
+    expect(response.payload).not.toContain("canonicalPath");
+    await app.close();
+  });
+
+  it("revokes one grant as the signed-in owner", async () => {
+    const revokeOwnedGrant = vi.fn<OwnedCapabilityGrantRepository["revokeOwnedGrant"]>(
+      async () => ({ outcome: "revoked" }),
+    );
+    const app = await appWith(
+      stubRepository(),
+      async () => ownerId,
+      () => grantId,
+      grantRepository({ revokeOwnedGrant }),
+    );
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/capability/grants/${grantId}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ outcome: "revoked" });
+    expect(revokeOwnedGrant).toHaveBeenCalledWith(
+      { ownerUserId: ownerId, grantId },
+      expect.anything(),
+    );
+    await app.close();
+  });
+
+  it("does not reveal a grant that is missing or belongs to another owner", async () => {
+    const app = await appWith(
+      stubRepository(),
+      async () => ownerId,
+      () => grantId,
+      grantRepository({
+        revokeOwnedGrant: async () => ({ outcome: "unavailable" }),
+      }),
+    );
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/capability/grants/${grantId}`,
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "That grant is not available to revoke" });
     await app.close();
   });
 });

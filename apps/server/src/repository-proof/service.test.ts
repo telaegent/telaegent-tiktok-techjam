@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RepositoryProofRepository } from "./repository.js";
 import { RepositoryProofService } from "./service.js";
+import { RepositoryProofVerificationError } from "./verifier.js";
 
 const now = new Date("2026-08-31T02:00:00.000Z");
 const principal = {
@@ -47,15 +48,27 @@ function fixture() {
       changed: true,
     })),
   } satisfies RepositoryProofRepository;
+  const verify = vi.fn(async () => ({
+    github: proof.github,
+    repository: {
+      id: proof.repository.id,
+      owner: proof.repository.owner,
+      name: proof.repository.name,
+      visibility: proof.repository.visibility,
+      defaultBranch: proof.repository.defaultBranch,
+      permission: proof.repository.permission,
+    },
+  }));
   return {
     repository,
-    service: new RepositoryProofService(repository, () => now),
+    verify,
+    service: new RepositoryProofService(repository, { verify }, () => now),
   };
 }
 
 describe("RepositoryProofService", () => {
   it("normalizes a safe proof and derives deterministic binding input", async () => {
-    const { repository, service } = fixture();
+    const { repository, service, verify } = fixture();
 
     await expect(service.register(principal, proof)).resolves.toEqual(registration);
 
@@ -66,6 +79,52 @@ describe("RepositoryProofService", () => {
       repositoryFullName: "Telaegent/codejam.repo",
     });
     expect(command.payloadDigestHex).toMatch(/^[0-9a-f]{64}$/);
+    expect(verify).toHaveBeenCalledWith(proof);
+  });
+
+  it("creates no membership when independent verification fails", async () => {
+    const { repository, service, verify } = fixture();
+    verify.mockRejectedValueOnce(new RepositoryProofVerificationError("UNVERIFIED"));
+
+    await expect(service.register(principal, proof)).rejects.toMatchObject({
+      code: "REPOSITORY_PROOF_UNVERIFIED",
+      statusCode: 403,
+    });
+    expect(repository.registerRepositoryProof).not.toHaveBeenCalled();
+  });
+
+  it("persists GitHub-verified facts instead of stronger connector claims", async () => {
+    const { repository, service, verify } = fixture();
+    verify.mockResolvedValueOnce({
+      github: { userId: proof.github.userId, login: "Khoa-Dao" },
+      repository: {
+        id: proof.repository.id,
+        owner: "telaegent",
+        name: proof.repository.name,
+        visibility: "public",
+        defaultBranch: "trunk",
+        permission: "read",
+      },
+    });
+
+    await service.register(principal, proof);
+
+    expect(repository.registerRepositoryProof).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryFullName: "telaegent/codejam.repo",
+        proof: {
+          ...proof,
+          github: { userId: proof.github.userId, login: "Khoa-Dao" },
+          repository: {
+            ...proof.repository,
+            owner: "telaegent",
+            visibility: "public",
+            defaultBranch: "trunk",
+            permission: "read",
+          },
+        },
+      }),
+    );
   });
 
   it("rejects body-injected identity, local paths, remotes, tokens, and raw output", async () => {
@@ -142,4 +201,3 @@ describe("RepositoryProofService", () => {
     );
   });
 });
-
