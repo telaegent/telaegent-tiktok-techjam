@@ -12,10 +12,16 @@ import type { AgentProvider } from "./runtime-contract.js";
  * connector has claimed a turn, so the owner pays a failed draft for a typo the
  * server could have refused.
  *
- * Every entry was verified on 2026-09-06 by running one `hello` turn through
- * the production flag surface -- the same argv `buildClaudeArgs` and
+ * Every entry was verified on 2026-09-06 by running `hello` turns through the
+ * production flag surface -- the same argv `buildClaudeArgs` and
  * `buildCodexArgs` produce -- against claude 2.1.263 and codex-cli 0.153.4.
- * A model is listed only if that turn exited 0 and returned assistant text.
+ * A model is listed only if those turns exited 0 and returned assistant text;
+ * six turns each, all passing.
+ *
+ * Note for anyone tempted to order this list by speed from that run: don't.
+ * A single sample put two models in the wrong order, and at n=5 only a coarse
+ * two-tier split survives. The numbers live in docs/team/duy-model-selection-api.md
+ * with the caveats attached.
  *
  * The aliases are deliberate for Claude: the CLI accepts both an alias and a
  * full model name, and an alias keeps following the latest model of that family

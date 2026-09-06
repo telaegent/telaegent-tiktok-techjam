@@ -114,31 +114,50 @@ you have everything needed to know which one it is.
 
 ## 4. What the models actually are
 
-Every model in the catalogue was verified on 2026-09-06 by running one real
-`hello` turn through the exact argv the product builds, against
-`claude 2.1.263` and `codex-cli 0.153.4`. A model is listed only if that turn
-exited 0 and returned assistant text.
+Every model in the catalogue was verified on 2026-09-06 by running real `hello`
+turns through the exact argv the product builds, against `claude 2.1.263` and
+`codex-cli 0.153.4`. A model is listed only if those turns exited 0 and returned
+assistant text — 6 turns each (1 syntax check, then 5 more for the timings
+below), 48 in total, all passing.
 
-| Provider | Value to send | Resolved to | hello turn |
-| --- | --- | --- | --- |
-| claude | `opus` *(default)* | `claude-opus-5` | 9.2s |
-| claude | `sonnet` | `claude-sonnet-5` | 4.5s |
-| claude | `haiku` | `claude-haiku-4-5-20251001` | 7.2s |
-| claude | `fable` | `claude-fable-5-1` | 6.7s |
-| codex | `gpt-6-astra` *(default)* | `gpt-6-astra` | 5.8s |
-| codex | `gpt-5.6-sol` | `gpt-5.6-sol` | 7.5s |
-| codex | `gpt-5.6-luna` | `gpt-5.6-luna` | 3.6s |
-| codex | `gpt-5.5` | `gpt-5.5` | 5.1s |
+| Provider | Value to send | Resolved to |
+| --- | --- | --- |
+| claude | `opus` *(default)* | `claude-opus-5` |
+| claude | `sonnet` | `claude-sonnet-5` |
+| claude | `haiku` | `claude-haiku-4-5-20251001` |
+| claude | `fable` | `claude-fable-5-1` |
+| codex | `gpt-6-astra` *(default)* | `gpt-6-astra` |
+| codex | `gpt-5.6-sol` | `gpt-5.6-sol` |
+| codex | `gpt-5.6-luna` | `gpt-5.6-luna` |
+| codex | `gpt-5.5` | `gpt-5.5` |
 
 The Claude values are **aliases on purpose** — the CLI accepts both an alias and
 a dated model ID, and an alias keeps following the latest model of that family so
 we never have to chase a version string. "Resolved to" is what the CLI reported
 at verification time; it's a label to display, not a value to send.
 
-**Those timings are a one-word prompt, not product latency.** They are not a
-ranking and shouldn't be shown to users as "speed" — a real Telaegent turn does
-investigation plus drafting and is dominated by the work, not the model. If the
-UI wants to hint at a tradeoff, describe capability, not seconds.
+### Speed: two tiers, and that is all the data supports
+
+Measured properly — 5 sequential `hello` runs per model, medians below. An
+earlier single-sample version of this table had two models in the wrong order,
+so treat anything finer than these tiers as noise.
+
+| Provider | Quicker | Slower |
+| --- | --- | --- |
+| claude | `haiku` 4.2s · `sonnet` 4.5s | `fable` 7.0s · `opus` 9.1s |
+| codex | `gpt-5.6-luna` 4.6s · `gpt-5.5` 4.7s · `gpt-5.6-sol` 5.2s | `gpt-6-astra` 7.2s |
+
+**Only the gap between the two columns is real.** Within a column the runs
+overlap almost entirely — `haiku` and `sonnet` sit inside each other's range,
+and so do `luna`, `gpt-5.5` and `sol`. Do not order the picker by these numbers
+or render them as a per-model figure.
+
+**And this is still a one-word prompt, not product latency.** A real Telaegent
+turn is investigation plus drafting, and the investigation pass — the heavier
+half — runs at a different reasoning effort than what was measured here, so the
+turn a user actually waits on is dominated by work these numbers don't cover. If
+the UI wants to hint at a tradeoff, "quicker / more thorough" is honest;
+a number in seconds is not.
 
 ---
 
@@ -222,8 +241,12 @@ try {
 - **It does not report which model answered.** If a finished draft should say
   "answered by Sonnet", ask me — it's a small addition to the draft view, but
   nothing stores it today.
-- **It does not expose reasoning effort.** Both providers are pinned to `medium`
-  server-side. That's a deployment decision, not a user one.
+- **It does not expose reasoning effort.** That is set server-side per pass, not
+  by the caller: Codex is `medium` throughout (`closedToolSurface()` pins
+  `model_reasoning_effort`), while Claude runs its investigation pass at the
+  CLI's own default and only its drafting pass at `medium`. Nothing for the UI
+  to surface — noted so nobody reads "medium everywhere" off an older draft of
+  this doc.
 - **It does not override a self-hosted deployment.** If an operator sets
   `CLAUDE_MODEL` / `CODEX_MODEL`, a run that names no model still uses their
   setting, and a run that names one always beats it. Nothing for you to handle —
