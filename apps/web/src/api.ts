@@ -3,6 +3,16 @@ import { isUiPreviewEnabled, previewRequest } from "./preview-api";
 
 export type AgentProvider = "codex" | "claude";
 
+export type RuntimeModelCatalogue = {
+  providers: Array<{
+    provider: AgentProvider;
+    /** Ordered by the server. Render without client-side reordering. */
+    models: string[];
+    /** The model to preselect when the owner has not made a choice. */
+    defaultModel: string;
+  }>;
+};
+
 export type PrivateDraftState =
   | "created"
   | "agent_working"
@@ -430,6 +440,7 @@ export const api = {
       { method: "DELETE" },
     ),
   system: () => request<SystemInfo>("/api/system"),
+  runtimeModels: () => request<RuntimeModelCatalogue>("/api/runtime/models"),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),
   createAgent: (body: {
     name: string;
@@ -531,12 +542,15 @@ export const api = {
     request<{ draft: PrivateDraftView }>(
       `/api/drafts/${encodeURIComponent(draftId)}`,
     ),
-  runConversationDraft: (draftId: string) =>
+  runConversationDraft: (
+    draftId: string,
+    body: { model?: string } = {},
+  ) =>
     request<{ draft: PrivateDraftView; pollUrl: string }>(
       `/api/drafts/${encodeURIComponent(draftId)}/run`,
       {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify(body),
       },
     ),
   clarifyConversationDraft: (draftId: string, content: string) =>

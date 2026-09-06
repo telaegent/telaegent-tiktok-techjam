@@ -25,6 +25,7 @@ import {
   type ProjectCollaborator,
   type ProjectConversation,
   type ProjectSummary,
+  type RuntimeModelCatalogue,
   type TelaegentWebUser,
 } from "./api";
 import {
@@ -1910,11 +1911,209 @@ function mapConversationMessage(
   };
 }
 
+function formatRuntimeModel(model: string): string {
+  const parts = model.split("-");
+  if (parts[0]?.toLowerCase() === "gpt") {
+    const family = parts
+      .slice(2)
+      .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+      .join(" ");
+    return `GPT-${parts[1] ?? ""}${family ? ` ${family}` : ""}`;
+  }
+  return parts
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function RuntimeRoutePicker({
+  catalogue,
+  catalogueState,
+  provider,
+  selectedModel,
+  selectedModels,
+  fixedProvider,
+  describedBy,
+  disabled,
+  onChange,
+}: {
+  catalogue: RuntimeModelCatalogue | null;
+  catalogueState: AsyncLoadState;
+  provider: AgentProvider;
+  selectedModel: string;
+  selectedModels?: Partial<Record<AgentProvider, string>>;
+  fixedProvider?: AgentProvider;
+  describedBy?: string;
+  disabled: boolean;
+  onChange: (provider: AgentProvider, model: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [browsingProvider, setBrowsingProvider] =
+    useState<AgentProvider>(provider);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const providers =
+    catalogue?.providers.filter(
+      (candidate) => !fixedProvider || candidate.provider === fixedProvider,
+    ) ?? [];
+  const browsingCatalogue =
+    providers.find((candidate) => candidate.provider === browsingProvider) ??
+    providers[0];
+  const triggerModel = selectedModel
+    ? formatRuntimeModel(selectedModel)
+    : catalogueState === "loading"
+      ? "Loading models"
+      : "Server default";
+
+  function selectedModelFor(
+    candidate: RuntimeModelCatalogue["providers"][number],
+  ): string {
+    const rememberedModel = selectedModels?.[candidate.provider];
+    if (rememberedModel && candidate.models.includes(rememberedModel)) {
+      return rememberedModel;
+    }
+    if (
+      candidate.provider === provider &&
+      candidate.models.includes(selectedModel)
+    ) {
+      return selectedModel;
+    }
+    return candidate.defaultModel;
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (
+        pickerRef.current &&
+        event.target instanceof Node &&
+        !pickerRef.current.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled || providers.length === 0) setOpen(false);
+  }, [disabled, providers.length]);
+
+  function togglePicker() {
+    setBrowsingProvider(fixedProvider ?? provider);
+    setOpen((current) => !current);
+  }
+
+  return (
+    <div className="runtime-route-picker" ref={pickerRef}>
+      <button
+        className="runtime-route-trigger"
+        type="button"
+        ref={triggerRef}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-describedby={describedBy}
+        aria-label={`Choose local provider and model. Current selection: ${formatProvider(provider)}, ${triggerModel}`}
+        disabled={disabled || providers.length === 0}
+        onClick={togglePicker}
+      >
+        <span className="runtime-route-provider">{formatProvider(provider)}</span>
+        <span className="runtime-route-model">{triggerModel}</span>
+        <i aria-hidden="true" />
+      </button>
+
+      {open && browsingCatalogue && (
+        <div
+          className={`runtime-route-popover${providers.length === 1 ? " single-provider" : ""}`}
+          role="dialog"
+          aria-label="Choose local provider and model"
+        >
+          {providers.length > 1 && (
+            <div className="runtime-provider-tabs" aria-label="Local provider">
+              {providers.map((candidate) => (
+                <button
+                  type="button"
+                  key={candidate.provider}
+                  className={
+                    candidate.provider === browsingCatalogue.provider
+                      ? "selected"
+                      : undefined
+                  }
+                  aria-pressed={
+                    candidate.provider === browsingCatalogue.provider
+                  }
+                  onClick={() => setBrowsingProvider(candidate.provider)}
+                >
+                  <strong>{formatProvider(candidate.provider)}</strong>
+                  <small>
+                    {formatRuntimeModel(selectedModelFor(candidate))}
+                  </small>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="runtime-model-panel">
+            <header>
+              <strong>{formatProvider(browsingCatalogue.provider)}</strong>
+              <small>Select model</small>
+            </header>
+            <div
+              className="runtime-model-options"
+              aria-label={`${formatProvider(browsingCatalogue.provider)} models`}
+            >
+              {browsingCatalogue.models.map((model) => {
+                const selected = model === selectedModelFor(browsingCatalogue);
+                return (
+                  <button
+                    type="button"
+                    aria-pressed={selected}
+                    className={selected ? "selected" : undefined}
+                    key={model}
+                    onClick={() => {
+                      onChange(browsingCatalogue.provider, model);
+                      setOpen(false);
+                      triggerRef.current?.focus();
+                    }}
+                  >
+                    <span>{formatRuntimeModel(model)}</span>
+                    <small>
+                      {selected
+                        ? browsingCatalogue.provider === provider
+                          ? "Current"
+                          : "Selected"
+                        : model === browsingCatalogue.defaultModel
+                          ? "Default"
+                          : ""}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PrivateAgentRoom({
   open,
   draft,
   answering,
   recipient,
+  runtimeModels,
+  selectedModel,
+  runtimeModelsState,
   clarification,
   approvedContent,
   editingCandidate,
@@ -1927,12 +2126,17 @@ function PrivateAgentRoom({
   onEdit,
   onSend,
   onRetry,
+  onModelChange,
+  onRetryRuntimeModels,
 }: {
   open: boolean;
   draft: PrivateDraftView | null;
   /** The approved collaborator message this draft answers, on a reply. */
   answering: SharedMessage | null;
   recipient: Collaborator;
+  runtimeModels: RuntimeModelCatalogue | null;
+  selectedModel: string;
+  runtimeModelsState: AsyncLoadState;
   clarification: string;
   approvedContent: string;
   editingCandidate: boolean;
@@ -1945,9 +2149,16 @@ function PrivateAgentRoom({
   onEdit: () => void;
   onSend: () => void;
   onRetry: () => void;
+  onModelChange: (model: string) => void;
+  onRetryRuntimeModels: () => void;
 }) {
   const state = draft?.state ?? "created";
-  const isWorking = state === "created" || state === "agent_working";
+  const isWorking =
+    state === "agent_working" || (state === "created" && !error);
+  const canRunAgain =
+    state === "needs_clarification" ||
+    state === "runtime_failed" ||
+    (state === "created" && !!error);
   const lastTurn = draft?.privateTurns.at(-1);
   const showPrivateMessage =
     !!draft?.privateMessage &&
@@ -2022,6 +2233,33 @@ function PrivateAgentRoom({
             <span>{draft ? formatProvider(draft.provider) : "Agent"}</span>
             <p>{draft?.privateMessage}</p>
           </article>
+        )}
+
+        {canRunAgain && draft && (
+          <div className="private-model-picker">
+            <RuntimeRoutePicker
+              catalogue={runtimeModels}
+              catalogueState={runtimeModelsState}
+              provider={draft.provider}
+              selectedModel={selectedModel}
+              fixedProvider={draft.provider}
+              describedBy={
+                runtimeModelsState === "error"
+                  ? "private-model-status"
+                  : undefined
+              }
+              disabled={busy}
+              onChange={(_provider, model) => onModelChange(model)}
+            />
+            {runtimeModelsState === "error" && (
+              <small id="private-model-status" role="status">
+                <span>Server default will be used.</span>
+                <button type="button" onClick={onRetryRuntimeModels}>
+                  Retry models
+                </button>
+              </small>
+            )}
+          </div>
         )}
 
         {isWorking && (
@@ -2167,6 +2405,9 @@ function ProjectChat({
   conversation,
   conversationState,
   conversationError,
+  runtimeModels,
+  runtimeModelsState,
+  onRetryRuntimeModels,
   onRetryConversation,
   currentUserId,
 }: {
@@ -2175,12 +2416,18 @@ function ProjectChat({
   conversation: ProjectConversation | null;
   conversationState: AsyncLoadState;
   conversationError: ApiError | null;
+  runtimeModels: RuntimeModelCatalogue | null;
+  runtimeModelsState: AsyncLoadState;
+  onRetryRuntimeModels: () => void;
   onRetryConversation: () => void;
   currentUserId: string | null;
 }) {
   const selected = peer ? collaboratorView(peer) : null;
   const [composer, setComposer] = useState("");
   const [provider, setProvider] = useState<AgentProvider>("claude");
+  const [modelsByProvider, setModelsByProvider] = useState<
+    Partial<Record<AgentProvider, string>>
+  >({});
   const [roughMessage, setRoughMessage] = useState("");
   const [messages, setMessages] = useState<SharedMessage[]>([]);
   const [messageLoadState, setMessageLoadState] =
@@ -2227,6 +2474,26 @@ function ProjectChat({
     project.githubRepositoryId,
   );
   const conversationId = conversation?.conversationId ?? null;
+  const providerModels = runtimeModels?.providers.find(
+    (candidate) => candidate.provider === provider,
+  );
+  const storedModel = modelsByProvider[provider];
+  const selectedModel =
+    storedModel && providerModels?.models.includes(storedModel)
+      ? storedModel
+      : providerModels?.defaultModel ?? "";
+  const draftProviderModels = draft
+    ? runtimeModels?.providers.find(
+        (candidate) => candidate.provider === draft.provider,
+      )
+    : null;
+  const storedDraftModel = draft
+    ? modelsByProvider[draft.provider]
+    : undefined;
+  const selectedDraftModel =
+    storedDraftModel && draftProviderModels?.models.includes(storedDraftModel)
+      ? storedDraftModel
+      : draftProviderModels?.defaultModel ?? "";
   const messageScopeKey = `${project.githubRepositoryId}:${conversationId ?? "none"}`;
   const activeMessageScope = useRef(messageScopeKey);
   const activeRepositoryScope = useRef(project.githubRepositoryId);
@@ -2560,9 +2827,22 @@ function ProjectChat({
     };
   }, [actionError, draft, privateRoomOpen]);
 
-  async function runDraft(draftId: string) {
+  function selectedModelFor(draftProvider: AgentProvider): string | undefined {
+    const catalogue = runtimeModels?.providers.find(
+      (candidate) => candidate.provider === draftProvider,
+    );
+    const selection = modelsByProvider[draftProvider];
+    if (selection && catalogue?.models.includes(selection)) return selection;
+    return catalogue?.defaultModel;
+  }
+
+  async function runDraft(draftId: string, draftProvider: AgentProvider) {
     try {
-      const result = await api.runConversationDraft(draftId);
+      const model = selectedModelFor(draftProvider);
+      const result = await api.runConversationDraft(
+        draftId,
+        model ? { model } : {},
+      );
       setDraft(result.draft);
       setActionError(null);
     } catch (error) {
@@ -2583,7 +2863,7 @@ function ProjectChat({
       });
       setDraft(created.draft);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId);
+      await runDraft(created.draft.draftId, created.draft.provider);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -2624,7 +2904,7 @@ function ProjectChat({
       });
       setDraft(created.draft);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId);
+      await runDraft(created.draft.draftId, created.draft.provider);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -2681,7 +2961,7 @@ function ProjectChat({
       );
       setDraft(clarified.draft);
       setClarification("");
-      await runDraft(draft.draftId);
+      await runDraft(clarified.draft.draftId, clarified.draft.provider);
     } catch (error) {
       setActionError(normalizeApiError(error));
     } finally {
@@ -2768,7 +3048,7 @@ function ProjectChat({
   async function retryDraft() {
     if (draft?.state === "created") {
       setBusy(true);
-      await runDraft(draft.draftId);
+      await runDraft(draft.draftId, draft.provider);
       setBusy(false);
       return;
     }
@@ -3054,20 +3334,15 @@ function ProjectChat({
       </div>
 
       <form className="shared-composer" onSubmit={submitRoughMessage}>
-        <label className="composer-provider-picker">
-          <span>Local provider</span>
-          <select
-            value={provider}
-            onChange={(event) =>
-              setProvider(event.target.value as AgentProvider)
-            }
-            disabled={busy}
-          >
-            <option value="claude">Claude Code</option>
-            <option value="codex">Codex</option>
-          </select>
-        </label>
-        <div>
+        {runtimeModelsState === "error" && (
+          <small className="composer-model-status" id="composer-model-status">
+            <span>Models unavailable. Server default will be used.</span>
+            <button type="button" onClick={onRetryRuntimeModels}>
+              Retry
+            </button>
+          </small>
+        )}
+        <div className="composer-body">
           <textarea
             id="project-message"
             rows={2}
@@ -3081,18 +3356,44 @@ function ProjectChat({
               conversationState !== "ready"
             }
           />
-          <button
-            type="submit"
-            disabled={
-              busy ||
-              !composer.trim() ||
-              !!configurationError ||
-              !conversationId ||
-              conversationState !== "ready"
-            }
-          >
-            Prepare privately
-          </button>
+          <div className="composer-toolbar">
+            <small>Private until you choose Send</small>
+            <div className="composer-toolbar-actions">
+              <RuntimeRoutePicker
+                catalogue={runtimeModels}
+                catalogueState={runtimeModelsState}
+                provider={provider}
+                selectedModel={selectedModel}
+                selectedModels={modelsByProvider}
+                describedBy={
+                  runtimeModelsState === "error"
+                    ? "composer-model-status"
+                    : undefined
+                }
+                disabled={busy}
+                onChange={(nextProvider, model) => {
+                  setProvider(nextProvider);
+                  setModelsByProvider((current) => ({
+                    ...current,
+                    [nextProvider]: model,
+                  }));
+                }}
+              />
+              <button
+                className="composer-submit"
+                type="submit"
+                disabled={
+                  busy ||
+                  !composer.trim() ||
+                  !!configurationError ||
+                  !conversationId ||
+                  conversationState !== "ready"
+                }
+              >
+                Prepare privately
+              </button>
+            </div>
+          </div>
         </div>
       </form>
 
@@ -3102,6 +3403,9 @@ function ProjectChat({
           draft={draft}
           answering={answering}
           recipient={selected}
+          runtimeModels={runtimeModels}
+          selectedModel={selectedDraftModel}
+          runtimeModelsState={runtimeModelsState}
           clarification={clarification}
           approvedContent={approvedContent}
           editingCandidate={editingCandidate}
@@ -3114,6 +3418,14 @@ function ProjectChat({
           onEdit={() => setEditingCandidate(true)}
           onSend={() => void sendDraft()}
           onRetry={() => void retryDraft()}
+          onModelChange={(model) => {
+            if (!draft) return;
+            setModelsByProvider((current) => ({
+              ...current,
+              [draft.provider]: model,
+            }));
+          }}
+          onRetryRuntimeModels={onRetryRuntimeModels}
         />
       )}
     </section>
@@ -3272,7 +3584,39 @@ function Workspace({
     null,
   );
   const [conversationAttempt, setConversationAttempt] = useState(0);
+  const [runtimeModels, setRuntimeModels] =
+    useState<RuntimeModelCatalogue | null>(null);
+  const [runtimeModelsState, setRuntimeModelsState] =
+    useState<AsyncLoadState>("loading");
+  const [runtimeModelsAttempt, setRuntimeModelsAttempt] = useState(0);
   const collaboratorRequest = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    if (!currentUserId) {
+      setRuntimeModels(null);
+      setRuntimeModelsState("idle");
+      return () => {
+        active = false;
+      };
+    }
+    setRuntimeModelsState("loading");
+    void api
+      .runtimeModels()
+      .then((catalogue) => {
+        if (!active) return;
+        setRuntimeModels(catalogue);
+        setRuntimeModelsState("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        setRuntimeModels(null);
+        setRuntimeModelsState("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUserId, runtimeModelsAttempt]);
 
   async function loadCollaborators() {
     const requestId = ++collaboratorRequest.current;
@@ -3440,6 +3784,11 @@ function Workspace({
           conversation={selectedConversation}
           conversationState={selectedPeer ? conversationState : "idle"}
           conversationError={conversationError}
+          runtimeModels={runtimeModels}
+          runtimeModelsState={runtimeModelsState}
+          onRetryRuntimeModels={() =>
+            setRuntimeModelsAttempt((attempt) => attempt + 1)
+          }
           onRetryConversation={() =>
             setConversationAttempt((attempt) => attempt + 1)
           }
