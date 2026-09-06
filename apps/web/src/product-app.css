@@ -650,7 +650,7 @@ button.connector-presence:hover {
   border: 1px solid var(--line);
   border-radius: 0 0 12px 12px;
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
   overflow: hidden;
   background: var(--surface-raised);
 }
@@ -668,7 +668,7 @@ button.connector-presence:hover {
 
 .app-rail button {
   position: relative;
-  width: 60px;
+  width: 80px;
   min-height: 54px;
   padding: 7px 4px;
   border: 1px solid transparent;
@@ -722,10 +722,6 @@ html[data-theme="dark"] .app-rail button > img {
 .app-rail button > strong {
   font-size: var(--type-caption);
   font-weight: 500;
-}
-
-.app-rail button[data-route="connections"] > strong {
-  font-size: var(--type-caption);
 }
 
 .app-rail button > i {
