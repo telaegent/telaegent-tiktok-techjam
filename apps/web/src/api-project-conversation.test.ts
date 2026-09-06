@@ -6,10 +6,14 @@ afterEach(() => {
 });
 
 describe("project conversation API", () => {
-  it("loads the ordered runtime model catalogue", async () => {
+  it("loads the ordered runtime model and effort catalogue", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
-        JSON.stringify({ providers: [] }),
+        JSON.stringify({
+          providers: [],
+          efforts: ["low", "medium", "high"],
+          defaultEffort: "medium",
+        }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
@@ -24,7 +28,7 @@ describe("project conversation API", () => {
     });
   });
 
-  it("sends the selected model only when running a private draft", async () => {
+  it("sends the selected model and reasoning effort when running a private draft", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
         JSON.stringify({ draft: {}, pollUrl: "/api/drafts/draft-id" }),
@@ -33,14 +37,17 @@ describe("project conversation API", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.runConversationDraft("draft/id", { model: "sonnet" });
+    await api.runConversationDraft("draft/id", {
+      model: "sonnet",
+      effort: "high",
+    });
 
     const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/drafts/draft%2Fid/run");
     expect(options).toMatchObject({
       method: "POST",
       credentials: "same-origin",
-      body: JSON.stringify({ model: "sonnet" }),
+      body: JSON.stringify({ model: "sonnet", effort: "high" }),
     });
   });
 

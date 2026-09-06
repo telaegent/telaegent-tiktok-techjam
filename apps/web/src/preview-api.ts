@@ -33,6 +33,8 @@ const runtimeModels: RuntimeModelCatalogue = {
       defaultModel: "gpt-5.6-sol",
     },
   ],
+  efforts: ["low", "medium", "high"],
+  defaultEffort: "medium",
 };
 
 const session: TelaegentSession = {

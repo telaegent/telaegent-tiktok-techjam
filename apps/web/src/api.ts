@@ -2,6 +2,7 @@ import type { Agent, AgentRun, Message, SystemInfo } from "./types";
 import { isUiPreviewEnabled, previewRequest } from "./preview-api";
 
 export type AgentProvider = "codex" | "claude";
+export type RuntimeEffort = "low" | "medium" | "high";
 
 export type RuntimeModelCatalogue = {
   providers: Array<{
@@ -11,6 +12,10 @@ export type RuntimeModelCatalogue = {
     /** The model to preselect when the owner has not made a choice. */
     defaultModel: string;
   }>;
+  /** Ordered from least to most reasoning. Shared by every provider. */
+  efforts: RuntimeEffort[];
+  /** The reasoning level to preselect when the owner has not made a choice. */
+  defaultEffort: RuntimeEffort;
 };
 
 export type PrivateDraftState =
@@ -544,7 +549,7 @@ export const api = {
     ),
   runConversationDraft: (
     draftId: string,
-    body: { model?: string } = {},
+    body: { model?: string; effort?: RuntimeEffort } = {},
   ) =>
     request<{ draft: PrivateDraftView; pollUrl: string }>(
       `/api/drafts/${encodeURIComponent(draftId)}/run`,
