@@ -40,6 +40,7 @@ const conversationRpcFunctions = [
   "create_private_draft",
   "create_recipient_draft",
   "get_private_draft",
+  "list_recoverable_private_drafts",
   "mark_private_draft_running",
   "complete_private_draft",
   "add_private_draft_clarification",
@@ -204,6 +205,7 @@ const createRecipientDraftResultSchema = z.strictObject({
   draft: privateDraftSchema,
   replayed: z.boolean(),
 });
+const privateDraftListSchema = z.array(privateDraftSchema).max(50);
 
 // One beyond the ceiling, so an overflowing transcript is detected rather than
 // rejected as a malformed payload.
@@ -275,6 +277,27 @@ export class SupabaseConversationRepository implements ConversationRepository {
 
   async getDraft(draftId: string): Promise<PrivateDraft | null> {
     return parseDraft(await this.call("get_private_draft", { p_draft_id: draftId }));
+  }
+
+  async listRecoverableDrafts(input: {
+    ownerUserId: string;
+    conversationId: string;
+    githubRepositoryId: string;
+    limit: number;
+  }): Promise<PrivateDraft[]> {
+    const record = await this.call("list_recoverable_private_drafts", {
+      p_owner_user_id: input.ownerUserId,
+      p_conversation_id: input.conversationId,
+      p_github_repository_id: input.githubRepositoryId,
+      p_limit: input.limit,
+    });
+    const parsed = privateDraftListSchema.safeParse(record);
+    if (!parsed.success || parsed.data.length > input.limit) {
+      throw new SupabaseConversationRepositoryError(
+        "INVALID_SUPABASE_CONVERSATION_RECORD",
+      );
+    }
+    return parsed.data;
   }
 
   async markDraftRunning(input: {

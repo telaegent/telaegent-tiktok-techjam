@@ -493,7 +493,11 @@ describe("canonical conversation API", () => {
       url: `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}`,
       headers: { "x-test-user": OWNER },
     });
-    expect(emptyConversation.json()).toEqual({ messages: [], nextCursor: null });
+    expect(emptyConversation.json()).toEqual({
+      messages: [],
+      nextCursor: null,
+      pollCursor: null,
+    });
     expect(emptyConversation.headers["cache-control"]).toBe(
       "no-store, max-age=0",
     );
@@ -561,9 +565,45 @@ describe("canonical conversation API", () => {
         senderUserId: OWNER,
       }),
     ]);
+    expect(shared.json().pollCursor).toEqual(expect.any(String));
+    const unchanged = await app.inject({
+      method: "GET",
+      url:
+        `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}` +
+        `&cursor=${encodeURIComponent(shared.json().pollCursor)}`,
+      headers: { "x-test-user": OWNER },
+    });
+    expect(unchanged.json()).toEqual({
+      messages: [],
+      nextCursor: null,
+      pollCursor: shared.json().pollCursor,
+    });
     expect(test.authorizations.map((call) => call.action)).toEqual(
       expect.arrayContaining(["create_draft", "run_draft", "read", "send"]),
     );
+    await app.close();
+  });
+
+  it("recovers only the authenticated owner's unfinished drafts in this scope", async () => {
+    const test = harness();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+
+    const owned = await createDraft(app, OWNER);
+    await createDraft(app, OTHER);
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/conversations/${CONVERSATION}/drafts?githubRepositoryId=${REPOSITORY}`,
+      headers: { "x-test-user": OWNER },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store, max-age=0");
+    expect(response.json().drafts).toEqual([
+      expect.objectContaining({ draftId: owned.json().draft.draftId }),
+    ]);
     await app.close();
   });
 
@@ -833,7 +873,11 @@ describe("canonical conversation API", () => {
       url: `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}`,
       headers: { "x-test-user": OWNER },
     });
-    expect(messages.json()).toEqual({ messages: [], nextCursor: null });
+    expect(messages.json()).toEqual({
+      messages: [],
+      nextCursor: null,
+      pollCursor: null,
+    });
     await app.close();
   });
 
@@ -914,7 +958,11 @@ describe("canonical conversation API", () => {
       url: `/api/conversations/${CONVERSATION}/messages?githubRepositoryId=${REPOSITORY}`,
       headers: { "x-test-user": OWNER },
     });
-    expect(messages.json()).toEqual({ messages: [], nextCursor: null });
+    expect(messages.json()).toEqual({
+      messages: [],
+      nextCursor: null,
+      pollCursor: null,
+    });
     await app.close();
   });
 

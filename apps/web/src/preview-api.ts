@@ -346,7 +346,14 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
     return { conversation: copy(conversation) };
   }
   if (url.match(/^\/api\/conversations\/[^/]+\/messages\?/) && method === "GET") {
-    return { messages: copy(messages) };
+    const parsed = new URL(url, "https://preview.invalid");
+    const offset = Number.parseInt(parsed.searchParams.get("cursor") ?? "0", 10);
+    const start = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    return {
+      messages: copy(messages.slice(start)),
+      nextCursor: null,
+      pollCursor: String(messages.length),
+    };
   }
   if (url.startsWith("/api/capability/scope-requests?") && method === "GET") {
     return { requests: copy(scopeRequests) };
@@ -400,6 +407,24 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
         "sender",
         typeof body["roughMessage"] === "string" ? body["roughMessage"] : "",
         null,
+      ),
+    };
+  }
+  if (url.match(/^\/api\/conversations\/[^/]+\/drafts\?/) && method === "GET") {
+    const parsed = new URL(url, "https://preview.invalid");
+    const scopedConversationId = decodeURIComponent(parsed.pathname.split("/")[3] ?? "");
+    const scopedRepositoryId = parsed.searchParams.get("githubRepositoryId");
+    return {
+      drafts: copy(
+        [...drafts.values()]
+          .filter(
+            (draft) =>
+              draft.conversationId === scopedConversationId &&
+              draft.githubRepositoryId === scopedRepositoryId &&
+              draft.state !== "sent" &&
+              draft.state !== "cancelled",
+          )
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       ),
     };
   }

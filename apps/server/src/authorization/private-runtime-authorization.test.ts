@@ -196,6 +196,38 @@ describe("PrivateRuntimeAuthorizationService", () => {
     );
   });
 
+  it("keeps durable conversation access available without repository runtime state", async () => {
+    const snapshot = validSnapshot();
+    snapshot.githubConnection!.status = "reconnect_required";
+    snapshot.repositoryAccess!.status = "revalidation_required";
+    snapshot.repositoryAccess!.verifiedAt = "2026-08-01T00:00:00.000Z";
+    snapshot.runtimeBinding = null;
+
+    await expect(
+      service(new SnapshotRepository(snapshot)).authorizeConversationAccess(input),
+    ).resolves.toBeUndefined();
+  });
+
+  it("still applies membership and collaborator revocation to conversation access", async () => {
+    const suspended = validSnapshot();
+    suspended.membership!.status = "suspended";
+    await expectForbidden(
+      service(new SnapshotRepository(suspended)).authorizeConversationAccess(input),
+      "membership_unavailable",
+    );
+
+    const disconnected = validSnapshot();
+    disconnected.projectConnections = [{
+      ...disconnected.projectConnections[0]!,
+      status: "revoked",
+      revokedAt: "2026-08-30T11:00:00.000Z",
+    }];
+    await expectForbidden(
+      service(new SnapshotRepository(disconnected)).authorizeConversationAccess(input),
+      "project_connection_unavailable",
+    );
+  });
+
   it("rejects duplicate or excessive conversation participants", async () => {
     const duplicate = validSnapshot();
     duplicate.conversation!.participantUserIds = ["user-1", "user-2", "user-2"];

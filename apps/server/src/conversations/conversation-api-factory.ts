@@ -28,13 +28,10 @@ const repositoryReadTimeoutMs = 5_000;
 /**
  * Product authorization for one conversation action.
  *
- * Every action re-authorizes from scratch. Repository access, membership,
- * project connections, and runtime bindings are all revocable mid-conversation,
- * so no decision may be cached across actions.
- *
- * This is deliberately strict: `authorizePrivateRuntime` also requires a ready
- * runtime binding, so a read is refused while the owner's connector is
- * detached. Loosening read actions is a product decision, not a wiring one.
+ * Every action re-authorizes from scratch. Execution actions require fresh
+ * repository proof and a ready local binding. Durable-state actions (read,
+ * send, cancel) require active project membership and collaborator trust but
+ * remain usable while the owner's connector is offline.
  */
 export class AuthorizedConversationAccess implements ConversationAccessAuthorizer {
   constructor(private readonly authorizer: PrivateRuntimeAuthorizer) {}
@@ -42,6 +39,15 @@ export class AuthorizedConversationAccess implements ConversationAccessAuthorize
   async authorize(
     input: Parameters<ConversationAccessAuthorizer["authorize"]>[0],
   ): Promise<void> {
+    if (
+      (input.action === "read" ||
+        input.action === "send" ||
+        input.action === "cancel") &&
+      this.authorizer.authorizeConversationAccess
+    ) {
+      await this.authorizer.authorizeConversationAccess(input);
+      return;
+    }
     await this.authorizer.authorizePrivateRuntime({
       authenticatedUserId: input.authenticatedUserId,
       githubRepositoryId: input.githubRepositoryId,

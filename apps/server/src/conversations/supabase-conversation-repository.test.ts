@@ -172,6 +172,29 @@ describe("SupabaseConversationRepository", () => {
     expect(draft?.draftId).toBe(draftId);
   });
 
+  it("lists only recoverable drafts through the fully scoped RPC", async () => {
+    const { repository, calls } = repositoryReturning([draftRow()]);
+
+    const drafts = await repository.listRecoverableDrafts({
+      ownerUserId,
+      conversationId,
+      githubRepositoryId,
+      limit: 50,
+    });
+
+    expect(calls[0]).toEqual({
+      functionName: "list_recoverable_private_drafts",
+      params: {
+        p_owner_user_id: ownerUserId,
+        p_conversation_id: conversationId,
+        p_github_repository_id: githubRepositoryId,
+        p_limit: 50,
+      },
+    });
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.draftId).toBe(draftId);
+  });
+
   it("creates a recipient draft with an owner-scoped idempotency key", async () => {
     const recipient = {
       ...sampleDraft,

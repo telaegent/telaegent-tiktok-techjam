@@ -86,6 +86,17 @@ describe("local UI preview", () => {
     expect(settled.draft).toMatchObject({ state: "ready" });
     expect(settled.draft.sendCandidate).toContain("session guard");
 
+    const recoverable = await previewRequest(
+      "/api/conversations/44444444-4444-4444-8444-444444444444/drafts?githubRepositoryId=987654321",
+    ) as { drafts: PrivateDraftView[] };
+    expect(recoverable.drafts.map((draft) => draft.draftId)).toContain(
+      created.draft.draftId,
+    );
+    const wrongRepository = await previewRequest(
+      "/api/conversations/44444444-4444-4444-8444-444444444444/drafts?githubRepositoryId=123456789",
+    ) as { drafts: PrivateDraftView[] };
+    expect(wrongRepository.drafts).toEqual([]);
+
     const sent = await previewRequest(`/api/drafts/${created.draft.draftId}/send`, {
       method: "POST",
       body: JSON.stringify({

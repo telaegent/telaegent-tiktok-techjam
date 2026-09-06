@@ -72,6 +72,14 @@ export interface PrivateRuntimeAuthorizer {
   authorizePrivateRuntime(
     input: Readonly<AuthorizePrivateRuntimeInput>,
   ): Promise<AuthorizedPrivateRuntime>;
+  /**
+   * Authorizes durable conversation state without requiring a live connector
+   * or a fresh local execution proof. Membership and collaborator revocation
+   * are still re-read and enforced for every action.
+   */
+  authorizeConversationAccess?(
+    input: Readonly<AuthorizePrivateRuntimeInput>,
+  ): Promise<void>;
 }
 
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -130,6 +138,14 @@ export class PrivateRuntimeAuthorizationService
     };
   }
 
+  async authorizeConversationAccess(
+    input: Readonly<AuthorizePrivateRuntimeInput>,
+  ): Promise<void> {
+    this.validateInput(input);
+    const snapshot = await this.loadSnapshot(input);
+    this.validateConversationSnapshot(input, snapshot);
+  }
+
   private async loadSnapshot(
     input: Readonly<AuthorizePrivateRuntimeInput>,
   ): Promise<PrivateRuntimeAuthorizationSnapshot> {
@@ -174,11 +190,7 @@ export class PrivateRuntimeAuthorizationService
     input: Readonly<AuthorizePrivateRuntimeInput>,
     snapshot: Readonly<PrivateRuntimeAuthorizationSnapshot>,
   ): void {
-    const user = snapshot.user;
-    if (!user || user.status !== "active") throw forbidden("inactive_user");
-    if (user.userId !== input.authenticatedUserId) {
-      throw forbidden("inconsistent_scope");
-    }
+    this.validateConversationSnapshot(input, snapshot);
 
     const githubConnection = snapshot.githubConnection;
     if (!githubConnection || githubConnection.status !== "connected") {
@@ -204,6 +216,36 @@ export class PrivateRuntimeAuthorizationService
       throw forbidden("inconsistent_scope");
     }
     this.requireFreshRepositoryAccess(repositoryAccess.verifiedAt);
+
+    const project = snapshot.project!;
+
+    const binding = snapshot.runtimeBinding;
+    if (!binding || binding.status !== "ready") return;
+    if (
+      binding.userId !== input.authenticatedUserId ||
+      binding.projectId !== project.projectId ||
+      binding.githubRepositoryId !== input.githubRepositoryId ||
+      !identifierPattern.test(binding.runtimeBindingId)
+    ) {
+      throw forbidden("inconsistent_scope");
+    }
+  }
+
+  /**
+   * Stable collaboration authorization shared by history, draft recovery,
+   * Send, and No. It deliberately excludes local GitHub proof and connector
+   * presence: those authorize fresh repository execution, not access to the
+   * durable conversation the user already belongs to.
+   */
+  private validateConversationSnapshot(
+    input: Readonly<AuthorizePrivateRuntimeInput>,
+    snapshot: Readonly<PrivateRuntimeAuthorizationSnapshot>,
+  ): void {
+    const user = snapshot.user;
+    if (!user || user.status !== "active") throw forbidden("inactive_user");
+    if (user.userId !== input.authenticatedUserId) {
+      throw forbidden("inconsistent_scope");
+    }
 
     const project = snapshot.project;
     if (!project || project.status !== "active") {
@@ -244,17 +286,6 @@ export class PrivateRuntimeAuthorizationService
       input.authenticatedUserId,
       participants,
     );
-
-    const binding = snapshot.runtimeBinding;
-    if (!binding || binding.status !== "ready") return;
-    if (
-      binding.userId !== input.authenticatedUserId ||
-      binding.projectId !== project.projectId ||
-      binding.githubRepositoryId !== input.githubRepositoryId ||
-      !identifierPattern.test(binding.runtimeBindingId)
-    ) {
-      throw forbidden("inconsistent_scope");
-    }
   }
 
   private validateParticipants(
