@@ -55,6 +55,7 @@ export function createPrivateDraftFollowUp(
 ): PrivateDraftFollowUp {
   return new DraftFollowUpService({
     tasks: new SupabaseCollaborationTaskRepository(dependencies.authorization),
+    scope: dependencies.scope,
     coordinator: new CapabilityFollowUpCoordinator({
       scope: dependencies.scope,
       authorization: new CapabilityRouteAuthorizationService(

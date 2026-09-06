@@ -10,12 +10,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { CollaborationTaskRepository } from "../authorization/collaboration-tasks.js";
+import type { CapabilityScopeRequestRepository } from "../authorization/capability-scope-requests.js";
 import type { ConnectorResourceRequest } from "../connectors/resource-exchange.js";
 import { DraftFollowUpService, type FollowUpDraftContext } from "./draft-follow-up.js";
 import type {
   CapabilityFollowUpCoordinator,
   CapabilityFollowUpOutcome,
 } from "./follow-up-coordinator.js";
+import { CapabilityScopeExpansionService } from "./service.js";
 
 const taskId = "20000000-0000-4000-8000-000000000001";
 const messageId = "80000000-0000-4000-8000-000000000001";
@@ -23,6 +25,7 @@ const conversationId = "30000000-0000-4000-8000-000000000001";
 const requesterId = "10000000-0000-4000-8000-000000000001";
 const responderId = "10000000-0000-4000-8000-000000000002";
 const resourceId = `resource_${"a".repeat(24)}`;
+const scopeRequestId = "90000000-0000-4000-8000-000000000001";
 
 const draft: FollowUpDraftContext = {
   incomingMessageId: messageId,
@@ -63,6 +66,8 @@ function build(parts: {
   openTask?: CollaborationTaskRepository["openTask"];
   endTask?: CollaborationTaskRepository["endTask"];
   runRound?: CapabilityFollowUpCoordinator["runRound"];
+  resolveScopeRequests?: CapabilityScopeRequestRepository["resolveScopeRequests"];
+  approvalPollIntervalMs?: number;
 } = {}) {
   const openTask = vi.fn<CollaborationTaskRepository["openTask"]>(
     parts.openTask ?? (async () => opened),
@@ -73,12 +78,28 @@ function build(parts: {
   const endTask = vi.fn<CollaborationTaskRepository["endTask"]>(
     parts.endTask ?? (async () => ({ outcome: "ended", status: "completed" })),
   );
+  const resolveScopeRequests = vi.fn<CapabilityScopeRequestRepository["resolveScopeRequests"]>(
+    parts.resolveScopeRequests ??
+      (async () => ({ outcome: "task_unavailable" })),
+  );
+  const scope = new CapabilityScopeExpansionService({
+    repository: {
+      recordScopeRequest: async () => ({ outcome: "task_unavailable" }),
+      decideScopeRequest: async () => ({ outcome: "unavailable" }),
+      listPendingScopeRequests: async () => [],
+      resolveScopeRequests,
+      beginFollowUpRound: async () => ({ outcome: "task_unavailable" }),
+    },
+  });
   const service = new DraftFollowUpService({
     tasks: { openTask, endTask },
     coordinator: { runRound } as unknown as CapabilityFollowUpCoordinator,
+    scope,
     newTaskId: () => taskId,
+    approvalPollIntervalMs: parts.approvalPollIntervalMs,
+    now: () => Date.parse("2026-08-31T10:00:00.000Z"),
   });
-  return { service, openTask, endTask, runRound };
+  return { service, openTask, endTask, runRound, resolveScopeRequests };
 }
 
 describe("carrying a draft's questions to the other machine", () => {
@@ -161,6 +182,137 @@ describe("carrying a draft's questions to the other machine", () => {
       expect.objectContaining({ taskId }),
       [ask],
     );
+  });
+
+  it("continues by exact resource ID after the owner approves a filename hint", async () => {
+    const waiting: CapabilityFollowUpOutcome = {
+      outcome: "completed",
+      round: 1,
+      delivered: [],
+      queued: [{
+        candidateResourceId: resourceId,
+        resourceDisplayLabel: "src/settings.ts",
+        requestedHint: "src/settings.ts",
+        requestedReason: ask.reason,
+        outcome: { outcome: "recorded", scopeRequestId },
+      }],
+      pendingWithoutCandidate: 0,
+      refused: 0,
+      spentGrantIds: [],
+    };
+    const { service, runRound, resolveScopeRequests } = build({
+      runRound: async (_context, requests) =>
+        requests[0]?.kind === "hint" ? waiting : completed,
+      resolveScopeRequests: async () => ({
+        outcome: "resolved",
+        requests: [{ scopeRequestId, candidateResourceId: resourceId, status: "approved" }],
+      }),
+    });
+
+    await expect(service.run(draft, [ask])).resolves.toEqual([
+      { resourceId, content: "rotate();", truncated: false },
+    ]);
+    expect(resolveScopeRequests).toHaveBeenCalledWith(
+      { taskId, peerUserId: responderId, scopeRequestIds: [scopeRequestId] },
+      undefined,
+    );
+    expect(runRound).toHaveBeenLastCalledWith(
+      expect.objectContaining({ taskId, peerUserId: responderId }),
+      [{ kind: "resource", resourceId, reason: ask.reason }],
+    );
+  });
+
+  it("reuses an existing grant instead of repeating the filename prompt", async () => {
+    const waiting: CapabilityFollowUpOutcome = {
+      outcome: "completed",
+      round: 1,
+      delivered: [],
+      queued: [{
+        candidateResourceId: resourceId,
+        resourceDisplayLabel: "src/settings.ts",
+        requestedHint: "src/settings.ts",
+        requestedReason: ask.reason,
+        outcome: {
+          outcome: "already_granted",
+          grantId: "50000000-0000-4000-8000-000000000001",
+        },
+      }],
+      pendingWithoutCandidate: 0,
+      refused: 0,
+      spentGrantIds: [],
+    };
+    const { service, runRound, resolveScopeRequests } = build({
+      runRound: async (_context, requests) =>
+        requests[0]?.kind === "hint" ? waiting : completed,
+    });
+
+    await expect(service.run(draft, [ask])).resolves.toHaveLength(1);
+    expect(resolveScopeRequests).not.toHaveBeenCalled();
+    expect(runRound).toHaveBeenLastCalledWith(
+      expect.anything(),
+      [{ kind: "resource", resourceId, reason: ask.reason }],
+    );
+  });
+
+  it("stops without disclosing whether the owner denied the request", async () => {
+    const waiting: CapabilityFollowUpOutcome = {
+      outcome: "completed",
+      round: 1,
+      delivered: [],
+      queued: [{
+        candidateResourceId: resourceId,
+        resourceDisplayLabel: "src/settings.ts",
+        requestedHint: "src/settings.ts",
+        requestedReason: ask.reason,
+        outcome: { outcome: "existing", scopeRequestId },
+      }],
+      pendingWithoutCandidate: 0,
+      refused: 0,
+      spentGrantIds: [],
+    };
+    const { service, runRound } = build({
+      runRound: async () => waiting,
+      resolveScopeRequests: async () => ({
+        outcome: "resolved",
+        requests: [{ scopeRequestId, candidateResourceId: resourceId, status: "denied" }],
+      }),
+    });
+
+    await expect(service.run(draft, [ask])).resolves.toEqual([]);
+    expect(runRound).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes a pending human-approval wait abortable", async () => {
+    const waiting: CapabilityFollowUpOutcome = {
+      outcome: "completed",
+      round: 1,
+      delivered: [],
+      queued: [{
+        candidateResourceId: resourceId,
+        resourceDisplayLabel: "src/settings.ts",
+        requestedHint: "src/settings.ts",
+        requestedReason: ask.reason,
+        outcome: { outcome: "recorded", scopeRequestId },
+      }],
+      pendingWithoutCandidate: 0,
+      refused: 0,
+      spentGrantIds: [],
+    };
+    const controller = new AbortController();
+    const { service, resolveScopeRequests } = build({
+      runRound: async () => waiting,
+      resolveScopeRequests: async () => ({
+        outcome: "resolved",
+        requests: [{ scopeRequestId, candidateResourceId: resourceId, status: "pending" }],
+      }),
+      approvalPollIntervalMs: 50,
+    });
+
+    const run = service.run(draft, [ask], { signal: controller.signal });
+    await vi.waitFor(() => expect(resolveScopeRequests).toHaveBeenCalled());
+    controller.abort(new Error("owner cancelled"));
+
+    await expect(run).rejects.toThrow("owner cancelled");
   });
 
   it.each(["completed", "cancelled"] as const)(

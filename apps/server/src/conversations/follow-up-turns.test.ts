@@ -161,6 +161,7 @@ describe("a turn that asks for files it cannot see", () => {
         ownerUserId: OWNER,
       },
       [ask],
+      { signal: expect.any(AbortSignal) },
     );
   });
 
@@ -504,13 +505,65 @@ describe("a draft left running by a restart", () => {
  * Rejecting a draft erases what the owner typed into it.
  *
  * A private draft holds the rawest input in the product -- the rough message,
- * the owner's steering, and the clarification transcript -- and none of it is
- * redacted on the way in, deliberately: it is private-side content that has
- * crossed no boundary. Cancelling used to clear only the send candidate, so a
- * draft an owner rejected *because* they had pasted a credential into it kept
- * that credential in the row indefinitely.
+ * the owner's steering, and the clarification transcript. Obvious credentials
+ * are redacted before persistence, and cancelling clears the remaining private
+ * content. Previously cancellation cleared only the send candidate, so a draft
+ * rejected because it contained sensitive material retained that input.
  */
 describe("rejecting a draft", () => {
+  it("redacts obvious credentials before private input reaches persistence", async () => {
+    const repository = new InMemoryConversationRepository();
+    const service = new ConversationService(
+      repository,
+      { async authorize() {} },
+      {
+        async start() {
+          throw new Error("not started");
+        },
+        async cancel() {
+          return true;
+        },
+      },
+      { now: () => new Date("2026-08-31T12:00:00.000Z"), createId: () => DRAFT },
+    );
+
+    const secret = "fake-review-password";
+    const created = await service.createDraft({
+      authenticatedUserId: OWNER,
+      githubRepositoryId: REPOSITORY,
+      conversationId: CONVERSATION,
+      provider: "codex",
+      roughMessage: `{"password":"${secret}"}`,
+    });
+    expect(created.roughMessage).toContain("[redacted]");
+    expect(JSON.stringify(created)).not.toContain(secret);
+
+    const turnId = "44444444-4444-4444-8444-444444444444";
+    await repository.markDraftRunning({
+      draftId: DRAFT,
+      ownerUserId: OWNER,
+      turnId,
+      updatedAt: created.updatedAt,
+    });
+    await repository.completeDraft({
+      draftId: DRAFT,
+      expectedTurnId: turnId,
+      state: "needs_clarification",
+      privateMessage: "Which environment?",
+      sendCandidate: null,
+      riskFlags: [],
+      guardFindings: [],
+      updatedAt: created.updatedAt,
+    });
+    const clarified = await service.addClarification({
+      authenticatedUserId: OWNER,
+      draftId: DRAFT,
+      content: `password = ${secret}`,
+    });
+    expect(clarified.privateTurns.at(-1)?.text).toContain("[redacted]");
+    expect(JSON.stringify(clarified)).not.toContain(secret);
+  });
+
   it("erases the owner's input, not just the candidate", async () => {
     const repository = new InMemoryConversationRepository();
     const service = new ConversationService(
@@ -536,6 +589,25 @@ describe("rejecting a draft", () => {
       roughMessage: `ask about ${secret}`,
     });
 
+    const failedTurn = "44444444-4444-4444-8444-444444444444";
+    await repository.markDraftRunning({
+      draftId: DRAFT,
+      ownerUserId: OWNER,
+      turnId: failedTurn,
+      updatedAt: "2026-08-31T12:00:01.000Z",
+    });
+    await repository.markDraftFailed({
+      draftId: DRAFT,
+      expectedTurnId: failedTurn,
+      privateMessage: "The local runtime stopped.",
+      failure: {
+        code: "RUNTIME_UNAVAILABLE",
+        message: "The local runtime stopped",
+        retryable: false,
+      },
+      updatedAt: "2026-08-31T12:00:02.000Z",
+    });
+
     await service.cancelDraft(OWNER, DRAFT);
 
     const cancelled = await service.getDraft(OWNER, DRAFT);
@@ -544,6 +616,8 @@ describe("rejecting a draft", () => {
     expect(cancelled.privateTurns).toEqual([]);
     expect(cancelled.privateMessage).toBeNull();
     expect(cancelled.sendCandidate).toBeNull();
+    expect(cancelled.turnId).toBeNull();
+    expect(cancelled.failure).toBeNull();
     // The whole record, so a field added later cannot quietly reintroduce it.
     expect(JSON.stringify(cancelled)).not.toContain(secret);
   });

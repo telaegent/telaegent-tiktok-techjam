@@ -92,6 +92,31 @@ describe("SupabaseAuthorizationRpcClient", () => {
     }
   });
 
+  it("loads a bounded durable scope-decision batch for the waiting peer", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      Response.json({ outcome: "resolved", requests: [] }),
+    );
+    const taskId = "bbbbbbbb-0000-4000-8000-000000000002";
+    const peerUserId = "aaaaaaaa-0000-4000-8000-000000000001";
+    const scopeRequestIds = ["cccccccc-0000-4000-8000-000000000003"];
+
+    await client(fetchImplementation).resolveCapabilityScopeRequests({
+      taskId,
+      peerUserId,
+      scopeRequestIds,
+    });
+
+    const [url, init] = fetchImplementation.mock.calls[0]!;
+    expect(url).toBe(
+      "https://example-project.supabase.co/rest/v1/rpc/resolve_capability_scope_requests",
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({
+      p_task_id: taskId,
+      p_peer_user_id: peerUserId,
+      p_scope_request_ids: scopeRequestIds,
+    });
+  });
+
   it("returns an opaque malformed value for invalid successful JSON", async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async () =>
       new Response("not-json", {

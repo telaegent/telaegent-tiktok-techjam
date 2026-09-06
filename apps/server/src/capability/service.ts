@@ -5,6 +5,8 @@ import type {
   CapabilityScopeDecision,
   CapabilityScopeRequestOptions,
   CapabilityScopeRequestRepository,
+  ResolveCapabilityScopeRequestsInput,
+  CapabilityScopeRequestResolutions,
   PendingCapabilityScopeRequest,
   RecordCapabilityScopeRequestOutcome,
 } from "../authorization/capability-scope-requests.js";
@@ -200,6 +202,20 @@ export class CapabilityScopeExpansionService {
       { scopeRequestId: this.#newId(), ...input },
       options,
     );
+  }
+
+  /**
+   * Durable status read used by a recipient turn paused at the approval gate.
+   *
+   * The task and peer are fixed by the turn that raised the questions. The
+   * database returns only opaque resource identifiers, so polling this method
+   * cannot become a filesystem-discovery surface.
+   */
+  async resolveScopeRequests(
+    input: Readonly<ResolveCapabilityScopeRequestsInput>,
+    options?: Readonly<CapabilityScopeRequestOptions>,
+  ): Promise<CapabilityScopeRequestResolutions> {
+    return this.#repository.resolveScopeRequests(input, options);
   }
 
   /**

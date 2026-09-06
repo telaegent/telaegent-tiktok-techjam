@@ -149,6 +149,8 @@ export class ConversationService {
    * running. This map is process-local, matching the coordinator it addresses.
    */
   private readonly activeRuntimeTurns = new Map<string, string | null>();
+  /** Cancels a draft while it is paused at the durable human approval gate. */
+  private readonly followUpWaits = new Map<string, AbortController>();
   /** Drafts cancelled while moving between runtime rounds. */
   private readonly cancellationRequested = new Set<string>();
 
@@ -188,7 +190,6 @@ export class ConversationService {
         "This draft stopped because the server restarted while its agent was working. Nothing was sent. Start a new draft to ask again.",
       failure: {
         // The runtime that was working on this draft no longer exists, which
-        // The runtime that was working on this draft no longer exists, which
         // is exactly what this code means.
         code: "RUNTIME_UNAVAILABLE",
         message: "Server restarted while this draft's agent was working",
@@ -212,6 +213,7 @@ export class ConversationService {
   }>): Promise<PrivateDraftView> {
     await this.authorize(input, "create_draft");
     const timestamp = this.now().toISOString();
+    const roughMessage = redactPrivateInput(input.roughMessage);
     const draft: PrivateDraft = {
       draftId: this.createId(),
       conversationId: input.conversationId,
@@ -219,7 +221,7 @@ export class ConversationService {
       ownerUserId: input.authenticatedUserId,
       provider: input.provider,
       role: "sender",
-      roughMessage: input.roughMessage,
+      roughMessage,
       incomingMessageId: null,
       privateTurns: [],
       state: "created",
@@ -255,6 +257,9 @@ export class ConversationService {
   }>): Promise<Readonly<{ draft: PrivateDraftView; replayed: boolean }>> {
     await this.authorize(input, "create_reply");
     const timestamp = this.now().toISOString();
+    const ownerGuidance = input.ownerGuidance
+      ? redactPrivateInput(input.ownerGuidance)
+      : null;
     const draft: PrivateDraft = {
       draftId: this.createId(),
       conversationId: input.conversationId,
@@ -262,10 +267,10 @@ export class ConversationService {
       ownerUserId: input.authenticatedUserId,
       provider: input.provider,
       role: "recipient",
-      roughMessage: input.ownerGuidance ?? null,
+      roughMessage: ownerGuidance,
       incomingMessageId: input.incomingMessageId,
-      privateTurns: input.ownerGuidance
-        ? [{ speaker: "owner", text: input.ownerGuidance }]
+      privateTurns: ownerGuidance
+        ? [{ speaker: "owner", text: ownerGuidance }]
         : [],
       state: "created",
       turnId: null,
@@ -372,7 +377,7 @@ export class ConversationService {
     const updated = await this.repository.addOwnerClarification({
       draftId: draft.draftId,
       ownerUserId: input.authenticatedUserId,
-      content: input.content,
+      content: redactPrivateInput(input.content),
       updatedAt: this.now().toISOString(),
     });
     if (!updated) throw new HttpError(409, "Private draft cannot accept clarification");
@@ -388,6 +393,7 @@ export class ConversationService {
       if (!draft.turnId) throw new HttpError(409, "Private draft cannot be cancelled");
       const ownsExecution = this.activeRuntimeTurns.has(draftId);
       if (ownsExecution) this.cancellationRequested.add(draftId);
+      this.followUpWaits.get(draftId)?.abort(new RunCancelledError());
       // The round that is running now, which is the first turn until a
       // follow-up round replaces it.
       const runtimeTurnId = ownsExecution
@@ -562,9 +568,9 @@ export class ConversationService {
    * prompt of the round that asked for them; a round that spanned two requests
    * would have to keep somebody else's file somewhere in between.
    *
-   * A round that brings nothing back ends the loop rather than retrying. The
-   * questions are with a human at that point, and this turn answers with what
-   * it already had instead of waiting on a person.
+   * The follow-up service owns the human-approval pause. An empty result here
+   * therefore means that every request reached a terminal no-delivery state
+   * (denied, expired, unavailable, or exhausted), and only then ends the loop.
    */
   private async runFollowUpRounds(
     draft: PrivateDraft,
@@ -577,6 +583,7 @@ export class ConversationService {
       if (requests.length === 0) return result;
       this.throwIfCancellationRequested(draft.draftId);
 
+      const followUpWait = this.followUpWaits.get(draft.draftId);
       const delivered = await this.followUp.run(
         {
           incomingMessageId: draft.incomingMessageId,
@@ -585,6 +592,7 @@ export class ConversationService {
           ownerUserId: draft.ownerUserId,
         },
         requests,
+        followUpWait ? { signal: followUpWait.signal } : undefined,
       );
       this.throwIfCancellationRequested(draft.draftId);
       if (delivered.length === 0) return result;
@@ -623,6 +631,8 @@ export class ConversationService {
     completion: StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"],
   ): Promise<void> {
     const draftId = draft.draftId;
+    const followUpWait = new AbortController();
+    this.followUpWaits.set(draftId, followUpWait);
     try {
       const first = await completion;
       this.activeRuntimeTurns.set(draftId, null);
@@ -644,6 +654,7 @@ export class ConversationService {
       // to cancel. Clearing the entry keeps this map bounded by the drafts
       // currently running rather than by every draft the process has seen.
       this.activeRuntimeTurns.delete(draftId);
+      this.followUpWaits.delete(draftId);
       this.cancellationRequested.delete(draftId);
     }
   }
@@ -716,4 +727,13 @@ export class ConversationService {
       status,
     );
   }
+}
+
+/** Obvious credentials never enter durable private-draft storage unchanged. */
+function redactPrivateInput(value: string): string {
+  const redacted = redactText(value).value.trim();
+  // Input route schemas already require non-empty text. Redaction preserves
+  // surrounding labels, and a value consisting only of a secret becomes the
+  // explicit placeholder rather than an empty/invalid persistence value.
+  return redacted || "[redacted]";
 }

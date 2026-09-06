@@ -130,7 +130,8 @@ function scopeRepository(): CapabilityScopeRequestRepository {
     recordScopeRequest: async () => ({ outcome: "unavailable" }),
     decideScopeRequest: async () => ({ outcome: "unavailable" }),
     listPendingScopeRequests: async () => [],
-    beginFollowUpRound: async () => ({ outcome: "began", round: 1 }),
+    resolveScopeRequests: async () => ({ outcome: "task_unavailable" }),
+    beginFollowUpRound: async () => ({ outcome: "started", round: 1 }),
   };
 }
 
