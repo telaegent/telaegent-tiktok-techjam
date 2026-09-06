@@ -23,6 +23,9 @@ import {
 import {
   processTreeSpawnOptions,
   terminateProcessTree,
+  terminateProcessTreeWithEscalation,
+  UnverifiedProcessTreeTerminationError,
+  waitForProcessExitOrTreeTermination,
 } from "./process-tree.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import {
@@ -85,8 +88,9 @@ interface ActiveCodexProcess {
   cancelled: boolean;
   timedOut: boolean;
   outputExceeded: boolean;
-  settled: Promise<void>;
-  forceKillTimer: NodeJS.Timeout | null;
+  termination: Promise<boolean> | null;
+  terminationResult: Promise<boolean>;
+  completeTermination: (verified: boolean) => void;
 }
 
 interface CodexProcessRequest {
@@ -464,7 +468,9 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     if (!active) return false;
     active.cancelled = true;
     this.terminate(active);
-    await active.settled;
+    if (!active.termination || !(await active.termination)) {
+      throw this.terminationFailure();
+    }
     return true;
   }
 
@@ -595,17 +601,22 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       child.stdin?.on("error", () => undefined);
       child.stdin?.end(stdinPayload);
     }
-    const settled = new Promise<void>((resolve) => {
-      child.once("close", () => resolve());
-      child.once("error", () => resolve());
+    const processExit = new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code) => resolve(code ?? 1));
+    });
+    let completeTermination!: (verified: boolean) => void;
+    const terminationResult = new Promise<boolean>((resolve) => {
+      completeTermination = resolve;
     });
     const active: ActiveCodexProcess = {
       child,
       cancelled: false,
       timedOut: false,
       outputExceeded: false,
-      settled,
-      forceKillTimer: null,
+      termination: null,
+      terminationResult,
+      completeTermination,
     };
     this.active.set(request.agentId, active);
     const removeCancellationListener = onRuntimeCancellation(signal, () => {
@@ -665,11 +676,14 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     try {
       let exitCode: number;
       try {
-        exitCode = await new Promise<number>((resolve, reject) => {
-          child.once("error", reject);
-          child.once("close", (code) => resolve(code ?? 1));
-        });
+        exitCode = await waitForProcessExitOrTreeTermination(
+          processExit,
+          active.terminationResult,
+        );
       } catch (error) {
+        if (error instanceof UnverifiedProcessTreeTerminationError) {
+          throw this.terminationFailure();
+        }
         throw classifyProviderFailure("codex", error, { phase: "spawn" });
       }
       if (stdout.trim() && !parseFailure) {
@@ -723,24 +737,38 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
     } finally {
       removeCancellationListener();
       watchdog.stop();
-      if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
+      const terminationVerified =
+        !active.termination || (await active.termination);
       this.active.delete(request.agentId);
+      if (!terminationVerified) throw this.terminationFailure();
     }
   }
 
   private terminate(active: ActiveCodexProcess): void {
-    if (active.child.exitCode !== null || active.child.signalCode !== null) return;
-    // Re-signalling on a repeated call is intentional and predates the tree
-    // kill; only the escalation timer is armed once.
-    if (!terminateProcessTree(active.child, "SIGTERM")) active.child.kill("SIGTERM");
-    if (!active.forceKillTimer) {
-      active.forceKillTimer = setTimeout(() => {
-        if (!terminateProcessTree(active.child, "SIGKILL")) {
-          active.child.kill("SIGKILL");
-        }
-      }, 3_000);
-      active.forceKillTimer.unref();
+    if (!active.termination) {
+      active.termination = terminateProcessTreeWithEscalation(active.child).catch(
+        () => false,
+      );
+      void active.termination.then(active.completeTermination);
+      return;
     }
+    // Preserve repeated-SIGTERM semantics while the first termination owns
+    // the escalation lifecycle.
+    if (
+      active.child.exitCode === null &&
+      active.child.signalCode === null &&
+      !terminateProcessTree(active.child, "SIGTERM")
+    ) {
+      active.child.kill("SIGTERM");
+    }
+  }
+
+  private terminationFailure(): RuntimeProviderError {
+    return new RuntimeProviderError(
+      "RUNTIME_FAILED",
+      "Codex process-tree termination could not be verified",
+      { phase: "cleanup" },
+    );
   }
 
   private childEnvironment(): NodeJS.ProcessEnv {

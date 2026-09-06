@@ -18,6 +18,9 @@ import { describe, expect, it } from "vitest";
 import {
   processTreeSpawnOptions,
   terminateProcessTree,
+  terminateProcessTreeWithEscalation,
+  UnverifiedProcessTreeTerminationError,
+  waitForProcessExitOrTreeTermination,
 } from "./process-tree.js";
 
 /**
@@ -52,6 +55,32 @@ process.stdout.write(String(child.pid));
 setTimeout(() => {}, 60000);
 `;
 
+const signalResistantDescendantScript = `
+const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, ["-e", [
+  "process.on('SIGTERM', () => {});",
+  "process.stdout.write('ready');",
+  "setTimeout(() => {}, 60000);",
+].join("")], { stdio: ["ignore", "pipe", "ignore"] });
+child.unref();
+child.stdout.once("data", () => process.stdout.write(String(child.pid)));
+setTimeout(() => {}, 60000);
+`;
+
+const exitedParentWithInheritedPipeScript = `
+const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, ["-e", [
+  "process.on('SIGTERM', () => {});",
+  "process.send('ready');",
+  "setTimeout(() => {}, 60000);",
+].join("")], { stdio: ["ignore", "inherit", "ignore", "ipc"] });
+child.unref();
+child.once("message", () => {
+  process.stdout.write(String(child.pid));
+  process.exit(0);
+});
+`;
+
 function alive(pid: number): boolean {
   try {
     // Signal 0 tests for existence without delivering anything.
@@ -72,6 +101,28 @@ async function waitUntilGone(pid: number, timeoutMs = 5_000): Promise<boolean> {
 }
 
 describe("terminateProcessTree", () => {
+  it("reports cleanup failure without waiting for a blocked close event", async () => {
+    const blockedProcessExit = new Promise<number>(() => undefined);
+
+    await expect(
+      waitForProcessExitOrTreeTermination(
+        blockedProcessExit,
+        Promise.resolve(false),
+      ),
+    ).rejects.toBeInstanceOf(UnverifiedProcessTreeTerminationError);
+  });
+
+  it("settles a blocked close after verified tree termination", async () => {
+    const blockedProcessExit = new Promise<number>(() => undefined);
+
+    await expect(
+      waitForProcessExitOrTreeTermination(
+        blockedProcessExit,
+        Promise.resolve(true),
+      ),
+    ).resolves.toBe(1);
+  });
+
   it("stops a descendant the parent spawned", async () => {
     const parent = spawn(process.execPath, ["-e", parentScript], {
       stdio: ["ignore", "pipe", "ignore"],
@@ -103,5 +154,64 @@ describe("terminateProcessTree", () => {
     // Cancellation, timeout and cleanup all call this; none may be masked by a
     // throw from signalling something that already exited.
     expect(() => terminateProcessTree(child, "SIGKILL")).not.toThrow();
+    expect(terminateProcessTree(child, "SIGKILL")).toBe(false);
   }, 30_000);
+
+  it.skipIf(process.platform === "win32")(
+    "forces a resistant descendant after its parent exits",
+    async () => {
+      const parent = spawn(process.execPath, ["-e", signalResistantDescendantScript], {
+        stdio: ["ignore", "pipe", "ignore"],
+        ...processTreeSpawnOptions,
+      });
+      const descendantPid = await new Promise<number>((resolve, reject) => {
+        parent.stdout?.once("data", (chunk: Buffer) => {
+          resolve(Number.parseInt(chunk.toString("utf8"), 10));
+        });
+        parent.once("error", reject);
+      });
+
+      const termination = terminateProcessTreeWithEscalation(parent, 150);
+      await expect(waitUntilGone(parent.pid!, 1_000)).resolves.toBe(true);
+      // The descendant accepted the group SIGTERM but deliberately ignored it.
+      expect(alive(descendantPid)).toBe(true);
+
+      await expect(termination).resolves.toBe(true);
+      expect(alive(descendantPid)).toBe(false);
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "starts termination after the parent exited but an inherited pipe blocks close",
+    async () => {
+      const parent = spawn(process.execPath, ["-e", exitedParentWithInheritedPipeScript], {
+        stdio: ["ignore", "pipe", "ignore"],
+        ...processTreeSpawnOptions,
+      });
+      const exited = new Promise<void>((resolve) =>
+        parent.once("exit", () => resolve()),
+      );
+      const closed = new Promise<void>((resolve) =>
+        parent.once("close", () => resolve()),
+      );
+      const descendantPid = await new Promise<number>((resolve, reject) => {
+        parent.stdout?.once("data", (chunk: Buffer) => {
+          resolve(Number.parseInt(chunk.toString("utf8"), 10));
+        });
+        parent.once("error", reject);
+      });
+
+      await exited;
+      expect(parent.exitCode).toBe(0);
+      expect(alive(descendantPid)).toBe(true);
+
+      await expect(
+        terminateProcessTreeWithEscalation(parent, 150),
+      ).resolves.toBe(true);
+      expect(alive(descendantPid)).toBe(false);
+      await closed;
+    },
+    30_000,
+  );
 });
