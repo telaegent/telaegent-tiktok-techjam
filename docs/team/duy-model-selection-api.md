@@ -158,17 +158,24 @@ or render them as a per-model figure.
 
 **And this is still a one-word prompt, not product latency.** A real Telaegent
 turn is a research pass plus a drafting pass. On this repository the research
-pass alone runs about 25s — six tool calls and a ~1.2k-character note — so the
-turn a user actually waits on is dominated by work these numbers don't cover. If
-the UI wants to hint at a tradeoff, "quicker / more thorough" is honest;
-a number in seconds is not.
+pass alone runs 25–30s — five to seven tool calls and a ~1.2k-character note —
+so the turn a user actually waits on is dominated by work these numbers don't
+cover. If the UI wants to hint at a tradeoff, "quicker / more thorough" is
+honest; a number in seconds is not.
 
 The default is `sol` on Codex rather than `astra` for exactly this reason: two
 passes at astra's pace is the one place where a 2-second-per-call gap is
-actually felt. On Claude the default stays `opus` — the slowest of the four —
-because a private turn answering for its owner is the wrong place to trade
-judgement for seconds. Whoever wants speed can pick it; that is what the picker
-is for.
+actually felt.
+
+On Claude the default stays `opus`, and that is a measurement rather than a
+preference. Running the product's real research pass against this repository at
+`opus` and at `sonnet` — same argv, same prompt, effort pinned at medium, three
+runs each — gave medians of **28.3s and 27.6s**, with sonnet the more variable of
+the two (21.1–34.0s against 24.8–30.0s). The 9.1s-against-4.5s gap in the table
+above does not survive contact with a pass that spends its time on tool calls and
+on emitting a note. Opus is not costing us anything measurable on a real turn, so
+the default keeps the stronger model. Whoever wants the one-word-turn speed can
+pick it; that is what the picker is for.
 
 ---
 
