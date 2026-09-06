@@ -28,6 +28,9 @@
   --button-text: #f4f4f1;
   --mono:
     "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --type-caption: 12px;
+  --type-control: 13px;
+  --type-body: 14px;
   --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --motion-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -80,6 +83,11 @@ body {
   overflow-x: clip;
   color: var(--text);
   background: var(--canvas);
+}
+
+small {
+  font-size: var(--type-caption);
+  line-height: 1.45;
 }
 
 button,
@@ -207,7 +215,7 @@ button:disabled:active,
   color: var(--quiet);
   background: var(--surface);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
   cursor: pointer;
 }
@@ -429,7 +437,7 @@ button:disabled:active,
   margin-top: 6px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .agent-laptop {
@@ -658,7 +666,7 @@ button:disabled:active,
   display: block;
   margin: 0 0 10px;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -681,7 +689,7 @@ button:disabled:active,
   margin-top: 5px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .repository-summary-actions {
@@ -705,7 +713,7 @@ button:disabled:active,
   color: var(--muted);
   background: var(--surface-raised);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -785,7 +793,7 @@ button:disabled:active,
 .person-row small {
   margin-top: 4px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .provider-status {
@@ -816,7 +824,7 @@ button:disabled:active,
 .provider-status small {
   margin-top: 4px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .provider-status .viewpoint-avatar {
@@ -876,13 +884,13 @@ button:disabled:active,
 .conversation-header small {
   margin-top: 4px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .branch-name {
   flex: 0 0 auto;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .conversation-meta {
@@ -897,7 +905,7 @@ button:disabled:active,
   color: var(--muted);
   background: var(--surface);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1068,7 +1076,7 @@ button:disabled:active,
   margin: 0 0 26px;
   color: var(--quiet);
   text-align: center;
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1084,7 +1092,7 @@ button:disabled:active,
   background: color-mix(in srgb, var(--surface) 64%, transparent);
   text-align: center;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .scope-note span,
@@ -1119,7 +1127,7 @@ button:disabled:active,
 .message p {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--type-body);
   line-height: 1.62;
 }
 
@@ -1166,14 +1174,14 @@ button:disabled:active,
 }
 
 .message-history p {
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 
 .message-author {
   display: block;
   margin-bottom: 7px;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -1181,7 +1189,7 @@ button:disabled:active,
   display: block;
   margin-top: 8px;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .message code {
@@ -1190,7 +1198,7 @@ button:disabled:active,
   color: var(--text);
   background: var(--surface-selected);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .agent-state {
@@ -1279,7 +1287,7 @@ button:disabled:active,
   margin-left: auto;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .safe-message-approval {
@@ -1301,13 +1309,13 @@ button:disabled:active,
 }
 
 .safe-message-approval strong {
-  font-size: 12px;
+  font-size: var(--type-control);
 }
 
 .safe-message-approval small {
   margin-top: 4px;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .safe-message-approval > div:last-child {
@@ -1323,7 +1331,7 @@ button:disabled:active,
   border-radius: 8px;
   color: var(--text);
   background: transparent;
-  font-size: 10px;
+  font-size: var(--type-control);
   cursor: pointer;
 }
 
@@ -1337,14 +1345,14 @@ button:disabled:active,
   width: fit-content;
   margin: 27px 0 0 auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .source-list {
   margin-top: 10px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .source-list span + span::before {
@@ -1364,14 +1372,14 @@ button:disabled:active,
   gap: 15px;
   color: var(--quiet);
   background: var(--surface);
-  font-size: 12px;
+  font-size: var(--type-control);
 }
 
 .message-composer button {
   min-height: 32px;
   padding: 0 13px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--type-control);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -1432,7 +1440,7 @@ button:disabled:active,
 .sandbox-prompt-kicker {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1464,7 +1472,7 @@ button:disabled:active,
   border-radius: 8px;
   color: var(--text);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
   cursor: pointer;
 }
@@ -1551,7 +1559,7 @@ button:disabled:active,
 .private-room-header small {
   margin-top: 5px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .private-room-header button {
@@ -1561,7 +1569,7 @@ button:disabled:active,
   border-radius: 7px;
   color: var(--muted);
   background: var(--surface);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -1587,7 +1595,7 @@ button:disabled:active,
   overflow: hidden;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 
@@ -1607,13 +1615,13 @@ button:disabled:active,
   display: block;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
 .private-message p {
   margin: 7px 0 0;
-  font-size: 12px;
+  font-size: var(--type-body);
   line-height: 1.55;
 }
 
@@ -1648,7 +1656,7 @@ button:disabled:active,
   color: var(--caution);
   background: var(--caution-soft);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--type-caption);
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
@@ -1656,7 +1664,7 @@ button:disabled:active,
 .private-message .private-note {
   margin-top: 12px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .private-suggestions {
@@ -1678,7 +1686,7 @@ button:disabled:active,
   color: var(--muted);
   text-align: left;
   background: color-mix(in srgb, var(--surface) 60%, transparent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   cursor: pointer;
   transition:
     border-color var(--motion-fast) var(--motion-ease-out),
@@ -1709,7 +1717,7 @@ button:disabled:active,
   color: var(--quiet);
   background: var(--surface-selected);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .message-composer input {
@@ -1755,7 +1763,7 @@ button:disabled:active,
   gap: 10px;
   color: var(--quiet);
   background: var(--surface);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .private-composer button {
@@ -1765,7 +1773,7 @@ button:disabled:active,
   border-radius: 999px;
   color: var(--text);
   background: transparent;
-  font-size: 10px;
+  font-size: var(--type-caption);
   cursor: pointer;
 }
 
@@ -1939,7 +1947,7 @@ button:disabled:active,
 .trust-room-detail code {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .trust-shared-room {
@@ -2055,7 +2063,7 @@ button:disabled:active,
 
   .perspective-switch-label {
     max-width: 82px;
-    font-size: 11px;
+    font-size: var(--type-caption);
   }
 
   .product-window {
@@ -2198,7 +2206,7 @@ button:disabled:active,
 
   .perspective-switch-label {
     max-width: 58px;
-    font-size: 9px;
+    font-size: var(--type-caption);
   }
 
   .product-window {
@@ -2237,7 +2245,7 @@ button:disabled:active,
     margin-bottom: 3px;
     color: var(--quiet);
     font-family: var(--mono);
-    font-size: 7px;
+    font-size: var(--type-caption);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -2245,7 +2253,7 @@ button:disabled:active,
   .mobile-scope-bar strong {
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 10px;
+    font-size: var(--type-caption);
     white-space: nowrap;
   }
 
@@ -2390,7 +2398,7 @@ button:disabled:active,
   .agent-laptop-screen {
     gap: 5px;
     border-radius: 7px;
-    font-size: 11px;
+    font-size: var(--type-caption);
   }
 
   .agent-monitor-stand {
@@ -2417,7 +2425,7 @@ button:disabled:active,
 
   .agent-device-card strong {
     margin-top: 8px;
-    font-size: 11px;
+    font-size: var(--type-caption);
     line-height: 1.25;
   }
 
@@ -2428,7 +2436,7 @@ button:disabled:active,
   .theme-switch {
     width: 94px;
     height: 34px;
-    font-size: 10px;
+    font-size: var(--type-caption);
   }
 
   .theme-switch::before {
@@ -2508,8 +2516,8 @@ button:disabled:active,
   }
 
   .perspective-switch-label {
-    max-width: 44px;
-    font-size: 8px;
+    max-width: 60px;
+    font-size: var(--type-caption);
     line-height: 1.3;
   }
 

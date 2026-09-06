@@ -83,7 +83,7 @@
 .app-eyebrow {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -100,7 +100,7 @@
   color: var(--text);
   background: var(--surface-raised);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -216,7 +216,7 @@
   place-items: center;
   background: var(--canvas);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-style: normal;
 }
 
@@ -296,7 +296,7 @@
   place-items: center;
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .onboarding-requirements li > strong,
@@ -355,7 +355,7 @@
   display: block;
   margin-top: 16px;
   color: var(--quiet);
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .setup-row {
@@ -387,7 +387,7 @@
 .setup-row small {
   margin-top: 5px;
   color: var(--quiet);
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .setup-row button {
@@ -396,7 +396,7 @@
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: transparent;
-  font-size: 9px;
+  font-size: var(--type-caption);
   cursor: pointer;
 }
 
@@ -419,13 +419,13 @@
 .device-flow span,
 .device-flow p {
   color: var(--quiet);
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .device-flow strong,
 .device-flow code {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .device-flow code {
@@ -498,12 +498,12 @@
 .provider-picker small {
   margin-top: 4px;
   color: var(--quiet);
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .provider-picker > button > span:last-child {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .provider-picker > button.connected > span:last-child {
@@ -524,7 +524,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 /* Product shell */
@@ -595,12 +595,12 @@ button.connector-presence:hover {
 
 .connector-presence small {
   color: var(--quiet);
-  font-size: 9px;
+  font-size: var(--type-caption);
   line-height: 1;
 }
 
 .connector-presence strong {
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
   line-height: 1.1;
 }
@@ -630,7 +630,7 @@ button.connector-presence:hover {
   color: var(--button-text);
   background: var(--button);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .account-summary strong {
@@ -717,26 +717,26 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 .app-rail button > strong {
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 500;
 }
 
 .app-rail button[data-route="connections"] > strong {
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .app-rail button > i {
   position: absolute;
-  top: 6px;
-  right: 8px;
-  width: 14px;
-  height: 14px;
+  top: 4px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   color: var(--accent-contrast);
   background: var(--accent);
-  font-size: 7px;
+  font-size: var(--type-caption);
   font-style: normal;
 }
 
@@ -800,7 +800,7 @@ html[data-theme="dark"] .app-rail button > img {
   gap: 7px;
   color: var(--caution);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -895,7 +895,7 @@ html[data-theme="dark"] .app-rail button > img {
 
 .project-group-heading small {
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-align: right;
 }
 
@@ -959,14 +959,14 @@ html[data-theme="dark"] .app-rail button > img {
 .repo-unavailable {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .repo-mark,
 .repo-meta,
 .repo-open {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .repo-mark {
@@ -978,7 +978,7 @@ html[data-theme="dark"] .app-rail button > img {
   place-items: center;
   color: var(--muted);
   background: var(--surface-raised);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -1026,7 +1026,7 @@ html[data-theme="dark"] .app-rail button > img {
 .repo-meta strong {
   margin: 7px 0;
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -1077,7 +1077,7 @@ html[data-theme="dark"] .app-rail button > img {
   margin-top: 5px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -1129,7 +1129,7 @@ html[data-theme="dark"] .app-rail button > img {
 .settings-section > header span {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .connection-project > header > div {
@@ -1141,7 +1141,7 @@ html[data-theme="dark"] .app-rail button > img {
   margin-bottom: 5px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--type-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -1191,7 +1191,7 @@ html[data-theme="dark"] .app-rail button > img {
 .connection-row .app-secondary-action,
 .tool-row .app-secondary-action {
   min-height: 33px;
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .connection-row > .connection-actions {
@@ -1238,7 +1238,7 @@ html[data-theme="dark"] .app-rail button > img {
   padding: 25px 0;
   border-bottom: 1px solid var(--line);
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 /* Workspace */
@@ -1284,7 +1284,7 @@ html[data-theme="dark"] .app-rail button > img {
   display: block;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1306,7 +1306,7 @@ html[data-theme="dark"] .app-rail button > img {
   margin-top: 6px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .workspace-tabs {
@@ -1384,7 +1384,7 @@ html[data-theme="dark"] .app-rail button > img {
   border: 1px solid var(--line);
   border-radius: 7px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 
@@ -1433,7 +1433,7 @@ html[data-theme="dark"] .app-rail button > img {
   display: block;
   margin-top: 5px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .workspace-mobile-tabs {
@@ -1515,7 +1515,7 @@ html[data-theme="dark"] .app-rail button > img {
   border-radius: 999px;
   color: var(--muted);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--type-caption);
   cursor: pointer;
 }
 
@@ -1529,7 +1529,7 @@ html[data-theme="dark"] .app-rail button > img {
   gap: 16px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .chat-project-strip span {
@@ -1583,7 +1583,7 @@ html[data-theme="dark"] .app-rail button > img {
 .grant-inventory > header > small,
 .grant-inventory-row small {
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .grant-inventory-row {
@@ -1611,7 +1611,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--caution);
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
   cursor: pointer;
 }
@@ -1692,7 +1692,7 @@ html[data-theme="dark"] .app-rail button > img {
   gap: 6px;
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .scope-route-operation i {
@@ -1751,7 +1751,7 @@ html[data-theme="dark"] .app-rail button > img {
 .scope-technical-details {
   margin: 13px 0 0 126px;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .scope-technical-details summary {
@@ -1795,7 +1795,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--text);
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -1852,7 +1852,7 @@ html[data-theme="dark"] .app-rail button > img {
   align-items: center;
   gap: 6px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .scope-approval-error {
@@ -1883,7 +1883,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--quiet);
   text-align: center;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1916,13 +1916,13 @@ html[data-theme="dark"] .app-rail button > img {
   margin-bottom: 7px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
 .shared-message p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--type-body);
   line-height: 1.56;
 }
 
@@ -1931,14 +1931,14 @@ html[data-theme="dark"] .app-rail button > img {
   margin-top: 9px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .shared-message-reply {
   min-height: 31px;
   margin-top: 11px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--type-control);
 }
 
 .shared-message-reply:disabled {
@@ -1996,7 +1996,7 @@ html[data-theme="dark"] .app-rail button > img {
 .turn-status small {
   margin-top: 4px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .turn-status button {
@@ -2005,7 +2005,7 @@ html[data-theme="dark"] .app-rail button > img {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--type-control);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -2076,7 +2076,7 @@ html[data-theme="dark"] .app-rail button > img {
 .composer-toolbar > small {
   min-width: 0;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .composer-toolbar-actions {
@@ -2107,7 +2107,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--text);
   background: transparent;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-control);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -2222,7 +2222,7 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 .runtime-provider-tabs strong {
-  font-size: 12px;
+  font-size: var(--type-control);
 }
 
 .runtime-provider-tabs small {
@@ -2230,7 +2230,7 @@ html[data-theme="dark"] .app-rail button > img {
   overflow: hidden;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2252,13 +2252,13 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 .runtime-model-panel > header strong {
-  font-size: 12px;
+  font-size: var(--type-control);
 }
 
 .runtime-model-panel > header small {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--type-caption);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -2275,13 +2275,13 @@ html[data-theme="dark"] .app-rail button > img {
   justify-content: space-between;
   gap: 14px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--type-control);
 }
 
 .runtime-model-options button small {
   color: var(--quiet);
   font-family: inherit;
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .composer-submit {
@@ -2292,7 +2292,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--button-text);
   background: var(--button);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-control);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -2328,7 +2328,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--text);
   background: transparent;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -2392,7 +2392,7 @@ html[data-theme="dark"] .app-rail button > img {
 .workspace-private-room > header small {
   margin-top: 5px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .workspace-private-room > header button {
@@ -2400,7 +2400,7 @@ html[data-theme="dark"] .app-rail button > img {
   border: 0;
   color: var(--quiet);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--type-caption);
   cursor: pointer;
 }
 
@@ -2412,7 +2412,7 @@ html[data-theme="dark"] .app-rail button > img {
   align-items: center;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .private-scope-bar span + span::before {
@@ -2435,7 +2435,7 @@ html[data-theme="dark"] .app-rail button > img {
 .private-bubble > div > span {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -2479,20 +2479,20 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--caution);
   background: var(--caution-soft);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .private-bubble .policy-copy,
 .private-bubble .clarification-line {
   margin-top: 12px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .private-bubble .ready-label {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -2598,7 +2598,7 @@ html[data-theme="dark"] .app-rail button > img {
   justify-content: space-between;
   gap: 10px;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .private-model-picker > small button {
@@ -2650,7 +2650,7 @@ html[data-theme="dark"] .app-rail button > img {
   display: block;
   margin-top: 10px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 
@@ -2679,7 +2679,7 @@ html[data-theme="dark"] .app-rail button > img {
   margin-bottom: 8px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .private-clarification-form textarea,
@@ -2735,7 +2735,7 @@ html[data-theme="dark"] .app-rail button > img {
 .incoming-context span {
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -2771,7 +2771,7 @@ html[data-theme="dark"] .app-rail button > img {
   display: block;
   margin-bottom: 10px;
   color: var(--quiet);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .private-approval-bar > div {
@@ -2861,7 +2861,7 @@ html[data-theme="dark"] .app-rail button > img {
 
 .collaborator-list .app-secondary-action {
   min-height: 33px;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .workspace-page .settings-section {
@@ -2904,7 +2904,7 @@ html[data-theme="dark"] .app-rail button > img {
 .agent-choice small {
   margin-top: 5px;
   color: var(--quiet);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .danger-zone {
