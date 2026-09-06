@@ -67,10 +67,14 @@ export interface MiddlewareRunRequest {
   /**
    * How much reasoning the provider should spend before answering.
    *
-   * Left unset the Claude CLI reasons at its maximum, which is the right
-   * default for a pass that has to work something out and the wrong one for a
-   * pass that is transcribing a decision already made. Measured on the drafting
-   * pass, whose evidence arrives pre-gathered in the research note: the same
+   * Unset now means "medium", not "whatever the CLI does": the Claude runner
+   * defaults it (`DEFAULT_CLAUDE_EFFORT`) and Codex pins the same value in
+   * `closedToolSurface()`. Set this field only to depart from that.
+   *
+   * Left to the Claude CLI's own default it reasons at its maximum, which is
+   * the right setting for a pass that has to work something out and the wrong
+   * one for a pass that is transcribing a decision already made. Measured on
+   * the drafting pass, whose evidence arrives pre-gathered in the note: the same
    * prompt, note and schema took 38.6s unset and 23.0s at "medium", and the
    * thinking is what went -- 1123 thinking tokens down to 153, first character
    * of the answer at 21.1s down to 5.5s, and the same answer at the end of it
@@ -82,12 +86,11 @@ export interface MiddlewareRunRequest {
    * its remaining speed by writing a shorter answer -- 2425 characters on the
    * same prompt. Reach for the schema's maxLength before reaching for "low".
    *
-   * Honoured by the Claude runner as `--effort`. Codex ignores this field, but
-   * is not therefore unbounded: `closedToolSurface()` pins
-   * `model_reasoning_effort="medium"` on every Codex turn. The two runners end up
-   * agreeing on the drafting pass by two unconnected routes, which is worth
-   * knowing before changing this -- moving this field will silently not move
-   * Codex.
+   * Honoured by the Claude runner as `--effort`. Codex ignores this field
+   * entirely -- its effort is pinned in `closedToolSurface()`, because ignoring
+   * the user config drops it to `none` otherwise. The two agree at medium, but
+   * by two unconnected routes: changing this field moves Claude and silently
+   * does not move Codex.
    */
   effort?: "low" | "medium" | "high" | undefined;
 

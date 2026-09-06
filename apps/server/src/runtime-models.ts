@@ -41,25 +41,30 @@ export const RUNTIME_MODELS = {
 /**
  * What each provider runs when nobody chooses.
  *
- * This table is reported to callers so a picker can show its default without
- * duplicating it, and is deliberately *not* forced onto the argv. A turn with
- * no caller choice passes no `--model` at all, which is what keeps an
- * operator's `CLAUDE_MODEL` / `CODEX_MODEL` deployment setting working exactly
- * as it did before model selection existed. The values below are what the CLIs
- * fall back to when that setting is empty as well -- measured, not assumed:
- * Claude's init event reported `claude-opus-5`, and Codex wrote `gpt-6-astra`
- * into its session rollout.
+ * This is the product's choice, not a description of what the CLIs happen to
+ * do. `loadConfig()` reads it into `claudeModel` / `codexModel`, so a turn with
+ * no caller choice really is answered by the model named here -- the same value
+ * `GET /api/runtime/models` reports as `defaultModel`. Reporting one default and
+ * applying another is the bug this arrangement exists to prevent.
  *
- * A caller's choice beats both. On Claude that is a real precedence question,
- * because the deployment default arrives as the `ANTHROPIC_MODEL` environment
- * variable rather than a flag; measured with `ANTHROPIC_MODEL=sonnet` against
- * `--model haiku`, the flag won. On Codex the question does not arise:
- * `closedToolSurface()` passes `--ignore-user-config`, so `--model` is the only
- * model input the CLI ever sees.
+ * Precedence, widest to narrowest: this table, then an operator's
+ * `CLAUDE_MODEL` / `CODEX_MODEL`, then the caller's `model`. A self-hosted
+ * deployment can still pin whatever it likes, and a picker still beats it.
+ *
+ * On Claude that last step is a real question, because the deployment default
+ * arrives as the `ANTHROPIC_MODEL` environment variable rather than a flag;
+ * measured against 2.1.263 with `ANTHROPIC_MODEL=sonnet` and `--model haiku`,
+ * the flag won. On Codex it does not arise: `closedToolSurface()` passes
+ * `--ignore-user-config`, so `--model` is the only model input the CLI sees.
+ *
+ * `codex` is `gpt-5.6-sol` rather than the `gpt-6-astra` the CLI itself falls
+ * back to. Astra was the slowest model measured on either provider (median 7.2s
+ * against sol's 5.2s on a one-word turn) and a private turn already spends a
+ * research pass and a drafting pass before the owner sees anything.
  */
 export const DEFAULT_RUNTIME_MODEL = {
   claude: "opus",
-  codex: "gpt-6-astra",
+  codex: "gpt-5.6-sol",
 } as const satisfies Record<AgentProvider, string>;
 
 export type RuntimeModelId = (typeof RUNTIME_MODELS)[AgentProvider][number];

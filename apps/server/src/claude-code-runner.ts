@@ -31,6 +31,15 @@ import { providerCompatibleSchema } from "./provider-output-schema.js";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * The effort every Claude turn runs at unless the caller asks for another.
+ *
+ * Matches the `model_reasoning_effort="medium"` that `closedToolSurface()`
+ * pins on every Codex turn, so the two providers now reason at the same
+ * setting by intent rather than by coincidence.
+ */
+const DEFAULT_CLAUDE_EFFORT = "medium" as const;
+
 export interface ParsedClaudeEvents {
   sessionId: string | null;
   structuredOutput: unknown;
@@ -113,9 +122,15 @@ export function buildClaudeArgs(
   if (request.model) {
     args.push("--model", request.model);
   }
-  if (request.effort) {
-    args.push("--effort", request.effort);
-  }
+  // Every Claude turn reasons at a pinned effort, the way every Codex turn
+  // already does -- `closedToolSurface()` sets `model_reasoning_effort="medium"`
+  // on the Codex side, and leaving this unset here was the one place the two
+  // providers disagreed. Unset meant the CLI's own maximum, which only the
+  // drafting pass had ever opted out of; the research pass was paying for
+  // deliberation the drafting pass then repeated. Defaulting rather than
+  // requiring the field keeps a future call site from re-introducing that gap
+  // by omission.
+  args.push("--effort", request.effort ?? DEFAULT_CLAUDE_EFFORT);
   if (request.sessionMode === "continue" && request.sessionId) {
     args.push("--resume", request.sessionId);
   }

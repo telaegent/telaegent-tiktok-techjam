@@ -52,7 +52,7 @@ describe("runtime model catalogue", () => {
   it("resolves an absent choice to the default without throwing", () => {
     expect(resolveModel("claude")).toBe("opus");
     expect(resolveModel("claude", undefined)).toBe("opus");
-    expect(resolveModel("codex", "")).toBe("gpt-6-astra");
+    expect(resolveModel("codex", "")).toBe("gpt-5.6-sol");
     expect(resolveModel("codex", "gpt-5.5")).toBe("gpt-5.5");
   });
 

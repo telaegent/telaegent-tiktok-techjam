@@ -162,7 +162,7 @@ describe("model selection", () => {
         {
           provider: "codex",
           models: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
-          defaultModel: "gpt-6-astra",
+          defaultModel: "gpt-5.6-sol",
         },
       ],
     });

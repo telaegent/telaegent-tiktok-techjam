@@ -82,6 +82,11 @@ const INVESTIGATION_SCHEMA_NAME = "investigation-note.schema.json";
 /**
  * The drafting pass reasons at medium, not at the CLI default of maximum.
  *
+ * Since `DEFAULT_CLAUDE_EFFORT` this is what an unset `effort` would give it
+ * anyway. It stays spelled out because the reason below is specific to this
+ * pass: if the runner-wide default ever moves, this one should not follow it
+ * without the measurement being redone.
+ *
  * Effort buys deliberation, and deliberation is what the research pass is for.
  * By the time this pass runs the files have been read and the findings are in
  * the note; what remains is to compose one JSON object under a schema that

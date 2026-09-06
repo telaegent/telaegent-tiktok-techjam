@@ -34,15 +34,19 @@ Authenticated (same session as everything else). No parameters.
     {
       "provider": "codex",
       "models": ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
-      "defaultModel": "gpt-6-astra"
+      "defaultModel": "gpt-5.6-sol"
     }
   ]
 }
 ```
 
 - `models` is ordered. Render it in that order — strongest/most general first.
-- `defaultModel` is what runs when the user picks nothing. Pre-select it, so the
-  picker never shows a choice the server wouldn't actually make.
+- `defaultModel` is what runs when the user picks nothing. **Pre-select it, and
+  don't assume it is the first entry** — on Codex it isn't. `gpt-6-astra` leads
+  the list as the newest model, while the default is `gpt-5.6-sol`, which
+  measured meaningfully quicker on a turn the owner is sitting there waiting for.
+- `defaultModel` is the model that actually runs, not a label. The server reads
+  the same constant to configure the run, so the two can't drift.
 - `401 { "error": "Authentication required" }` when signed out. It leaks nothing,
   but it sits behind auth because it exists only for a logged-in screen.
 - Sent as `Cache-Control: private, no-store`, like the rest of the surface.
@@ -126,8 +130,8 @@ below), 48 in total, all passing.
 | claude | `sonnet` | `claude-sonnet-5` |
 | claude | `haiku` | `claude-haiku-4-5-20251001` |
 | claude | `fable` | `claude-fable-5-1` |
-| codex | `gpt-6-astra` *(default)* | `gpt-6-astra` |
-| codex | `gpt-5.6-sol` | `gpt-5.6-sol` |
+| codex | `gpt-6-astra` | `gpt-6-astra` |
+| codex | `gpt-5.6-sol` *(default)* | `gpt-5.6-sol` |
 | codex | `gpt-5.6-luna` | `gpt-5.6-luna` |
 | codex | `gpt-5.5` | `gpt-5.5` |
 
@@ -153,11 +157,18 @@ and so do `luna`, `gpt-5.5` and `sol`. Do not order the picker by these numbers
 or render them as a per-model figure.
 
 **And this is still a one-word prompt, not product latency.** A real Telaegent
-turn is investigation plus drafting, and the investigation pass — the heavier
-half — runs at a different reasoning effort than what was measured here, so the
+turn is a research pass plus a drafting pass. On this repository the research
+pass alone runs about 25s — six tool calls and a ~1.2k-character note — so the
 turn a user actually waits on is dominated by work these numbers don't cover. If
 the UI wants to hint at a tradeoff, "quicker / more thorough" is honest;
 a number in seconds is not.
+
+The default is `sol` on Codex rather than `astra` for exactly this reason: two
+passes at astra's pace is the one place where a 2-second-per-call gap is
+actually felt. On Claude the default stays `opus` — the slowest of the four —
+because a private turn answering for its owner is the wrong place to trade
+judgement for seconds. Whoever wants speed can pick it; that is what the picker
+is for.
 
 ---
 
@@ -241,17 +252,16 @@ try {
 - **It does not report which model answered.** If a finished draft should say
   "answered by Sonnet", ask me — it's a small addition to the draft view, but
   nothing stores it today.
-- **It does not expose reasoning effort.** That is set server-side per pass, not
-  by the caller: Codex is `medium` throughout (`closedToolSurface()` pins
-  `model_reasoning_effort`), while Claude runs its investigation pass at the
-  CLI's own default and only its drafting pass at `medium`. Nothing for the UI
-  to surface — noted so nobody reads "medium everywhere" off an older draft of
-  this doc.
+- **It does not expose reasoning effort.** Every turn on both providers now
+  reasons at `medium`, pinned server-side — Codex in `closedToolSurface()`,
+  Claude in the runner's own default. It used to be uneven: Claude's research
+  pass ran at the CLI's maximum simply because nothing set the flag. Nothing for
+  the UI to surface, and nothing for the user to choose.
 - **It does not override a self-hosted deployment.** If an operator sets
-  `CLAUDE_MODEL` / `CODEX_MODEL`, a run that names no model still uses their
-  setting, and a run that names one always beats it. Nothing for you to handle —
-  it just means "no choice" is not the same as "the default", which is why the
-  server never sends a model it wasn't given.
+  `CLAUDE_MODEL` / `CODEX_MODEL`, a run that names no model uses their setting
+  instead of the default above, and a run that names one always beats both.
+  Nothing for you to handle; it only means `defaultModel` is what *our*
+  deployment runs, not a law about every deployment.
 
 ---
 
