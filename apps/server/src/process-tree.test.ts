@@ -19,6 +19,8 @@ import {
   processTreeSpawnOptions,
   terminateProcessTree,
   terminateProcessTreeWithEscalation,
+  UnverifiedProcessTreeTerminationError,
+  waitForProcessExitOrTreeTermination,
 } from "./process-tree.js";
 
 /**
@@ -99,6 +101,28 @@ async function waitUntilGone(pid: number, timeoutMs = 5_000): Promise<boolean> {
 }
 
 describe("terminateProcessTree", () => {
+  it("reports cleanup failure without waiting for a blocked close event", async () => {
+    const blockedProcessExit = new Promise<number>(() => undefined);
+
+    await expect(
+      waitForProcessExitOrTreeTermination(
+        blockedProcessExit,
+        Promise.resolve(false),
+      ),
+    ).rejects.toBeInstanceOf(UnverifiedProcessTreeTerminationError);
+  });
+
+  it("settles a blocked close after verified tree termination", async () => {
+    const blockedProcessExit = new Promise<number>(() => undefined);
+
+    await expect(
+      waitForProcessExitOrTreeTermination(
+        blockedProcessExit,
+        Promise.resolve(true),
+      ),
+    ).resolves.toBe(1);
+  });
+
   it("stops a descendant the parent spawned", async () => {
     const parent = spawn(process.execPath, ["-e", parentScript], {
       stdio: ["ignore", "pipe", "ignore"],
