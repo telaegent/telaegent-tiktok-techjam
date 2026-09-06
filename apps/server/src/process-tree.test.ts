@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   processTreeSpawnOptions,
   terminateProcessTree,
+  terminateProcessTreeWithEscalation,
 } from "./process-tree.js";
 
 /**
@@ -49,6 +50,18 @@ const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
 });
 child.unref();
 process.stdout.write(String(child.pid));
+setTimeout(() => {}, 60000);
+`;
+
+const signalResistantDescendantScript = `
+const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, ["-e", [
+  "process.on('SIGTERM', () => {});",
+  "process.stdout.write('ready');",
+  "setTimeout(() => {}, 60000);",
+].join("")], { stdio: ["ignore", "pipe", "ignore"] });
+child.unref();
+child.stdout.once("data", () => process.stdout.write(String(child.pid)));
 setTimeout(() => {}, 60000);
 `;
 
@@ -104,4 +117,29 @@ describe("terminateProcessTree", () => {
     // throw from signalling something that already exited.
     expect(() => terminateProcessTree(child, "SIGKILL")).not.toThrow();
   }, 30_000);
+
+  it.skipIf(process.platform === "win32")(
+    "forces a resistant descendant after its parent exits",
+    async () => {
+      const parent = spawn(process.execPath, ["-e", signalResistantDescendantScript], {
+        stdio: ["ignore", "pipe", "ignore"],
+        ...processTreeSpawnOptions,
+      });
+      const descendantPid = await new Promise<number>((resolve, reject) => {
+        parent.stdout?.once("data", (chunk: Buffer) => {
+          resolve(Number.parseInt(chunk.toString("utf8"), 10));
+        });
+        parent.once("error", reject);
+      });
+
+      const termination = terminateProcessTreeWithEscalation(parent, 150);
+      await expect(waitUntilGone(parent.pid!, 1_000)).resolves.toBe(true);
+      // The descendant accepted the group SIGTERM but deliberately ignored it.
+      expect(alive(descendantPid)).toBe(true);
+
+      await termination;
+      await expect(waitUntilGone(descendantPid)).resolves.toBe(true);
+    },
+    30_000,
+  );
 });

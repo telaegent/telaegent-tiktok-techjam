@@ -21,6 +21,7 @@ import {
 import {
   processTreeSpawnOptions,
   terminateProcessTree,
+  terminateProcessTreeWithEscalation,
 } from "./process-tree.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import {
@@ -322,7 +323,7 @@ interface ActiveClaudeProcess {
   timedOut: boolean;
   outputExceeded: boolean;
   settled: Promise<void>;
-  forceKillTimer: NodeJS.Timeout | null;
+  termination: Promise<void> | null;
 }
 
 export class ClaudeCodeRunner implements MiddlewareProviderRunner {
@@ -364,6 +365,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
     active.cancelled = true;
     this.terminate(active);
     await active.settled;
+    if (active.termination) await active.termination;
     return true;
   }
 
@@ -419,7 +421,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
       timedOut: false,
       outputExceeded: false,
       settled,
-      forceKillTimer: null,
+      termination: null,
     };
     this.active.set(request.agentId, active);
     const removeCancellationListener = onRuntimeCancellation(signal, () => {
@@ -551,24 +553,20 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
     } finally {
       removeCancellationListener();
       watchdog.stop();
-      if (active.forceKillTimer) clearTimeout(active.forceKillTimer);
+      if (active.termination) await active.termination;
       this.active.delete(request.agentId);
     }
   }
 
   private terminate(active: ActiveClaudeProcess): void {
     if (active.child.exitCode !== null || active.child.signalCode !== null) return;
-    // Re-signalling on a repeated call is intentional and predates the tree
-    // kill; only the escalation timer is armed once.
-    if (!terminateProcessTree(active.child, "SIGTERM")) active.child.kill("SIGTERM");
-    if (!active.forceKillTimer) {
-      active.forceKillTimer = setTimeout(() => {
-        if (!terminateProcessTree(active.child, "SIGKILL")) {
-          active.child.kill("SIGKILL");
-        }
-      }, 3_000);
-      active.forceKillTimer.unref();
+    if (!active.termination) {
+      active.termination = terminateProcessTreeWithEscalation(active.child);
+      return;
     }
+    // Preserve repeated-SIGTERM semantics while the first termination owns
+    // the escalation lifecycle.
+    if (!terminateProcessTree(active.child, "SIGTERM")) active.child.kill("SIGTERM");
   }
 
   private childEnvironment(): NodeJS.ProcessEnv {

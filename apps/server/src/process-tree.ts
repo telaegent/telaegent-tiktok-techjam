@@ -75,3 +75,45 @@ export function terminateProcessTree(
     return false;
   }
 }
+
+function processGroupIsAlive(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    // A permissions failure still proves the group exists. Only ESRCH means
+    // there is no remaining process for an escalation to reach.
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/**
+ * Starts graceful tree termination and waits until the tree is gone, forcing
+ * any surviving descendants after the grace period.
+ *
+ * Waiting for the parent process is insufficient: it can accept SIGTERM while
+ * a shell or test runner it spawned ignores it. Keeping the escalation owned
+ * here prevents runner cleanup from cancelling the force kill when that parent
+ * closes first.
+ */
+export async function terminateProcessTreeWithEscalation(
+  child: ChildProcess,
+  gracePeriodMs = 3_000,
+): Promise<void> {
+  const pid = child.pid;
+  const treeSignalled = terminateProcessTree(child, "SIGTERM");
+  if (!treeSignalled) child.kill("SIGTERM");
+
+  // taskkill /T /F is synchronous and already forceful on Windows.
+  if (process.platform === "win32" || pid === undefined) return;
+
+  const deadline = Date.now() + gracePeriodMs;
+  while (processGroupIsAlive(pid) && Date.now() < deadline) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(50, Math.max(1, deadline - Date.now()))),
+    );
+  }
+  if (!processGroupIsAlive(pid)) return;
+
+  if (!terminateProcessTree(child, "SIGKILL")) child.kill("SIGKILL");
+}
