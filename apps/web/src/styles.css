@@ -301,7 +301,7 @@ button:disabled:active,
   width: min(1100px, calc(100% - 48px));
   min-height: calc(100dvh - 72px);
   margin: 0 auto;
-  padding: clamp(80px, 5.18dvh, 50px) 0 clamp(30px, 3.46dvh, 37px);
+  padding: clamp(45px, 5.18dvh, 50px) 0 clamp(30px, 3.46dvh, 37px);
   display: flex;
   flex-direction: column;
   align-items: center;
