@@ -66,6 +66,7 @@ const messageBody = z.object({
   content: z.string().trim().min(1).max(50_000),
 });
 const userAuthenticatedConversationRoutes = new Set([
+  "/api/runtime/models",
   "/api/conversations/:conversationId/drafts",
   "/api/conversations/:conversationId/replies",
   "/api/conversations/:conversationId/messages",

@@ -202,6 +202,34 @@ describe("model and effort selection", () => {
     ]);
   });
 
+  it("uses the signed-in web session instead of requiring the legacy API token", async () => {
+    const test = harness();
+    const app = await createApp(
+      loadConfig({
+        NODE_ENV: "test",
+        APP_AUTH_TOKEN: "production-style-legacy-token",
+      }),
+      agentService,
+      undefined,
+      {
+        service: test.service,
+        authenticatedUserId: test.authenticatedUserId,
+        availableProviders: () => ["codex"],
+      },
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/runtime/models?githubRepositoryId=${REPOSITORY}`,
+      headers: { "x-test-user": OWNER },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().providers).toEqual([
+      expect.objectContaining({ provider: "codex" }),
+    ]);
+  });
+
   it("requires authentication for the catalogue", async () => {
     const test = harness();
     const app = await appWith(test);
