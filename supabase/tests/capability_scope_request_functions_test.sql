@@ -277,6 +277,25 @@ begin
     raise exception 'S9 FAILED: an approved grant outlives its task';
   end if;
 
+  -- The waiting recipient can durably observe the owner's decision and the
+  -- exact opaque resource identity it must retry. No path or bytes are exposed.
+  v_result := public.resolve_capability_scope_requests(
+    v_task, v_peer, array[v_request, v_second]
+  );
+  if v_result->>'outcome' <> 'resolved'
+     or not (v_result->'requests' @> jsonb_build_array(jsonb_build_object(
+       'scopeRequestId', v_request,
+       'candidateResourceId', v_candidate,
+       'status', 'denied'
+     )))
+     or not (v_result->'requests' @> jsonb_build_array(jsonb_build_object(
+       'scopeRequestId', v_second,
+       'candidateResourceId', v_other,
+       'status', 'approved'
+     ))) then
+    raise exception 'S9 FAILED: durable decision projection is incomplete (%)', v_result;
+  end if;
+
   -- S10: the warm path. A file the human already approved is not asked again.
   v_result := public.record_capability_scope_request(
     v_third, v_task, v_owner, v_peer, 'src/theme.ts', 'style again', v_other,
@@ -384,6 +403,8 @@ begin
        'public.decide_capability_scope_request(uuid,uuid,text,uuid)', 'EXECUTE')
      or has_function_privilege('authenticated',
        'public.list_pending_capability_scope_requests(uuid,bigint)', 'EXECUTE')
+     or has_function_privilege('authenticated',
+       'public.resolve_capability_scope_requests(uuid,uuid,uuid[])', 'EXECUTE')
      or has_function_privilege('anon',
        'public.begin_capability_follow_up_round(uuid,uuid,uuid)', 'EXECUTE') then
     raise exception 'S13 FAILED: a browser role can approve or spend capabilities';
@@ -391,6 +412,10 @@ begin
   if not has_function_privilege('service_role',
        'public.decide_capability_scope_request(uuid,uuid,text,uuid)', 'EXECUTE') then
     raise exception 'S13 FAILED: the backend cannot record a human decision';
+  end if;
+  if not has_function_privilege('service_role',
+       'public.resolve_capability_scope_requests(uuid,uuid,uuid[])', 'EXECUTE') then
+    raise exception 'S13 FAILED: the backend cannot resume an approved request';
   end if;
 end;
 $$;

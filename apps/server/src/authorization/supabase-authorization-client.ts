@@ -28,6 +28,7 @@ import type {
   DecideCapabilityScopeRequestInput,
   ListPendingCapabilityScopeRequestsInput,
   RecordCapabilityScopeRequestInput,
+  ResolveCapabilityScopeRequestsInput,
   SupabaseCapabilityScopeRequestClient,
 } from "./capability-scope-requests.js";
 import { resourceDisplayLabelSchema } from "../connectors/resource-request.js";
@@ -206,6 +207,32 @@ export class SupabaseAuthorizationRpcClient
         p_owner_user_id: request.ownerUserId,
         // Preserve BIGINT precision by keeping the canonical decimal string.
         p_github_repository_id: request.githubRepositoryId,
+      },
+      options,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  /** Reads the durable decisions for one peer's bounded pending batch. */
+  async resolveCapabilityScopeRequests(
+    request: Readonly<ResolveCapabilityScopeRequestsInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.taskId) ||
+      !uuidPattern.test(request.peerUserId) ||
+      request.scopeRequestIds.length < 1 ||
+      request.scopeRequestIds.length > 16 ||
+      request.scopeRequestIds.some((id) => !uuidPattern.test(id))
+    ) {
+      throw new Error("Supabase capability scope resolution is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("resolve_capability_scope_requests"),
+      {
+        p_task_id: request.taskId,
+        p_peer_user_id: request.peerUserId,
+        p_scope_request_ids: request.scopeRequestIds,
       },
       options,
       maximumScopeResponseBytes,

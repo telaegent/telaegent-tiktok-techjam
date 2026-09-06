@@ -82,6 +82,20 @@ const decisionOutcomeSchema = z.discriminatedUnion("outcome", [
   z.object({ outcome: z.literal("invalid") }),
 ]);
 
+const scopeRequestResolutionSchema = z.strictObject({
+  scopeRequestId: uuidSchema,
+  candidateResourceId: resourceIdSchema,
+  status: z.enum(["pending", "approved", "denied"]),
+});
+
+const scopeRequestResolutionsSchema = z.discriminatedUnion("outcome", [
+  z.strictObject({
+    outcome: z.literal("resolved"),
+    requests: z.array(scopeRequestResolutionSchema).max(16),
+  }),
+  z.strictObject({ outcome: z.literal("task_unavailable") }),
+]);
+
 const roundSchema = z.number().int().min(0).max(5);
 const followUpRoundOutcomeSchema = z.discriminatedUnion("outcome", [
   z.object({ outcome: z.literal("started"), round: roundSchema }),
@@ -99,6 +113,9 @@ export type RecordCapabilityScopeRequestOutcome = z.infer<
 >;
 export type CapabilityScopeDecisionOutcome = z.infer<
   typeof decisionOutcomeSchema
+>;
+export type CapabilityScopeRequestResolutions = z.infer<
+  typeof scopeRequestResolutionsSchema
 >;
 export type CapabilityFollowUpRoundOutcome = z.infer<
   typeof followUpRoundOutcomeSchema
@@ -145,6 +162,13 @@ export interface BeginCapabilityFollowUpRoundInput {
   peerUserId: string;
 }
 
+export interface ResolveCapabilityScopeRequestsInput {
+  taskId: string;
+  /** The agent waiting for these decisions, never the repository owner. */
+  peerUserId: string;
+  scopeRequestIds: readonly string[];
+}
+
 export interface CapabilityScopeRequestOptions {
   signal?: AbortSignal | undefined;
 }
@@ -172,6 +196,16 @@ export interface CapabilityScopeRequestRepository {
     options?: Readonly<CapabilityScopeRequestOptions>,
   ): Promise<readonly PendingCapabilityScopeRequest[]>;
 
+  /**
+   * Reads only the status and opaque resource identity of requests this peer
+   * made inside one live task. This is the durable wake-up source for a turn
+   * paused at the human approval gate; it never returns file contents or paths.
+   */
+  resolveScopeRequests(
+    input: Readonly<ResolveCapabilityScopeRequestsInput>,
+    options?: Readonly<CapabilityScopeRequestOptions>,
+  ): Promise<CapabilityScopeRequestResolutions>;
+
   beginFollowUpRound(
     input: Readonly<BeginCapabilityFollowUpRoundInput>,
     options?: Readonly<CapabilityScopeRequestOptions>,
@@ -196,6 +230,11 @@ export interface SupabaseCapabilityScopeRequestClient {
 
   listPendingCapabilityScopeRequests(
     request: Readonly<ListPendingCapabilityScopeRequestsInput>,
+    options?: Readonly<{ signal?: AbortSignal | undefined }>,
+  ): Promise<unknown>;
+
+  resolveCapabilityScopeRequests(
+    request: Readonly<ResolveCapabilityScopeRequestsInput>,
     options?: Readonly<{ signal?: AbortSignal | undefined }>,
   ): Promise<unknown>;
 
@@ -255,6 +294,19 @@ export class SupabaseCapabilityScopeRequestRepository
         options,
       ),
     ) as readonly PendingCapabilityScopeRequest[];
+  }
+
+  async resolveScopeRequests(
+    input: Readonly<ResolveCapabilityScopeRequestsInput>,
+    options?: Readonly<CapabilityScopeRequestOptions>,
+  ): Promise<CapabilityScopeRequestResolutions> {
+    return parse(
+      scopeRequestResolutionsSchema,
+      await this.#call(
+        (signal) => this.client.resolveCapabilityScopeRequests(input, signal),
+        options,
+      ),
+    );
   }
 
   async beginFollowUpRound(

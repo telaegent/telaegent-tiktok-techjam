@@ -26,6 +26,7 @@
 --   T19  anon and authenticated cannot execute the RPCs; service_role can
 --   T20  private drafts are never exposed through the shared transcript
 --   T21  the backend role can drive a whole draft from creation to delivery
+--   T22  revoked membership/connection cannot publish a prepared draft
 
 begin;
 
@@ -40,6 +41,23 @@ insert into public.user_accounts (user_id, status) values
   ('a1000000-0000-4000-8000-000000000001', 'active'),
   ('a1000000-0000-4000-8000-000000000002', 'active');
 
+insert into public.github_connections (
+  github_connection_id, user_id, github_user_id, github_login, status,
+  connected_at, last_verified_at
+) values
+  ('a1500000-0000-4000-8000-000000000001',
+   'a1000000-0000-4000-8000-000000000001', 101, 'owner', 'connected', now(), now()),
+  ('a1500000-0000-4000-8000-000000000002',
+   'a1000000-0000-4000-8000-000000000002', 102, 'peer', 'connected', now(), now());
+
+insert into public.github_repository_access (
+  user_id, github_connection_id, github_repository_id, status, verified_at
+) values
+  ('a1000000-0000-4000-8000-000000000001',
+   'a1500000-0000-4000-8000-000000000001', 9223372036854775807, 'verified', now()),
+  ('a1000000-0000-4000-8000-000000000002',
+   'a1500000-0000-4000-8000-000000000002', 9223372036854775807, 'verified', now());
+
 insert into public.repository_projects
   (project_id, github_repository_id, repository_full_name, visibility, default_branch, status)
 values
@@ -53,6 +71,27 @@ insert into public.project_conversations (conversation_id, project_id, status) v
 insert into public.project_memberships (project_id, user_id, status) values
   ('a2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', 'active'),
   ('a2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000002', 'active');
+
+insert into public.project_connections (
+  project_connection_id, project_id, requester_user_id, recipient_user_id,
+  status, requested_at, accepted_at
+) values (
+  'a2500000-0000-4000-8000-000000000001',
+  'a2000000-0000-4000-8000-000000000001',
+  'a1000000-0000-4000-8000-000000000001',
+  'a1000000-0000-4000-8000-000000000002',
+  'connected', '2026-08-31T08:59:00Z', '2026-08-31T08:59:01Z'
+);
+
+insert into public.runtime_bindings (
+  runtime_binding_id, user_id, project_id, github_repository_id, status
+) values
+  ('a2600000-0000-4000-8000-000000000001',
+   'a1000000-0000-4000-8000-000000000001',
+   'a2000000-0000-4000-8000-000000000001', 9223372036854775807, 'ready'),
+  ('a2600000-0000-4000-8000-000000000002',
+   'a1000000-0000-4000-8000-000000000002',
+   'a2000000-0000-4000-8000-000000000001', 9223372036854775807, 'ready');
 
 insert into public.conversation_participants (conversation_id, project_id, user_id) values
   ('a3000000-0000-4000-8000-000000000001', 'a2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001'),
@@ -424,6 +463,14 @@ begin
   if draft ->> 'state' <> 'cancelled' then
     raise exception 'T14 FAILED: expected cancelled, got %', draft ->> 'state';
   end if;
+  if draft -> 'roughMessage' <> 'null'::jsonb
+     or draft -> 'privateMessage' <> 'null'::jsonb
+     or draft -> 'sendCandidate' <> 'null'::jsonb
+     or draft -> 'failure' <> 'null'::jsonb
+     or draft -> 'turnId' <> 'null'::jsonb
+     or draft -> 'privateTurns' <> '[]'::jsonb then
+    raise exception 'T14 FAILED: cancelled draft retained private content (%)', draft;
+  end if;
 end $$;
 
 -- ---------------------------------------------------------------------------
@@ -706,6 +753,74 @@ begin
   end if;
 
   reset role;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- T22  Publication rechecks revocable authorization inside its transaction
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  result jsonb;
+begin
+  perform public.create_private_draft(
+    'a4000000-0000-4000-8000-000000000006',
+    'a3000000-0000-4000-8000-000000000001', 9223372036854775807,
+    'a1000000-0000-4000-8000-000000000001', 'codex',
+    'prepared before revocation', now(), now());
+  perform public.mark_private_draft_running(
+    'a4000000-0000-4000-8000-000000000006',
+    'a1000000-0000-4000-8000-000000000001',
+    'a5000000-0000-4000-8000-000000000007', now());
+  perform public.complete_private_draft(
+    'a4000000-0000-4000-8000-000000000006',
+    'a5000000-0000-4000-8000-000000000007', 'ready',
+    'Prepared.', 'Prepared.', '[]'::jsonb, '[]'::jsonb, now());
+
+  update public.project_memberships
+  set status = 'suspended'
+  where project_id = 'a2000000-0000-4000-8000-000000000001'
+    and user_id = 'a1000000-0000-4000-8000-000000000001';
+
+  result := public.send_private_draft(
+    'a4000000-0000-4000-8000-000000000006',
+    'a1000000-0000-4000-8000-000000000001', 'Prepared.', 'send-suspended',
+    'a6000000-0000-4000-8000-000000000004',
+    'a3000000-0000-4000-8000-000000000001', 9223372036854775807,
+    'codex', now(), 'a7000000-0000-4000-8000-000000000006', now(), now());
+  if result is not null then
+    raise exception 'T22 FAILED: a suspended membership published a message';
+  end if;
+  if exists (
+    select 1 from public.shared_messages
+    where message_id = 'a6000000-0000-4000-8000-000000000004'
+  ) then
+    raise exception 'T22 FAILED: rejected membership send left a partial message';
+  end if;
+
+  update public.project_memberships
+  set status = 'active'
+  where project_id = 'a2000000-0000-4000-8000-000000000001'
+    and user_id = 'a1000000-0000-4000-8000-000000000001';
+
+  perform public.revoke_project_connection(
+    'a2500000-0000-4000-8000-000000000001',
+    'a1000000-0000-4000-8000-000000000001', now());
+
+  result := public.send_private_draft(
+    'a4000000-0000-4000-8000-000000000006',
+    'a1000000-0000-4000-8000-000000000001', 'Prepared.', 'send-revoked',
+    'a6000000-0000-4000-8000-000000000005',
+    'a3000000-0000-4000-8000-000000000001', 9223372036854775807,
+    'codex', now(), 'a7000000-0000-4000-8000-000000000007', now(), now());
+  if result is not null then
+    raise exception 'T22 FAILED: a revoked connection published a message';
+  end if;
+  if exists (
+    select 1 from public.shared_messages
+    where message_id = 'a6000000-0000-4000-8000-000000000005'
+  ) then
+    raise exception 'T22 FAILED: rejected send left a partial message';
+  end if;
 end $$;
 
 select 'all conversation lifecycle tests passed' as result;

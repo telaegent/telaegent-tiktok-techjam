@@ -186,6 +186,8 @@ export class InMemoryConversationRepository implements ConversationRepository {
     draft.sendCandidate = null;
     draft.riskFlags = [];
     draft.guardFindings = [];
+    draft.failure = null;
+    draft.turnId = null;
     draft.updatedAt = input.updatedAt;
     return cloneDraft(draft);
   }
@@ -251,17 +253,18 @@ export class InMemoryConversationRepository implements ConversationRepository {
     limit: number;
   }): Promise<SharedMessage[]> {
     const ordered = this.orderedMessages(input.conversationId);
-    const after =
+    const start =
       input.afterSentAt === null || input.afterMessageId === null
-        ? -1
+        ? 0
         : ordered.findIndex(
             (message) =>
-              message.sentAt === input.afterSentAt &&
-              message.messageId === input.afterMessageId,
+              message.sentAt > input.afterSentAt! ||
+              (message.sentAt === input.afterSentAt &&
+                message.messageId > input.afterMessageId!),
           );
-    // An unknown cursor row yields the first page rather than an error: the
-    // SQL comparison is by value, not by position, and behaves the same way.
-    const start = after < 0 ? 0 : after + 1;
+    // Match SQL tuple comparison even for a well-formed cursor whose exact row
+    // is absent. A cursor beyond the end produces an empty page, not page one.
+    if (start < 0) return [];
     return ordered
       .slice(start, start + input.limit)
       .map((message) => structuredClone(message));
