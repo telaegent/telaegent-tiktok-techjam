@@ -6,6 +6,44 @@ afterEach(() => {
 });
 
 describe("project conversation API", () => {
+  it("loads the ordered runtime model catalogue", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
+        JSON.stringify({ providers: [] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.runtimeModels();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/runtime/models");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      credentials: "same-origin",
+    });
+  });
+
+  it("sends the selected model only when running a private draft", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
+        JSON.stringify({ draft: {}, pollUrl: "/api/drafts/draft-id" }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.runConversationDraft("draft/id", { model: "sonnet" });
+
+    const [url, options] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/drafts/draft%2Fid/run");
+    expect(options).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+      body: JSON.stringify({ model: "sonnet" }),
+    });
+  });
+
   it("sends collaborator cursors through the scoped discovery route", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
