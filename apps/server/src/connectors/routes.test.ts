@@ -139,6 +139,34 @@ describe("connector long-poll HTTP transport", () => {
     await app.close();
   });
 
+  it("accepts an authenticated stop acknowledgement before cloud cancel succeeds", async () => {
+    const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { relay, resolveConnectorPrincipal: async () => principal },
+    );
+    const completion = relay.dispatch(job);
+    await relay.poll(principal, bindingId, 0);
+    const cancellation = relay.cancel(bindingId);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/connectors/jobs/${job.jobId}/cancelled`,
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(204);
+    await expect(cancellation).resolves.toBe(true);
+    await expect(completion).rejects.toBeDefined();
+    await app.close();
+  });
+
   it("rejects unregistered bindings after connector authentication", async () => {
     const relay = new LongPollConnectorJobRelay();
     const app = await createApp(
@@ -188,7 +216,9 @@ describe("connector long-poll HTTP transport", () => {
       },
     });
     expect(response.statusCode).toBe(400);
-    await relay.cancel(bindingId);
+    const cancellation = relay.cancel(bindingId);
+    expect(relay.acknowledgeCancellation(principal, job.jobId)).toBe(true);
+    await expect(cancellation).resolves.toBe(true);
     await expect(completion).rejects.toBeDefined();
     await app.close();
   });
@@ -222,7 +252,9 @@ describe("connector long-poll HTTP transport", () => {
     });
 
     expect(response.statusCode).toBe(400);
-    await relay.cancel(bindingId);
+    const cancellation = relay.cancel(bindingId);
+    expect(relay.acknowledgeCancellation(principal, job.jobId)).toBe(true);
+    await expect(cancellation).resolves.toBe(true);
     await expect(completion).rejects.toBeDefined();
     await app.close();
   });

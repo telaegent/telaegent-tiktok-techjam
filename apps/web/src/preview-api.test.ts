@@ -24,7 +24,9 @@ describe("local UI preview", () => {
       user: { githubLogin: "duy-preview" },
     });
 
-    const catalogue = await previewRequest("/api/runtime/models") as {
+    const catalogue = await previewRequest(
+      "/api/runtime/models?githubRepositoryId=1345851083",
+    ) as {
       providers: Array<{ provider: string; defaultModel: string }>;
       efforts: string[];
       defaultEffort: string;

@@ -222,6 +222,103 @@ describe("carrying a draft's questions to the other machine", () => {
     );
   });
 
+  it("keeps every mixed and staggered approval attached until the batch resolves", async () => {
+    const secondResourceId = `resource_${"b".repeat(24)}`;
+    const thirdResourceId = `resource_${"c".repeat(24)}`;
+    const secondScopeRequestId = "90000000-0000-4000-8000-000000000002";
+    const thirdScopeRequestId = "90000000-0000-4000-8000-000000000003";
+    const mixed: CapabilityFollowUpOutcome = {
+      outcome: "completed",
+      round: 1,
+      delivered: [
+        { resourceId, content: "first();", truncated: false, byteLength: 8 },
+      ],
+      queued: [
+        {
+          candidateResourceId: secondResourceId,
+          resourceDisplayLabel: "src/second.ts",
+          requestedHint: "src/second.ts",
+          requestedReason: "second dependency",
+          outcome: { outcome: "recorded", scopeRequestId: secondScopeRequestId },
+        },
+        {
+          candidateResourceId: thirdResourceId,
+          resourceDisplayLabel: "src/third.ts",
+          requestedHint: "src/third.ts",
+          requestedReason: "third dependency",
+          outcome: { outcome: "recorded", scopeRequestId: thirdScopeRequestId },
+        },
+      ],
+      pendingWithoutCandidate: 0,
+      refused: 0,
+      spentGrantIds: [],
+    };
+    const runRound = vi.fn<CapabilityFollowUpCoordinator["runRound"]>(
+      async (_context, requests) => {
+        if (requests[0]?.kind === "hint") return mixed;
+        const requested = requests[0];
+        const id = requested?.kind === "resource" ? requested.resourceId : "";
+        return {
+          outcome: "completed",
+          round: 2,
+          delivered: [{ resourceId: id, content: `${id}();`, truncated: false, byteLength: 32 }],
+          queued: [],
+          pendingWithoutCandidate: 0,
+          refused: 0,
+          spentGrantIds: [],
+        };
+      },
+    );
+    const resolveScopeRequests = vi
+      .fn<CapabilityScopeRequestRepository["resolveScopeRequests"]>()
+      .mockResolvedValueOnce({
+        outcome: "resolved",
+        requests: [
+          {
+            scopeRequestId: secondScopeRequestId,
+            candidateResourceId: secondResourceId,
+            status: "approved",
+          },
+          {
+            scopeRequestId: thirdScopeRequestId,
+            candidateResourceId: thirdResourceId,
+            status: "pending",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        outcome: "resolved",
+        requests: [
+          {
+            scopeRequestId: thirdScopeRequestId,
+            candidateResourceId: thirdResourceId,
+            status: "approved",
+          },
+        ],
+      });
+    const { service } = build({
+      runRound,
+      resolveScopeRequests,
+      approvalPollIntervalMs: 50,
+    });
+
+    await expect(service.run(draft, [ask])).resolves.toEqual([
+      { resourceId, content: "first();", truncated: false },
+      {
+        resourceId: secondResourceId,
+        content: `${secondResourceId}();`,
+        truncated: false,
+      },
+      {
+        resourceId: thirdResourceId,
+        content: `${thirdResourceId}();`,
+        truncated: false,
+      },
+    ]);
+    expect(resolveScopeRequests).toHaveBeenCalledTimes(2);
+    expect(runRound).toHaveBeenCalledTimes(3);
+  });
+
   it("reuses an existing grant instead of repeating the filename prompt", async () => {
     const waiting: CapabilityFollowUpOutcome = {
       outcome: "completed",

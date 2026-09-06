@@ -3,6 +3,7 @@ import type { ProjectCollaborator, ProjectConversation } from "./api";
 import {
   assertConversationScope,
   connectedCollaborators,
+  projectChatInstanceKey,
   selectConnectedPeer,
 } from "./project-conversation";
 
@@ -51,6 +52,15 @@ describe("project conversation selection", () => {
 
   it("returns no selection when the project has no connected peer", () => {
     expect(selectConnectedPeer([collaborator(bob, "pending_outgoing")], null)).toBeNull();
+  });
+
+  it("gives each repository and collaborator an isolated chat-state identity", () => {
+    expect(projectChatInstanceKey("123456789", bob)).not.toBe(
+      projectChatInstanceKey("123456789", charlie),
+    );
+    expect(projectChatInstanceKey("123456789", bob)).not.toBe(
+      projectChatInstanceKey("987654321", bob),
+    );
   });
 
   it("accepts only the selected project, repository, and participant pair", () => {

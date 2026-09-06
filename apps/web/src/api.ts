@@ -446,7 +446,10 @@ export const api = {
       { method: "DELETE" },
     ),
   system: () => request<SystemInfo>("/api/system"),
-  runtimeModels: () => request<RuntimeModelCatalogue>("/api/runtime/models"),
+  runtimeModels: (githubRepositoryId: string) =>
+    request<RuntimeModelCatalogue>(
+      `/api/runtime/models?githubRepositoryId=${encodeURIComponent(githubRepositoryId)}`,
+    ),
   listAgents: () => request<{ agents: Agent[] }>("/api/agents"),
   createAgent: (body: {
     name: string;

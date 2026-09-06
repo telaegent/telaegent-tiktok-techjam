@@ -269,6 +269,7 @@ class ServingTransport implements ConnectorWorkerTransport {
     return this.deliveries.shift() ?? null;
   }
   async progress(_jobId: string, _event: RuntimeProgressEvent): Promise<void> {}
+  async cancelled(_jobId: string): Promise<void> {}
   async result(_jobId: string, _result: ConnectorJobResult): Promise<void> {}
   async failure(_jobId: string, _code: string): Promise<void> {}
   async resourceResponse(response: ResourceExchangeResponse): Promise<void> {

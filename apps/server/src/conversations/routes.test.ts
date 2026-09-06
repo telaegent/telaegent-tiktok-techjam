@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentService } from "../agent-service.js";
 import { createApp } from "../app.js";
 import { PrivateRuntimeAuthorizationError } from "../authorization/private-runtime-authorization.js";
@@ -150,7 +150,7 @@ describe("model and effort selection", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/api/runtime/models",
+      url: `/api/runtime/models?githubRepositoryId=${REPOSITORY}`,
       headers: { "x-test-user": OWNER },
     });
 
@@ -174,6 +174,32 @@ describe("model and effort selection", () => {
       efforts: ["low", "medium", "high"],
       defaultEffort: "medium",
     });
+  });
+
+  it("publishes only providers live-probed by the selected repository connector", async () => {
+    const test = harness();
+    const availableProviders = vi.fn(() => ["codex"] as const);
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+      availableProviders,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/runtime/models?githubRepositoryId=${REPOSITORY}`,
+      headers: { "x-test-user": OWNER },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(availableProviders).toHaveBeenCalledWith(OWNER, REPOSITORY);
+    expect(response.json().providers).toEqual([
+      {
+        provider: "codex",
+        models: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
+        defaultModel: "gpt-5.6-sol",
+      },
+    ]);
   });
 
   it("requires authentication for the catalogue", async () => {

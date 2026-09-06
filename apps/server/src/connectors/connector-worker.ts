@@ -178,6 +178,8 @@ export interface LocalConnectorBinding {
 export interface ConnectorWorkerTransport {
   poll(signal?: AbortSignal): Promise<ConnectorDelivery | null>;
   progress(jobId: string, event: RuntimeProgressEvent): Promise<void>;
+  /** Confirms the provider process tree has stopped, not merely that cancel was seen. */
+  cancelled(jobId: string): Promise<void>;
   result(jobId: string, result: ConnectorJobResult, signal?: AbortSignal): Promise<void>;
   failure(jobId: string, code: string, signal?: AbortSignal): Promise<void>;
   resourceResponse(response: ResourceExchangeResponse): Promise<void>;
@@ -452,6 +454,7 @@ export class ConnectorWorker {
       if (delivery?.kind !== "cancel" || delivery.jobId !== jobId) continue;
       onCancelled();
       await this.options.cancel(this.binding.connectorBindingId);
+      await this.transport.cancelled(jobId);
       return;
     }
   }
@@ -698,6 +701,10 @@ export class HttpConnectorWorkerTransport implements ConnectorWorkerTransport {
     // Progress is advisory. Bound its reconnect attempts so an outage cannot
     // accumulate one never-settling promise per structural event.
     await this.send(jobId, "progress", event, 2);
+  }
+
+  async cancelled(jobId: string): Promise<void> {
+    await this.send(jobId, "cancelled", {}, Number.POSITIVE_INFINITY);
   }
 
   async result(
