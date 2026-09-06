@@ -9,6 +9,7 @@ import type {
   ProjectConnection,
   ProjectConversation,
   ProjectSummary,
+  RuntimeModelCatalogue,
   SendDraftResult,
   TelaegentSession,
 } from "./api";
@@ -18,6 +19,21 @@ const peerUserId = "22222222-2222-4222-8222-222222222222";
 const projectId = "33333333-3333-4333-8333-333333333333";
 const conversationId = "44444444-4444-4444-8444-444444444444";
 const githubRepositoryId = "987654321";
+
+const runtimeModels: RuntimeModelCatalogue = {
+  providers: [
+    {
+      provider: "claude",
+      models: ["opus", "sonnet", "haiku", "fable"],
+      defaultModel: "opus",
+    },
+    {
+      provider: "codex",
+      models: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
+      defaultModel: "gpt-5.6-sol",
+    },
+  ],
+};
 
 const session: TelaegentSession = {
   enabled: true,
@@ -242,6 +258,7 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
 
   if (url === "/api/auth/session" && method === "GET") return copy(session);
   if (url === "/api/auth/logout" && method === "POST") return {};
+  if (url === "/api/runtime/models" && method === "GET") return copy(runtimeModels);
   if (url === "/api/connectors/pairings" && method === "POST") {
     return {
       pairing: {

@@ -24,6 +24,14 @@ describe("local UI preview", () => {
       user: { githubLogin: "duy-preview" },
     });
 
+    const catalogue = await previewRequest("/api/runtime/models") as {
+      providers: Array<{ provider: string; defaultModel: string }>;
+    };
+    expect(catalogue.providers).toEqual([
+      expect.objectContaining({ provider: "claude", defaultModel: "opus" }),
+      expect.objectContaining({ provider: "codex", defaultModel: "gpt-5.6-sol" }),
+    ]);
+
     const projects = await previewRequest("/api/projects?limit=50") as {
       projects: ProjectSummary[];
     };
@@ -62,7 +70,7 @@ describe("local UI preview", () => {
 
     const started = await previewRequest(`/api/drafts/${created.draft.draftId}/run`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ model: "sonnet" }),
     }) as { draft: PrivateDraftView };
     expect(started.draft.state).toBe("agent_working");
 

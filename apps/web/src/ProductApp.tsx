@@ -25,6 +25,7 @@ import {
   type ProjectCollaborator,
   type ProjectConversation,
   type ProjectSummary,
+  type RuntimeModelCatalogue,
   type TelaegentWebUser,
 } from "./api";
 import {
@@ -2167,6 +2168,9 @@ function ProjectChat({
   conversation,
   conversationState,
   conversationError,
+  runtimeModels,
+  runtimeModelsState,
+  onRetryRuntimeModels,
   onRetryConversation,
   currentUserId,
 }: {
@@ -2175,12 +2179,18 @@ function ProjectChat({
   conversation: ProjectConversation | null;
   conversationState: AsyncLoadState;
   conversationError: ApiError | null;
+  runtimeModels: RuntimeModelCatalogue | null;
+  runtimeModelsState: AsyncLoadState;
+  onRetryRuntimeModels: () => void;
   onRetryConversation: () => void;
   currentUserId: string | null;
 }) {
   const selected = peer ? collaboratorView(peer) : null;
   const [composer, setComposer] = useState("");
   const [provider, setProvider] = useState<AgentProvider>("claude");
+  const [modelsByProvider, setModelsByProvider] = useState<
+    Partial<Record<AgentProvider, string>>
+  >({});
   const [roughMessage, setRoughMessage] = useState("");
   const [messages, setMessages] = useState<SharedMessage[]>([]);
   const [messageLoadState, setMessageLoadState] =
@@ -2227,6 +2237,14 @@ function ProjectChat({
     project.githubRepositoryId,
   );
   const conversationId = conversation?.conversationId ?? null;
+  const providerModels = runtimeModels?.providers.find(
+    (candidate) => candidate.provider === provider,
+  );
+  const storedModel = modelsByProvider[provider];
+  const selectedModel =
+    storedModel && providerModels?.models.includes(storedModel)
+      ? storedModel
+      : providerModels?.defaultModel ?? "";
   const messageScopeKey = `${project.githubRepositoryId}:${conversationId ?? "none"}`;
   const activeMessageScope = useRef(messageScopeKey);
   const activeRepositoryScope = useRef(project.githubRepositoryId);
@@ -2560,9 +2578,22 @@ function ProjectChat({
     };
   }, [actionError, draft, privateRoomOpen]);
 
-  async function runDraft(draftId: string) {
+  function selectedModelFor(draftProvider: AgentProvider): string | undefined {
+    const catalogue = runtimeModels?.providers.find(
+      (candidate) => candidate.provider === draftProvider,
+    );
+    const selection = modelsByProvider[draftProvider];
+    if (selection && catalogue?.models.includes(selection)) return selection;
+    return catalogue?.defaultModel;
+  }
+
+  async function runDraft(draftId: string, draftProvider: AgentProvider) {
     try {
-      const result = await api.runConversationDraft(draftId);
+      const model = selectedModelFor(draftProvider);
+      const result = await api.runConversationDraft(
+        draftId,
+        model ? { model } : {},
+      );
       setDraft(result.draft);
       setActionError(null);
     } catch (error) {
@@ -2583,7 +2614,7 @@ function ProjectChat({
       });
       setDraft(created.draft);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId);
+      await runDraft(created.draft.draftId, created.draft.provider);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -2624,7 +2655,7 @@ function ProjectChat({
       });
       setDraft(created.draft);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId);
+      await runDraft(created.draft.draftId, created.draft.provider);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -2681,7 +2712,7 @@ function ProjectChat({
       );
       setDraft(clarified.draft);
       setClarification("");
-      await runDraft(draft.draftId);
+      await runDraft(clarified.draft.draftId, clarified.draft.provider);
     } catch (error) {
       setActionError(normalizeApiError(error));
     } finally {
@@ -2768,7 +2799,7 @@ function ProjectChat({
   async function retryDraft() {
     if (draft?.state === "created") {
       setBusy(true);
-      await runDraft(draft.draftId);
+      await runDraft(draft.draftId, draft.provider);
       setBusy(false);
       return;
     }
@@ -3054,19 +3085,62 @@ function ProjectChat({
       </div>
 
       <form className="shared-composer" onSubmit={submitRoughMessage}>
-        <label className="composer-provider-picker">
-          <span>Local provider</span>
-          <select
-            value={provider}
-            onChange={(event) =>
-              setProvider(event.target.value as AgentProvider)
-            }
-            disabled={busy}
-          >
-            <option value="claude">Claude Code</option>
-            <option value="codex">Codex</option>
-          </select>
-        </label>
+        <div className="composer-routing-controls">
+          <label className="composer-routing-control">
+            <span>Local provider</span>
+            <select
+              value={provider}
+              onChange={(event) =>
+                setProvider(event.target.value as AgentProvider)
+              }
+              disabled={busy}
+            >
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+            </select>
+          </label>
+          <label className="composer-routing-control">
+            <span>Model</span>
+            <select
+              value={selectedModel}
+              onChange={(event) =>
+                setModelsByProvider((current) => ({
+                  ...current,
+                  [provider]: event.target.value,
+                }))
+              }
+              disabled={busy || !providerModels}
+              aria-describedby={
+                runtimeModelsState === "error"
+                  ? "composer-model-status"
+                  : undefined
+              }
+            >
+              {providerModels ? (
+                providerModels.models.map((model) => (
+                  <option value={model} key={model}>
+                    {model}
+                    {model === providerModels.defaultModel ? " (default)" : ""}
+                  </option>
+                ))
+              ) : (
+                <option value="">
+                  {runtimeModelsState === "loading"
+                    ? "Loading models"
+                    : "Server default"}
+                </option>
+              )}
+            </select>
+          </label>
+        </div>
+        {runtimeModelsState === "error" && (
+          <small className="composer-model-status" id="composer-model-status">
+            <span>Models unavailable. Server default will be used.</span>
+            <button type="button" onClick={onRetryRuntimeModels}>
+              Retry
+            </button>
+          </small>
+        )}
         <div>
           <textarea
             id="project-message"
@@ -3272,7 +3346,39 @@ function Workspace({
     null,
   );
   const [conversationAttempt, setConversationAttempt] = useState(0);
+  const [runtimeModels, setRuntimeModels] =
+    useState<RuntimeModelCatalogue | null>(null);
+  const [runtimeModelsState, setRuntimeModelsState] =
+    useState<AsyncLoadState>("loading");
+  const [runtimeModelsAttempt, setRuntimeModelsAttempt] = useState(0);
   const collaboratorRequest = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    if (!currentUserId) {
+      setRuntimeModels(null);
+      setRuntimeModelsState("idle");
+      return () => {
+        active = false;
+      };
+    }
+    setRuntimeModelsState("loading");
+    void api
+      .runtimeModels()
+      .then((catalogue) => {
+        if (!active) return;
+        setRuntimeModels(catalogue);
+        setRuntimeModelsState("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        setRuntimeModels(null);
+        setRuntimeModelsState("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUserId, runtimeModelsAttempt]);
 
   async function loadCollaborators() {
     const requestId = ++collaboratorRequest.current;
@@ -3440,6 +3546,11 @@ function Workspace({
           conversation={selectedConversation}
           conversationState={selectedPeer ? conversationState : "idle"}
           conversationError={conversationError}
+          runtimeModels={runtimeModels}
+          runtimeModelsState={runtimeModelsState}
+          onRetryRuntimeModels={() =>
+            setRuntimeModelsAttempt((attempt) => attempt + 1)
+          }
           onRetryConversation={() =>
             setConversationAttempt((attempt) => attempt + 1)
           }

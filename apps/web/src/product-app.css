@@ -2042,28 +2042,31 @@ html[data-theme="dark"] .app-rail button > img {
   background: var(--surface);
 }
 
-.shared-composer > label {
-  display: block;
-  margin: 1px 4px 7px;
+.shared-composer > .composer-routing-controls {
+  margin: 1px 4px 9px;
+  display: grid;
+  grid-template-columns: minmax(112px, 0.8fr) minmax(148px, 1.2fr);
+  align-items: end;
+  gap: 8px;
+}
+
+.composer-routing-control {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
   color: var(--quiet);
   font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
+  font-size: 10px;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
-.shared-composer > label.composer-provider-picker {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.composer-provider-picker select {
+.composer-routing-control select {
+  width: 100%;
+  min-width: 0;
   min-height: 30px;
   padding: 0 28px 0 10px;
-  border: 0 solid var(--line);
+  border: 1px solid transparent;
   border-radius: 7px;
   color: var(--text);
   background: var(--surface-raised);
@@ -2074,7 +2077,18 @@ html[data-theme="dark"] .app-rail button > img {
   letter-spacing: 0;
 }
 
-.shared-composer > div {
+.composer-routing-control select:focus-visible {
+  border-color: var(--line-strong);
+  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.composer-routing-control select:disabled {
+  color: var(--quiet);
+  cursor: not-allowed;
+}
+
+.shared-composer > div:not(.composer-routing-controls) {
   display: flex;
   align-items: flex-end;
   gap: 10px;
@@ -2120,6 +2134,33 @@ html[data-theme="dark"] .app-rail button > img {
   margin: 5px 4px 0;
   color: var(--quiet);
   font-size: 10px;
+}
+
+.shared-composer > .composer-model-status {
+  margin: -2px 4px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shared-composer .composer-model-status button {
+  min-height: auto;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.shared-composer .composer-model-status button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Private trust boundary */
@@ -2952,6 +2993,10 @@ html[data-theme="dark"] .app-rail button > img {
     display: none;
   }
 
+  .shared-composer > small.composer-model-status {
+    display: flex;
+  }
+
   .project-chat,
   .project-chat.private-open {
     grid-template-columns: minmax(0, 1fr);
@@ -3045,6 +3090,10 @@ html[data-theme="dark"] .app-rail button > img {
   .shared-composer > div {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .shared-composer > .composer-routing-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .shared-composer button {
