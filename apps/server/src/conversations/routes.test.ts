@@ -61,6 +61,7 @@ function harness() {
   // What each round was asked to run on, in order. `undefined` is a real
   // observation here: it is what a run with no chosen model must produce.
   const startedModels: (string | undefined)[] = [];
+  const startedEfforts: (string | undefined)[] = [];
   const access: ConversationAccessAuthorizer = {
     async authorize(input) {
       authorizations.push({
@@ -75,6 +76,7 @@ function harness() {
     async start(input) {
       starts += 1;
       startedModels.push(input.model);
+      startedEfforts.push(input.effort);
       return {
         turnId: input.turnId ?? "44444444-4444-4444-8444-444444444444",
         streamId: "55555555-5555-4555-8555-555555555555",
@@ -113,6 +115,7 @@ function harness() {
     wasCancelled: () => cancelled,
     starts: () => starts,
     startedModels: () => startedModels,
+    startedEfforts: () => startedEfforts,
     authenticatedUserId,
   };
 }
@@ -133,7 +136,7 @@ async function createDraft(
   });
 }
 
-describe("model selection", () => {
+describe("model and effort selection", () => {
   async function appWith(test: ReturnType<typeof harness>) {
     return createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
       service: test.service,
@@ -165,6 +168,11 @@ describe("model selection", () => {
           defaultModel: "gpt-5.6-sol",
         },
       ],
+      // Reported once rather than per provider, because the rungs do not vary
+      // by provider. A shape that repeated them under each entry would invite
+      // a picker that filters them by provider for no reason.
+      efforts: ["low", "medium", "high"],
+      defaultEffort: "medium",
     });
   });
 
@@ -208,6 +216,81 @@ describe("model selection", () => {
 
     expect(empty.statusCode).toBe(202);
     expect(test.startedModels()).toEqual([undefined]);
+  });
+
+  it("carries the chosen effort into the turn", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { effort: "low" },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(test.startedEfforts()).toEqual(["low"]);
+    // Independent choices: picking one must not imply the other.
+    expect(test.startedModels()).toEqual([undefined]);
+  });
+
+  it("leaves the effort unset when the run does not choose one", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "gpt-5.5" },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(test.startedEfforts()).toEqual([undefined]);
+  });
+
+  it("rejects an effort that is not on the ladder", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    // `xhigh` is a real rung on both CLIs. It is not offered, and "real" is
+    // not the test -- neither CLI falls back, so only verified rungs ship.
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { effort: "xhigh" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(test.starts()).toBe(0);
+  });
+
+  it("does not leave a rejected effort's draft unrunnable", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { effort: "none" },
+    });
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "gpt-5.5", effort: "high" },
+    });
+
+    expect(retry.statusCode).toBe(202);
+    expect(test.startedModels()).toEqual(["gpt-5.5"]);
+    expect(test.startedEfforts()).toEqual(["high"]);
   });
 
   it("rejects a model this draft's provider does not offer", async () => {

@@ -285,6 +285,10 @@ describe("AuthorizedPrivateRuntimeTurnStarter", () => {
     // allowlisted. Letting it ride inside the prepared turn would put the one
     // caller-chosen value in the request on the path that is not checked.
     expectTypeOf<BackendPreparedPrivateTurn>().not.toHaveProperty("model");
+    // Same reasoning for effort, and the same consequence if it rode inside
+    // the prepared turn: an unchecked rung reaches a CLI that will not fall
+    // back from it.
+    expectTypeOf<BackendPreparedPrivateTurn>().not.toHaveProperty("effort");
   });
 
   it("passes an allowlisted model through to the provider request", async () => {
@@ -344,6 +348,77 @@ describe("AuthorizedPrivateRuntimeTurnStarter", () => {
     }
 
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("passes an allowlisted effort through to the provider request", async () => {
+    const { run, starter } = createHarness();
+
+    const started = await starter.start({
+      authorization,
+      provider: "codex",
+      effort: "low",
+      turn,
+    });
+    await started.completion;
+
+    expect(run.mock.calls[0]?.[0].effort).toBe("low");
+  });
+
+  it("omits the effort entirely when the caller does not choose one", async () => {
+    const { run, starter } = createHarness();
+
+    const started = await starter.start({ authorization, provider: "codex", turn });
+    await started.completion;
+
+    // Absent, not `undefined` -- and absent is not "no thinking". The runners
+    // apply `DEFAULT_RUNTIME_EFFORT` themselves when the field is missing, so
+    // this is what keeps an unchosen turn identical to a pre-picker one.
+    expect(run.mock.calls[0]?.[0]).not.toHaveProperty("effort");
+  });
+
+  it("refuses an effort neither CLI would fall back from", async () => {
+    const { run, starter } = createHarness();
+
+    for (const effort of [
+      // Accepted by codex-cli, not by Claude.
+      "none",
+      // Accepted by codex-cli and rejected by `gpt-5.6-sol`: the rung that
+      // proved the accepted set narrows per model.
+      "minimal",
+      // Real on both, but never verified on a turn, so not offered.
+      "xhigh",
+      "MEDIUM",
+      'medium" --sandbox danger-full-access',
+    ]) {
+      const error = await starter
+        .start({
+          authorization,
+          provider: "codex",
+          effort: effort as "low",
+          turn,
+        })
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(InvalidPrivateRuntimeTurnError);
+    }
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("ignores an effort smuggled through the untyped prepared turn", async () => {
+    const { run, starter } = createHarness();
+    const smuggled = {
+      ...turn,
+      effort: "low",
+    } as unknown as BackendPreparedPrivateTurn;
+
+    const started = await starter.start({
+      authorization,
+      provider: "codex",
+      turn: smuggled,
+    });
+    await started.completion;
+
+    expect(run.mock.calls[0]?.[0]).not.toHaveProperty("effort");
   });
 
   it("ignores a model smuggled through the untyped prepared turn", async () => {

@@ -10,6 +10,7 @@ import type {
   RuntimeProgressEvent,
   RuntimeProgressSink,
 } from "../runtime-contract.js";
+import { DEFAULT_RUNTIME_EFFORT } from "../runtime-efforts.js";
 import { ConnectorWorker, type ConnectorWorkerTransport } from "./connector-worker.js";
 import type { ConnectorJobRequest, ConnectorJobResult } from "./connector-turn-executor.js";
 import type { ConnectorDelivery } from "./long-poll-job-relay.js";
@@ -55,7 +56,12 @@ class FakeTransport implements ConnectorWorkerTransport {
   readonly progressEvents: RuntimeProgressEvent[] = [];
   readonly results: ConnectorJobResult[] = [];
   readonly failures: string[] = [];
-  private deliveries: ConnectorDelivery[] = [{ kind: "job", job }];
+  private deliveries: ConnectorDelivery[];
+
+  /** Defaults to the shared job; pass one to vary a single field of it. */
+  constructor(delivered: ConnectorJobRequest = job) {
+    this.deliveries = [{ kind: "job", job: delivered }];
+  }
 
   async poll(signal?: AbortSignal): Promise<ConnectorDelivery | null> {
     const delivery = this.deliveries.shift();
@@ -181,8 +187,9 @@ describe("activity target containment", () => {
 describe("two-pass private turn", () => {
   function twoPassWorker(
     run: (request: MiddlewareRunRequest) => Promise<NormalizedRunResult>,
+    delivered: ConnectorJobRequest = job,
   ): { worker: ConnectorWorker; transport: FakeTransport; requests: MiddlewareRunRequest[] } {
-    const transport = new FakeTransport();
+    const transport = new FakeTransport(delivered);
     const requests: MiddlewareRunRequest[] = [];
     const worker = new ConnectorWorker(
       binding,
@@ -233,6 +240,33 @@ describe("two-pass private turn", () => {
     // none left to return structured output.
     expect(requests[0]?.toolMode).not.toBe("none");
     expect(requests[1]?.toolMode).toBe("none");
+  });
+
+  it("reasons at the effort the owner chose, in both passes", async () => {
+    const { worker, requests } = twoPassWorker(byPass, { ...job, effort: "low" });
+    await worker.runOnce();
+
+    // A picker that moved only the drafting pass would be describing half a
+    // turn: on this repository the research pass is the longer of the two, and
+    // it is the one doing the thinking the owner is paying for.
+    expect(requests[0]?.effort).toBe("low");
+    expect(requests[1]?.effort).toBe("low");
+  });
+
+  it("leaves the research pass to the runner default and drafts at medium when nobody chose", async () => {
+    const { worker, requests } = twoPassWorker(byPass);
+    await worker.runOnce();
+
+    // Absent on the research pass, because the runners apply
+    // `DEFAULT_RUNTIME_EFFORT` themselves and this worker must not restate a
+    // default it does not own. Present on the drafting pass, because that one
+    // has its own reason to be medium -- the same value, measured separately.
+    expect(requests[0]).not.toHaveProperty("effort");
+    // Compared against the constant rather than spelled out, because this is
+    // the pass that would quietly make `defaultEffort` a lie: the API promises
+    // callers that the advertised default is what an unchosen turn runs at, and
+    // `DRAFTING_EFFORT` is a separate constant free to drift away from it.
+    expect(requests[1]?.effort).toBe(DEFAULT_RUNTIME_EFFORT);
   });
 
   it("still drafts, without tools, when the research pass returns no note", async () => {

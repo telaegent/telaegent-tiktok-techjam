@@ -31,17 +31,9 @@ import {
   throwIfRuntimeCancelled,
 } from "./runtime-cancellation.js";
 import { providerCompatibleSchema } from "./provider-output-schema.js";
+import { DEFAULT_RUNTIME_EFFORT } from "./runtime-efforts.js";
 
 const execFileAsync = promisify(execFile);
-
-/**
- * The effort every Claude turn runs at unless the caller asks for another.
- *
- * Matches the `model_reasoning_effort="medium"` that `closedToolSurface()`
- * pins on every Codex turn, so the two providers now reason at the same
- * setting by intent rather than by coincidence.
- */
-const DEFAULT_CLAUDE_EFFORT = "medium" as const;
 
 export interface ParsedClaudeEvents {
   sessionId: string | null;
@@ -125,15 +117,15 @@ export function buildClaudeArgs(
   if (request.model) {
     args.push("--model", request.model);
   }
-  // Every Claude turn reasons at a pinned effort, the way every Codex turn
-  // already does -- `closedToolSurface()` sets `model_reasoning_effort="medium"`
-  // on the Codex side, and leaving this unset here was the one place the two
-  // providers disagreed. Unset meant the CLI's own maximum, which only the
-  // drafting pass had ever opted out of; the research pass was paying for
-  // deliberation the drafting pass then repeated. Defaulting rather than
-  // requiring the field keeps a future call site from re-introducing that gap
-  // by omission.
-  args.push("--effort", request.effort ?? DEFAULT_CLAUDE_EFFORT);
+  // Every Claude turn reasons at a pinned effort, and `closedToolSurface()`
+  // pins the same constant on every Codex turn, so an unset `effort` means the
+  // same thing on both providers and `defaultEffort` on the API can be reported
+  // from the same source. Leaving it unset here was the one place the two
+  // disagreed: unset means the CLI's own maximum, which only the drafting pass
+  // had ever opted out of, so the research pass was paying for deliberation the
+  // drafting pass then repeated. Defaulting rather than requiring the field
+  // keeps a future call site from re-introducing that gap by omission.
+  args.push("--effort", request.effort ?? DEFAULT_RUNTIME_EFFORT);
   if (request.sessionMode === "continue" && request.sessionId) {
     args.push("--resume", request.sessionId);
   }

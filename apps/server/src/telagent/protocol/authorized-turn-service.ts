@@ -23,6 +23,7 @@ import {
   type ProviderSessionStore,
 } from "../../provider-session-manager.js";
 import type { AgentProvider, SessionMode } from "../../runtime-contract.js";
+import type { RuntimeEffort } from "../../runtime-efforts.js";
 import type { ProtocolFormatId, ProtocolRole } from "./contract.js";
 import type { RehydrationMemoryProfile } from "./memory.js";
 import {
@@ -47,6 +48,8 @@ export interface StartAuthorizedProtocolTurnInput {
   provider: AgentProvider;
   /** Which model of `provider` to run. Allowlisted at the authorization seam. */
   model?: string | undefined;
+  /** How hard to think. Allowlisted at the authorization seam, like `model`. */
+  effort?: RuntimeEffort | undefined;
   role: ProtocolRole;
   correlationId: string;
   /** Backend-owned identifier claimed in draft persistence before dispatch. */
@@ -252,6 +255,7 @@ export class AuthorizedProtocolTurnService {
       provider: input.provider,
       turn,
       ...(input.model ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
       ...(input.turnId ? { turnId: input.turnId } : {}),
     };
     return this.starter.start<T>(starterInput);

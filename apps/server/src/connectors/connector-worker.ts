@@ -7,6 +7,7 @@ import type {
   ProviderSessionScope,
 } from "../provider-session-manager.js";
 import type { RuntimeProgressEvent } from "../runtime-contract.js";
+import { RUNTIME_EFFORTS } from "../runtime-efforts.js";
 import { buildInvestigationPrompt } from "../telagent/protocol/prompts/investigate.js";
 import {
   RuntimeProviderError,
@@ -80,12 +81,13 @@ const INVESTIGATION_MAX_TURNS = 8;
 const INVESTIGATION_SCHEMA_NAME = "investigation-note.schema.json";
 
 /**
- * The drafting pass reasons at medium, not at the CLI default of maximum.
+ * What the drafting pass reasons at when the owner chose nothing.
  *
- * Since `DEFAULT_CLAUDE_EFFORT` this is what an unset `effort` would give it
- * anyway. It stays spelled out because the reason below is specific to this
- * pass: if the runner-wide default ever moves, this one should not follow it
- * without the measurement being redone.
+ * The same value as `DEFAULT_RUNTIME_EFFORT`, and deliberately not that
+ * constant: the reason below is specific to this pass, so if the runner-wide
+ * default ever moves this one must not follow it without the measurement being
+ * redone. An owner who picks an effort overrides this; it is the floor under an
+ * unchosen turn, not a ceiling over a chosen one.
  *
  * Effort buys deliberation, and deliberation is what the research pass is for.
  * By the time this pass runs the files have been read and the findings are in
@@ -140,6 +142,9 @@ const jobSchema = z.strictObject({
   // The value is already allowlisted cloud-side; the bound here is transport
   // hygiene, not the policy check.
   model: z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).optional(),
+  // Same story as `model`: absent means the owner chose nothing, and both
+  // passes below then fall back to a constant rather than to the CLI default.
+  effort: z.enum(RUNTIME_EFFORTS).optional(),
   purpose: z.enum(["sender_draft", "recipient_answer"]),
   runtimePrompt: z.string().min(1).max(1_048_576).refine((value) => !value.includes("\0")),
   persistedSummary: z.string().max(524_288).refine((value) => !value.includes("\0")),
@@ -526,8 +531,10 @@ export class ConnectorWorker {
           purpose: job.purpose,
           // Both passes of a turn run on the model the owner picked. Splitting
           // them across models would make the drafting pass reason about notes
-          // a different model wrote.
+          // a different model wrote. Effort travels with it: a turn asked to
+          // think harder should research harder, not only compose harder.
           ...(job.model ? { model: job.model } : {}),
+          ...(job.effort ? { effort: job.effort } : {}),
           runtimePrompt: buildInvestigationPrompt(job.runtimePrompt),
           persistedSummary: job.persistedSummary,
           // A research pass must not consume, rotate, or pollute the
@@ -603,7 +610,13 @@ export class ConnectorWorker {
       // turn a note and a message into one JSON object under a schema that
       // spells out every field. Measured on a scheduling message, full effort
       // spent 13 of its 23 seconds thinking before writing a single character.
-      effort: DRAFTING_EFFORT,
+      //
+      // A caller who picked an effort overrides that: they are asking about
+      // this whole turn, and a picker whose value the second pass ignored would
+      // be lying about half of it. The two agree when nobody picks -- both are
+      // `medium` -- so an unchosen turn is byte-identical to the one before
+      // the picker existed.
+      effort: job.effort ?? DRAFTING_EFFORT,
     };
   }
 

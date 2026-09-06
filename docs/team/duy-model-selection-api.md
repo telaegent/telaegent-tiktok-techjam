@@ -1,4 +1,4 @@
-# Model selection — API for the frontend
+# Model and effort selection — API for the frontend
 
 **For:** Duy · **From:** Phuong (server/runtime) · **Date:** 2026-09-06
 **Status:** implemented on `feat/model-selection`, not yet merged
@@ -8,11 +8,12 @@
 
 ## TL;DR
 
-1. **`GET /api/runtime/models`** — new. Returns the models each provider offers
-   and which one it uses by default. Build the picker from this, don't hardcode.
+1. **`GET /api/runtime/models`** — new. Returns the models each provider offers,
+   the reasoning efforts (the same list whatever the provider), and the default
+   for each. Build both pickers from this, don't hardcode.
 2. **`POST /api/drafts/:draftId/run`** — now accepts an optional
-   `{ "model": "..." }` body. Omit it and the run behaves exactly as it does
-   today.
+   `{ "model": "...", "effort": "..." }` body. The two are independent; omit
+   both and the run behaves exactly as it does today.
 
 There is nothing else. No new draft field, no new state, no migration.
 
@@ -36,7 +37,9 @@ Authenticated (same session as everything else). No parameters.
       "models": ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
       "defaultModel": "gpt-5.6-sol"
     }
-  ]
+  ],
+  "efforts": ["low", "medium", "high"],
+  "defaultEffort": "medium"
 }
 ```
 
@@ -49,6 +52,12 @@ Authenticated (same session as everything else). No parameters.
   the same constant to configure the run, so the two can't drift.
 - `401 { "error": "Authentication required" }` when signed out. It leaks nothing,
   but it sits behind auth because it exists only for a logged-in screen.
+- `efforts` is ordered least to most thinking, and it is **top-level, not per
+  provider**, because the rungs mean the same thing on both. Don't look it up by
+  provider and don't filter it — there is one ladder and every draft can use all
+  of it.
+- `defaultEffort` carries the same guarantee as `defaultModel`: the runners read
+  the same constant, so the value reported here is the value that runs.
 - Sent as `Cache-Control: private, no-store`, like the rest of the surface.
   Fetching it once per session is fine; it does not change while the server runs.
 
@@ -58,18 +67,22 @@ that will eventually offer a model the server rejects.
 
 ---
 
-## 2. `model` on the run endpoint
+## 2. `model` and `effort` on the run endpoint
 
 ```
 POST /api/drafts/:draftId/run
 Content-Type: application/json
 
-{ "model": "sonnet" }
+{ "model": "sonnet", "effort": "high" }
 ```
 
-- **Optional.** No body at all, `{}`, or an omitted `model` all mean "don't
-  choose" — which is exactly what this endpoint did before. Your current call
-  site keeps working untouched.
+- **Both optional, and independent.** No body at all, `{}`, an omitted `model`,
+  an omitted `effort` — all mean "don't choose", which is exactly what this
+  endpoint did before. Sending only one is normal. Your current call site keeps
+  working untouched.
+- `effort` must be one of the top-level `efforts` list. Unlike `model` it does
+  not depend on the draft's provider, so the same three values are valid on
+  every draft.
 - Success is unchanged: `202` with `{ draft, pollUrl }`, and you keep polling
   `GET /api/drafts/:draftId` the same way.
 - The body is strict. An unknown key is a `400`, so don't send `provider` here —
@@ -99,15 +112,23 @@ it is a caller bug, not something to silently fall back from.
 | --- | --- | --- |
 | Model not offered by this draft's provider | `400` | `{ "error": "Requested model is not available for this provider" }` |
 | Model in no catalogue at all (a typo) | `400` | same as above |
+| `effort` not on the ladder | `400` | `{ "error": "...", "details": [ …zod issues… ] }` |
 | Unknown key in the run body | `400` | `{ "error": "...", "details": [ …zod issues… ] }` |
 | `model` empty or over 64 chars | `400` | `{ "error": "...", "details": [ … ] }` |
 | Not signed in | `401` | `{ "error": "Authentication required" }` |
 | Draft is not in `created` (already ran) | `409` | `{ "error": "Private draft cannot be run" }` |
 
-**A rejected model does not burn the draft.** The check runs before the draft is
-marked running, so on a `400` the draft is still `created` and the owner can pick
-again and re-run the same draft. Don't recreate anything, don't navigate away —
-show the error next to the picker and leave the UI where it is.
+Note the two shapes. A bad `model` gets a plain `{ error }`, because the check
+needs the draft's provider and therefore happens past the schema. A bad `effort`
+gets the schema's `{ error, details }`, because the ladder is the same on every
+provider and the route rejects it outright — the `details` name the accepted
+values. Neither is worth special-casing: you have the catalogue, so render
+whichever `error` came back.
+
+**A rejected model or effort does not burn the draft.** The checks run before the
+draft is marked running, so on a `400` the draft is still `created` and the owner
+can pick again and re-run the same draft. Don't recreate anything, don't navigate
+away — show the error next to the picker and leave the UI where it is.
 
 The two model `400`s are indistinguishable by body on purpose: the message never
 echoes the value the caller sent. If you want to tell "wrong provider" from
@@ -116,7 +137,7 @@ you have everything needed to know which one it is.
 
 ---
 
-## 4. What the models actually are
+## 4. What the models and efforts actually are
 
 Every model in the catalogue was verified on 2026-09-06 by running real `hello`
 turns through the exact argv the product builds, against `claude 2.1.263` and
@@ -177,6 +198,35 @@ on emitting a note. Opus is not costing us anything measurable on a real turn, s
 the default keeps the stronger model. Whoever wants the one-word-turn speed can
 pick it; that is what the picker is for.
 
+### The effort ladder
+
+`low`, `medium`, `high`. Verified the same way and on the same day: every rung
+run against every model in the catalogue, both providers, through the argv the
+product builds — 24 turns, all exiting 0 with assistant text.
+
+Two rungs that exist and are **not** offered, so you know they were considered:
+
+- `none` (Codex only) has no Claude equivalent.
+- `xhigh` and `max` are real on both CLIs but no product turn has been run on
+  them, and this list only carries what has.
+
+The allowlist is not politeness. Neither CLI falls back from an effort it
+dislikes — codex-cli exits 1 on a value it doesn't know, and the API fails the
+turn on a value the *model* doesn't take, which is model-specific: `minimal` is
+a value codex-cli forwards happily and `gpt-5.6-sol` refuses. A rung that isn't
+on this list costs the owner a dead turn, not a fallback.
+
+**Do not sell effort as a speed control.** It is a depth control, and the one
+place it visibly buys time it also costs answer length. Measured on the drafting
+pass with a populated research note: 38.6s at the CLI's maximum, 23.0s at
+`medium`, 14.2s at `low` — but `low` returned 2425 characters where `medium`
+returned 4131. On the research pass the difference all but disappears (medians
+25.4s at `medium` against 26.7s unset, n=3), because that pass spends its time
+on tool calls rather than on thinking. So:
+
+> "quicker, shorter" / "balanced" / "more thorough" is honest labelling.
+> "3× faster" is not.
+
 ---
 
 ## 5. Rules that shape the UI
@@ -192,12 +242,15 @@ persisted. What that means for you:
 - **Clarification loops re-run.** When the agent asks a question the draft
   returns to `created` and the owner runs it again, so the picker is live again
   at that moment. Keeping the last choice pre-selected is the right behaviour.
-- The whole turn uses one model. Both internal passes (investigation and
-  drafting) and every follow-up round run on whatever was chosen. You can't
-  switch mid-turn, and shouldn't want to.
+- The whole turn uses one model and one effort. Both internal passes
+  (investigation and drafting) and every follow-up round run on whatever was
+  chosen. You can't switch mid-turn, and shouldn't want to.
+- **Effort is per run, exactly like model** — same non-persistence, same
+  re-pick on a clarification loop, same `localStorage` answer if it should
+  survive a reload.
 
-**There is no per-user model preference API.** If the product wants a sticky
-default, tell me — it needs a schema change, so it isn't free.
+**There is no per-user preference API for either.** If the product wants a
+sticky default, tell me — it needs a schema change, so it isn't free.
 
 ---
 
@@ -205,6 +258,8 @@ default, tell me — it needs a schema change, so it isn't free.
 
 ```ts
 export type AgentProvider = "claude" | "codex";
+
+export type RuntimeEffort = "low" | "medium" | "high";
 
 export interface RuntimeModelCatalogue {
   providers: Array<{
@@ -214,12 +269,18 @@ export interface RuntimeModelCatalogue {
     /** Pre-select this. It is what runs when `model` is omitted. */
     defaultModel: string;
   }>;
+  /** Ordered least to most thinking. Not per provider — one ladder for both. */
+  efforts: RuntimeEffort[];
+  /** Pre-select this. It is what runs when `effort` is omitted. */
+  defaultEffort: RuntimeEffort;
 }
 
-/** Body for POST /api/drafts/:draftId/run — the one field is optional. */
+/** Body for POST /api/drafts/:draftId/run — both fields optional, independent. */
 export interface RunDraftBody {
   /** Must be one of `models` for the *draft's* provider. Omit for the default. */
   model?: string;
+  /** Must be one of `efforts`. Provider-independent. Omit for the default. */
+  effort?: RuntimeEffort;
 }
 ```
 
@@ -235,17 +296,18 @@ const byProvider = new Map(catalogue.providers.map((p) => [p.provider, p]));
 // when the private draft opens
 const options = byProvider.get(draft.provider);   // provider comes from the draft
 const [model, setModel] = useState(options.defaultModel);
+const [effort, setEffort] = useState(catalogue.defaultEffort);   // not per provider
 
 // when the owner hits Run
 try {
   const { pollUrl } = await api.post(
     `/api/drafts/${draft.draftId}/run`,
-    { model },                     // or {} to accept the server default
+    { model, effort },             // or {} to accept the server defaults
   );
   startPolling(pollUrl);
 } catch (error) {
   if (error.status === 400) {
-    // The draft is still `created`. Show the message beside the picker and let
+    // The draft is still `created`. Show the message beside the pickers and let
     // them choose again — do not recreate the draft, do not navigate away.
     showPickerError(error.body.error);
   }
@@ -259,11 +321,10 @@ try {
 - **It does not report which model answered.** If a finished draft should say
   "answered by Sonnet", ask me — it's a small addition to the draft view, but
   nothing stores it today.
-- **It does not expose reasoning effort.** Every turn on both providers now
-  reasons at `medium`, pinned server-side — Codex in `closedToolSurface()`,
-  Claude in the runner's own default. It used to be uneven: Claude's research
-  pass ran at the CLI's maximum simply because nothing set the flag. Nothing for
-  the UI to surface, and nothing for the user to choose.
+- **It does not report which effort a finished draft ran at,** for the same
+  reason it does not report the model: nothing stores it.
+- **It does not offer every rung either CLI accepts.** See section 4 — the list
+  is what has been run, not what would parse.
 - **It does not override a self-hosted deployment.** If an operator sets
   `CLAUDE_MODEL` / `CODEX_MODEL`, a run that names no model uses their setting
   instead of the default above, and a run that names one always beats both.

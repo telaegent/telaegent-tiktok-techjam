@@ -11,6 +11,7 @@ import type {
   RunPurpose,
   SessionMode,
 } from "../runtime-contract.js";
+import { isSupportedEffort, type RuntimeEffort } from "../runtime-efforts.js";
 import { isSupportedModel } from "../runtime-models.js";
 import {
   PrivateRuntimeAuthorizationError,
@@ -48,10 +49,11 @@ export type BackendPreparedPrivateTurn = Omit<
   | "sandboxMode"
   | "networkMode"
   | "maxTurns"
-  // Not turn content. A model is a routing choice, and routing choices arrive
-  // as their own argument on the input below so the allowlist check cannot be
-  // reached around by whatever assembled the prompt.
+  // Not turn content. A model and an effort are routing choices, and routing
+  // choices arrive as their own arguments on the input below so the allowlist
+  // check cannot be reached around by whatever assembled the prompt.
   | "model"
+  | "effort"
 > & {
   purpose: PrivateConversationTurnPurpose;
 };
@@ -70,6 +72,16 @@ export interface AuthorizedPrivateRuntimeTurnInput {
    * instead of a 400.
    */
   model?: string | undefined;
+  /**
+   * How hard `provider` should think, or absent to leave it to the runners.
+   *
+   * Validated here for the same reason `model` is, and against a sharper
+   * failure: neither CLI falls back on an effort it dislikes, and codex-cli
+   * additionally rejects per model, so an unchecked rung dies on a connector
+   * rather than at the edge. Absent is not "no thinking" -- both runners then
+   * apply `DEFAULT_RUNTIME_EFFORT` themselves.
+   */
+  effort?: RuntimeEffort | undefined;
   /** Optional backend-owned turn ID already claimed in durable draft state. */
   turnId?: string;
 }
@@ -145,6 +157,7 @@ export class AuthorizedPrivateRuntimeTurnStarter {
       // Absent stays absent all the way to the argv, so a turn nobody chose a
       // model for behaves exactly as it did before this field existed.
       ...(input.model ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
     };
 
     return this.coordinator.start<T>(scope, request, async () => {
@@ -224,7 +237,9 @@ function validateInput(
       (typeof input.turnId !== "string" || !correlationIdPattern.test(input.turnId))) ||
     (input.model !== undefined &&
       (typeof input.model !== "string" ||
-        !isSupportedModel(input.provider, input.model)))
+        !isSupportedModel(input.provider, input.model))) ||
+    (input.effort !== undefined &&
+      (typeof input.effort !== "string" || !isSupportedEffort(input.effort)))
   ) {
     throw new InvalidPrivateRuntimeTurnError();
   }
