@@ -102,7 +102,8 @@ const readyBodySchema = z.strictObject({
     .array(providerSchema)
     .min(1)
     .max(2)
-    .refine((providers) => new Set(providers).size === providers.length),
+    .refine((providers) => new Set(providers).size === providers.length)
+    .optional(),
 });
 const failureDetailSchema = z.strictObject({
   code: z.enum([
@@ -334,6 +335,11 @@ export function registerConnectorTransportRoutes(
       if (result.provider !== provider || !output.success) {
         throw new Error("Connector provider probe returned an invalid result");
       }
+      dependencies.relay.markProviderProbeSucceeded(
+        principal,
+        connectorBindingId,
+        provider,
+      );
       return reply.send({
         connected: true,
         provider,
