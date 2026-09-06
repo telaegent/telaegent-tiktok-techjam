@@ -2187,6 +2187,7 @@ html[data-theme="dark"] .app-rail button > img {
   overflow: hidden;
   color: var(--text);
   background: var(--surface);
+  font-family: inherit;
   box-shadow: 0 16px 38px color-mix(in srgb, var(--text) 12%, transparent);
 }
 
@@ -2248,7 +2249,6 @@ html[data-theme="dark"] .app-rail button > img {
   margin-top: 4px;
   overflow: hidden;
   color: var(--quiet);
-  font-family: var(--mono);
   font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2276,7 +2276,6 @@ html[data-theme="dark"] .app-rail button > img {
 
 .runtime-model-panel > header small {
   color: var(--quiet);
-  font-family: var(--mono);
   font-size: var(--type-caption);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2293,7 +2292,6 @@ html[data-theme="dark"] .app-rail button > img {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  font-family: var(--mono);
   font-size: var(--type-control);
 }
 
