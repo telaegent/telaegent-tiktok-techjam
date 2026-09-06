@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isGitHubRepositoryId } from "../authorization/github-repository-id.js";
 import { HttpError } from "../errors.js";
 import { setPrivateNoStore } from "../http-cache.js";
+import { DEFAULT_RUNTIME_MODEL, RUNTIME_MODELS } from "../runtime-models.js";
 import { PROTOCOL_LIMITS } from "../telagent/protocol/contract.js";
 import type { ConversationService } from "./service.js";
 
@@ -34,6 +35,15 @@ const createReplyBody = z.strictObject({
     .optional(),
 });
 const emptyBody = z.strictObject({}).optional();
+// A run may name a model. The shape is checked here; whether this provider has
+// that model is checked in the service, which is the layer that knows the
+// draft's provider. Absent means "do not choose", which is also what an older
+// client sends -- the endpoint's previous body was `{}`.
+const runBody = z
+  .strictObject({
+    model: z.string().trim().min(1).max(64).optional(),
+  })
+  .optional();
 const clarificationBody = z.strictObject({
   content: z.string().trim().min(1).max(PROTOCOL_LIMITS.maxPrivateMessageChars),
 });
@@ -71,6 +81,23 @@ export function registerConversationRoutes(
     return userId;
   };
 
+  // What a model picker can offer. Behind the same authentication as the rest
+  // of the surface -- it leaks nothing, but an unauthenticated endpoint that
+  // exists for one logged-in screen is a surface with no reason to be one.
+  app.get("/api/runtime/models", async (request, reply) => {
+    setPrivateNoStore(reply);
+    await user(request);
+    return {
+      providers: (Object.keys(RUNTIME_MODELS) as (keyof typeof RUNTIME_MODELS)[]).map(
+        (provider) => ({
+          provider,
+          models: [...RUNTIME_MODELS[provider]],
+          defaultModel: DEFAULT_RUNTIME_MODEL[provider],
+        }),
+      ),
+    };
+  });
+
   app.post("/api/conversations/:conversationId/drafts", async (request, reply) => {
     setPrivateNoStore(reply);
     const { conversationId } = conversationParams.parse(request.params);
@@ -107,8 +134,12 @@ export function registerConversationRoutes(
   app.post("/api/drafts/:draftId/run", async (request, reply) => {
     setPrivateNoStore(reply);
     const { draftId } = draftParams.parse(request.params);
-    emptyBody.parse(request.body);
-    const draft = await dependencies.service.runDraft(await user(request), draftId);
+    const body = runBody.parse(request.body);
+    const draft = await dependencies.service.runDraft(
+      await user(request),
+      draftId,
+      body?.model,
+    );
     return reply.code(202).send({ draft, pollUrl: `/api/drafts/${draft.draftId}` });
   });
 

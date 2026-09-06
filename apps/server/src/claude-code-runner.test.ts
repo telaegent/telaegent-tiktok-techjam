@@ -54,6 +54,30 @@ describe("Claude Code runner protocol", () => {
     expect(args).not.toContain("Return status");
   });
 
+  it("names a model only when the turn asked for one", () => {
+    // Absent must stay absent: `childEnvironment()` sets ANTHROPIC_MODEL from
+    // the deployment's CLAUDE_MODEL, and a flag pushed unconditionally would
+    // quietly override it on every turn nobody chose a model for.
+    expect(buildClaudeArgs(request(), { type: "object" })).not.toContain("--model");
+
+    const args = buildClaudeArgs(request({ model: "haiku" }), { type: "object" });
+    expect(args[args.indexOf("--model") + 1]).toBe("haiku");
+  });
+
+  it("pins reasoning effort on every turn, chosen or not", () => {
+    // The Codex surface has always pinned `model_reasoning_effort="medium"`.
+    // Claude left it unset outside the drafting pass, so the research pass ran
+    // at the CLI's maximum by omission rather than by decision. Unset must now
+    // mean medium here too, or the two providers drift apart again the next
+    // time someone adds a pass.
+    const unset = buildClaudeArgs(request(), { type: "object" });
+    expect(unset[unset.indexOf("--effort") + 1]).toBe("medium");
+
+    const chosen = buildClaudeArgs(request({ effort: "low" }), { type: "object" });
+    expect(chosen[chosen.indexOf("--effort") + 1]).toBe("low");
+    expect(chosen.filter((arg) => arg === "--effort")).toHaveLength(1);
+  });
+
   it("removes the unsupported JSON Schema dialect before launching Claude", () => {
     const args = buildClaudeArgs(request(), {
       $schema: "https://json-schema.org/draft/2020-12/schema",

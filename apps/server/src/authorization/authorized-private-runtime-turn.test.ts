@@ -281,5 +281,85 @@ describe("AuthorizedPrivateRuntimeTurnStarter", () => {
     expectTypeOf<BackendPreparedPrivateTurn>().not.toHaveProperty("sandboxMode");
     expectTypeOf<BackendPreparedPrivateTurn>().not.toHaveProperty("networkMode");
     expectTypeOf<BackendPreparedPrivateTurn>().not.toHaveProperty("maxTurns");
+    // A model is a routing choice, so it arrives as its own argument and is
+    // allowlisted. Letting it ride inside the prepared turn would put the one
+    // caller-chosen value in the request on the path that is not checked.
+    expectTypeOf<BackendPreparedPrivateTurn>().not.toHaveProperty("model");
+  });
+
+  it("passes an allowlisted model through to the provider request", async () => {
+    const { run, starter } = createHarness();
+
+    const started = await starter.start({
+      authorization,
+      provider: "codex",
+      model: "gpt-5.5",
+      turn,
+    });
+    await started.completion;
+
+    expect(run.mock.calls[0]?.[0].model).toBe("gpt-5.5");
+  });
+
+  it("omits the model entirely when the caller does not choose one", async () => {
+    const { run, starter } = createHarness();
+
+    const started = await starter.start({ authorization, provider: "codex", turn });
+    await started.completion;
+
+    // Not `undefined` -- absent. The runners key off presence, so an explicit
+    // undefined would still be the same argv, but the connector job schema is
+    // strict and a key that is always emitted is a key that has to be allowed.
+    expect(run.mock.calls[0]?.[0]).not.toHaveProperty("model");
+  });
+
+  it("refuses a model the provider does not offer, before authorizing anything", async () => {
+    const { run, starter } = createHarness();
+
+    // A real Claude alias, requested on a Codex turn. Both CLIs would reject
+    // this themselves -- but only after a connector had claimed the turn.
+    const error = await starter
+      .start({ authorization, provider: "codex", model: "opus", turn })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(InvalidPrivateRuntimeTurnError);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("refuses argv-shaped model values", async () => {
+    const { run, starter } = createHarness();
+
+    for (const model of [
+      "--dangerously-skip-permissions",
+      "gpt-5.5 --sandbox danger-full-access",
+      "",
+      "GPT-5.5",
+    ]) {
+      const error = await starter
+        .start({ authorization, provider: "codex", model, turn })
+        .catch((caught: unknown) => caught);
+      // The empty string is falsy, so it never reaches an argv either way; it
+      // is asserted here so that stays true if the check ever moves.
+      if (model !== "") expect(error).toBeInstanceOf(InvalidPrivateRuntimeTurnError);
+    }
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("ignores a model smuggled through the untyped prepared turn", async () => {
+    const { run, starter } = createHarness();
+    const smuggled = {
+      ...turn,
+      model: "gpt-5.5",
+    } as unknown as BackendPreparedPrivateTurn;
+
+    const started = await starter.start({
+      authorization,
+      provider: "codex",
+      turn: smuggled,
+    });
+    await started.completion;
+
+    expect(run.mock.calls[0]?.[0]).not.toHaveProperty("model");
   });
 });

@@ -538,7 +538,11 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
             request,
             schemaPath,
             request.workspacePath,
-            this.config.codexModel,
+            // The owner's choice for this turn, falling back to the
+            // deployment-wide default. `closedToolSurface()` passes
+            // `--ignore-user-config`, so whatever ends up here is the only
+            // model input the CLI sees.
+            request.model || this.config.codexModel,
           ),
         },
         request.runtimePrompt,

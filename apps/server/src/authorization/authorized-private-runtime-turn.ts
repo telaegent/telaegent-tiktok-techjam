@@ -11,6 +11,7 @@ import type {
   RunPurpose,
   SessionMode,
 } from "../runtime-contract.js";
+import { isSupportedModel } from "../runtime-models.js";
 import {
   PrivateRuntimeAuthorizationError,
   type PrivateRuntimeAuthorizer,
@@ -47,6 +48,10 @@ export type BackendPreparedPrivateTurn = Omit<
   | "sandboxMode"
   | "networkMode"
   | "maxTurns"
+  // Not turn content. A model is a routing choice, and routing choices arrive
+  // as their own argument on the input below so the allowlist check cannot be
+  // reached around by whatever assembled the prompt.
+  | "model"
 > & {
   purpose: PrivateConversationTurnPurpose;
 };
@@ -55,6 +60,16 @@ export interface AuthorizedPrivateRuntimeTurnInput {
   authorization: Readonly<AuthorizePrivateRuntimeInput>;
   provider: AgentProvider;
   turn: Readonly<BackendPreparedPrivateTurn>;
+  /**
+   * Which model of `provider` to run, or absent to leave it to the deployment.
+   *
+   * Validated here against the per-provider allowlist because this is the only
+   * caller-chosen value in the whole request. Both CLIs do reject an unknown
+   * model themselves, but they reject it after a connector has claimed the
+   * turn, so a typo that reaches this far costs the owner a failed draft
+   * instead of a 400.
+   */
+  model?: string | undefined;
   /** Optional backend-owned turn ID already claimed in durable draft state. */
   turnId?: string;
 }
@@ -127,6 +142,9 @@ export class AuthorizedPrivateRuntimeTurnStarter {
       outputSchemaName: input.turn.outputSchemaName,
       correlationId: input.turn.correlationId,
       maxTurns: this.policy.maxTurns,
+      // Absent stays absent all the way to the argv, so a turn nobody chose a
+      // model for behaves exactly as it did before this field existed.
+      ...(input.model ? { model: input.model } : {}),
     };
 
     return this.coordinator.start<T>(scope, request, async () => {
@@ -203,7 +221,10 @@ function validateInput(
     typeof input.turn.correlationId !== "string" ||
     !correlationIdPattern.test(input.turn.correlationId) ||
     (input.turnId !== undefined &&
-      (typeof input.turnId !== "string" || !correlationIdPattern.test(input.turnId)))
+      (typeof input.turnId !== "string" || !correlationIdPattern.test(input.turnId))) ||
+    (input.model !== undefined &&
+      (typeof input.model !== "string" ||
+        !isSupportedModel(input.provider, input.model)))
   ) {
     throw new InvalidPrivateRuntimeTurnError();
   }

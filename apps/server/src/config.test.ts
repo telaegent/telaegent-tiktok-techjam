@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config.js";
+import { DEFAULT_RUNTIME_MODEL } from "./runtime-models.js";
 
 describe("agent memory rollout", () => {
   it("keeps continuity memory off unless the deployment opts in", () => {
@@ -48,10 +49,23 @@ describe("runtime timeout configuration", () => {
   });
 });
 
-describe("Codex model configuration", () => {
-  it("keeps the model implicit by default and accepts a connector-local override", () => {
-    expect(loadConfig({}).codexModel).toBe("");
+describe("runtime model configuration", () => {
+  it("applies the product default and lets a deployment override it", () => {
+    // The default is a choice, not the CLI's fallback, so it is spelled out
+    // here rather than left empty -- an empty value would put `gpt-6-astra`
+    // back in charge while the API still advertised something else.
+    expect(loadConfig({}).codexModel).toBe(DEFAULT_RUNTIME_MODEL.codex);
+    expect(loadConfig({}).claudeModel).toBe(DEFAULT_RUNTIME_MODEL.claude);
     expect(loadConfig({ CODEX_MODEL: "gpt-5.5" }).codexModel).toBe("gpt-5.5");
+    expect(loadConfig({ CLAUDE_MODEL: "sonnet" }).claudeModel).toBe("sonnet");
+  });
+
+  it("reads a blank CLAUDE_MODEL as unset rather than as a model name", () => {
+    // An operator clearing the variable must not hand the CLI an empty
+    // `ANTHROPIC_MODEL`; it falls back to the product default instead.
+    expect(loadConfig({ CLAUDE_MODEL: "  " }).claudeModel).toBe(
+      DEFAULT_RUNTIME_MODEL.claude,
+    );
   });
 });
 

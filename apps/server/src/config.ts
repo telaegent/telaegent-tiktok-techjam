@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { DEFAULT_RUNTIME_MODEL } from "./runtime-models.js";
 import { isSafeSupabaseOrigin } from "./supabase-origin.js";
 
 const envSchema = z.object({
@@ -119,7 +120,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     workspaceRoot: path.resolve(env.AGENT_WORKSPACE_ROOT),
     codexHome: path.resolve(env.CODEX_HOME),
     codexBin: env.CODEX_BIN,
-    codexModel: env.CODEX_MODEL ?? "",
+    // The product default, not the CLI's. An operator's CODEX_MODEL still
+    // wins here, and a caller's `model` still wins over both in the runner.
+    codexModel: env.CODEX_MODEL ?? DEFAULT_RUNTIME_MODEL.codex,
     codexApiKey: env.CODEX_API_KEY?.trim() ?? "",
     codexSandboxMode: env.CODEX_SANDBOX_MODE,
     runtimeIdleTimeoutMs: env.RUNTIME_IDLE_TIMEOUT_MS,
@@ -130,7 +133,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     claudeMaxOutputBytes: env.CLAUDE_MAX_OUTPUT_BYTES,
     claudeApiKey: env.CLAUDE_API_KEY?.trim() ?? "",
     claudeBaseUrl: env.CLAUDE_BASE_URL?.replace(/\/+$/, "") ?? "",
-    claudeModel: env.CLAUDE_MODEL?.trim() ?? "",
+    // `||` rather than `??`: CLAUDE_MODEL="" is an operator clearing the
+    // setting, and must not be read as a model name.
+    claudeModel: env.CLAUDE_MODEL?.trim() || DEFAULT_RUNTIME_MODEL.claude,
     runtimeOutputSchemaRoot: path.resolve(env.RUNTIME_OUTPUT_SCHEMA_ROOT),
     runtimeProvider: env.RUNTIME_PROVIDER,
     containerEngine: env.CONTAINER_ENGINE,
