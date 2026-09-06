@@ -1,5 +1,13 @@
 import { spawnSync, type ChildProcess } from "node:child_process";
 
+/** Safe sentinel for a tree whose disappearance could not be established. */
+export class UnverifiedProcessTreeTerminationError extends Error {
+  constructor() {
+    super("Provider process-tree termination could not be verified");
+    this.name = "UnverifiedProcessTreeTerminationError";
+  }
+}
+
 /**
  * Terminating a provider CLI has to stop everything it started.
  *
@@ -127,4 +135,32 @@ export async function terminateProcessTreeWithEscalation(
     );
   }
   return !processGroupIsAlive(pid);
+}
+
+/**
+ * Waits for either the provider parent or a requested tree termination.
+ *
+ * `ChildProcess` emits `exit` before `close`; a surviving descendant can keep
+ * inherited pipes open forever and prevent `close`. Once termination starts,
+ * its bounded verification must therefore be able to settle the runner on its
+ * own. A verified termination uses a non-zero synthetic exit code so the
+ * caller's already-recorded cancel/timeout/output-limit flag remains the
+ * authoritative result. An unverified termination rejects with a safe sentinel
+ * rather than waiting forever for the blocked close event.
+ */
+export async function waitForProcessExitOrTreeTermination(
+  processExit: Promise<number>,
+  terminationResult: Promise<boolean>,
+): Promise<number> {
+  const outcome = await Promise.race([
+    processExit.then((exitCode) => ({ kind: "process" as const, exitCode })),
+    terminationResult.then((verified) => ({
+      kind: "termination" as const,
+      verified,
+    })),
+  ]);
+
+  if (outcome.kind === "process") return outcome.exitCode;
+  if (!outcome.verified) throw new UnverifiedProcessTreeTerminationError();
+  return 1;
 }
