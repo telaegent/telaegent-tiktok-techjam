@@ -3483,6 +3483,9 @@ function ProjectChat({
         {runtimeModelsState === "ready" && runtimeModels?.providers.length === 0 && (
           <small className="composer-model-status" id="composer-model-status">
             <span>No probed local provider is online. Reconnect your connector.</span>
+            <button type="button" onClick={onRetryRuntimeModels}>
+              Check again
+            </button>
           </small>
         )}
         <div className="composer-body">
@@ -3751,20 +3754,32 @@ function Workspace({
       };
     }
     setRuntimeModelsState("loading");
-    void api
-      .runtimeModels(project.githubRepositoryId)
-      .then((catalogue) => {
-        if (!active) return;
+    let hasCatalogue = false;
+    const poller = new AdaptivePoller({
+      poll: async () => {
+        const catalogue = await api.runtimeModels(project.githubRepositoryId);
+        if (!active) return false;
+        hasCatalogue = true;
         setRuntimeModels(catalogue);
         setRuntimeModelsState("ready");
-      })
-      .catch(() => {
-        if (!active) return;
+        // An empty catalogue usually means the connector is still starting or
+        // probing a provider. Keep that transition responsive; once at least
+        // one provider is ready, back off while still discovering providers
+        // connected later without requiring a page reload.
+        return catalogue.providers.length === 0;
+      },
+      minimumDelayMs: 3_000,
+      maximumDelayMs: 30_000,
+      onError: () => {
+        if (!active || hasCatalogue) return;
         setRuntimeModels(null);
         setRuntimeModelsState("error");
-      });
+      },
+    });
+    const stopPolling = startVisiblePolling(poller);
     return () => {
       active = false;
+      stopPolling();
     };
   }, [currentUserId, project.githubRepositoryId, runtimeModelsAttempt]);
 
