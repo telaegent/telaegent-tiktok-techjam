@@ -25,6 +25,7 @@ import {
   type ProjectCollaborator,
   type ProjectConversation,
   type ProjectSummary,
+  type RuntimeEffort,
   type RuntimeModelCatalogue,
   type TelaegentWebUser,
 } from "./api";
@@ -1925,26 +1926,40 @@ function formatRuntimeModel(model: string): string {
     .join(" ");
 }
 
+function formatRuntimeEffort(effort: RuntimeEffort): string {
+  return `${effort.slice(0, 1).toUpperCase()}${effort.slice(1)}`;
+}
+
+const runtimeEffortDescriptions: Record<RuntimeEffort, string> = {
+  low: "Quicker, shorter",
+  medium: "Balanced",
+  high: "More thorough",
+};
+
 function RuntimeRoutePicker({
   catalogue,
   catalogueState,
   provider,
   selectedModel,
+  selectedEffort,
   selectedModels,
   fixedProvider,
   describedBy,
   disabled,
   onChange,
+  onEffortChange,
 }: {
   catalogue: RuntimeModelCatalogue | null;
   catalogueState: AsyncLoadState;
   provider: AgentProvider;
   selectedModel: string;
+  selectedEffort: RuntimeEffort | null;
   selectedModels?: Partial<Record<AgentProvider, string>>;
   fixedProvider?: AgentProvider;
   describedBy?: string;
   disabled: boolean;
   onChange: (provider: AgentProvider, model: string) => void;
+  onEffortChange: (effort: RuntimeEffort) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [browsingProvider, setBrowsingProvider] =
@@ -1963,6 +1978,9 @@ function RuntimeRoutePicker({
     : catalogueState === "loading"
       ? "Loading models"
       : "Server default";
+  const triggerEffort = selectedEffort
+    ? formatRuntimeEffort(selectedEffort)
+    : "Default reasoning";
 
   function selectedModelFor(
     candidate: RuntimeModelCatalogue["providers"][number],
@@ -2022,12 +2040,25 @@ function RuntimeRoutePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-describedby={describedBy}
-        aria-label={`Choose local provider and model. Current selection: ${formatProvider(provider)}, ${triggerModel}`}
+        aria-label={`Choose local provider, model, and reasoning. Current selection: ${formatProvider(provider)}, ${triggerModel}, ${triggerEffort}`}
         disabled={disabled || providers.length === 0}
         onClick={togglePicker}
       >
         <span className="runtime-route-provider">{formatProvider(provider)}</span>
+        <span
+          className="runtime-route-separator provider-model"
+          aria-hidden="true"
+        >
+          {"\u00b7"}
+        </span>
         <span className="runtime-route-model">{triggerModel}</span>
+        <span
+          className="runtime-route-separator model-effort"
+          aria-hidden="true"
+        >
+          {"\u00b7"}
+        </span>
+        <span className="runtime-route-effort">{triggerEffort}</span>
         <i aria-hidden="true" />
       </button>
 
@@ -2035,7 +2066,7 @@ function RuntimeRoutePicker({
         <div
           className={`runtime-route-popover${providers.length === 1 ? " single-provider" : ""}`}
           role="dialog"
-          aria-label="Choose local provider and model"
+          aria-label="Choose local provider, model, and reasoning"
         >
           {providers.length > 1 && (
             <div className="runtime-provider-tabs" aria-label="Local provider">
@@ -2081,8 +2112,6 @@ function RuntimeRoutePicker({
                     key={model}
                     onClick={() => {
                       onChange(browsingCatalogue.provider, model);
-                      setOpen(false);
-                      triggerRef.current?.focus();
                     }}
                   >
                     <span>{formatRuntimeModel(model)}</span>
@@ -2099,6 +2128,43 @@ function RuntimeRoutePicker({
                 );
               })}
             </div>
+
+            {catalogue && catalogue.efforts.length > 0 && (
+              <section className="runtime-effort-picker">
+                <header>
+                  <strong>Reasoning</strong>
+                  <small>
+                    {selectedEffort
+                      ? runtimeEffortDescriptions[selectedEffort]
+                      : "Server default"}
+                  </small>
+                </header>
+                <div
+                  className="runtime-effort-options"
+                  aria-label="Reasoning level"
+                >
+                  {catalogue.efforts.map((effort) => {
+                    const selected = effort === selectedEffort;
+                    return (
+                      <button
+                        type="button"
+                        aria-pressed={selected}
+                        className={selected ? "selected" : undefined}
+                        key={effort}
+                        onClick={() => {
+                          onEffortChange(effort);
+                          setOpen(false);
+                          triggerRef.current?.focus();
+                        }}
+                      >
+                        <span>{formatRuntimeEffort(effort)}</span>
+                        <small>{runtimeEffortDescriptions[effort]}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
           </div>
         </div>
       )}
@@ -2113,6 +2179,7 @@ function PrivateAgentRoom({
   recipient,
   runtimeModels,
   selectedModel,
+  selectedEffort,
   runtimeModelsState,
   clarification,
   approvedContent,
@@ -2127,6 +2194,7 @@ function PrivateAgentRoom({
   onSend,
   onRetry,
   onModelChange,
+  onEffortChange,
   onRetryRuntimeModels,
 }: {
   open: boolean;
@@ -2136,6 +2204,7 @@ function PrivateAgentRoom({
   recipient: Collaborator;
   runtimeModels: RuntimeModelCatalogue | null;
   selectedModel: string;
+  selectedEffort: RuntimeEffort | null;
   runtimeModelsState: AsyncLoadState;
   clarification: string;
   approvedContent: string;
@@ -2150,6 +2219,7 @@ function PrivateAgentRoom({
   onSend: () => void;
   onRetry: () => void;
   onModelChange: (model: string) => void;
+  onEffortChange: (effort: RuntimeEffort) => void;
   onRetryRuntimeModels: () => void;
 }) {
   const state = draft?.state ?? "created";
@@ -2242,6 +2312,7 @@ function PrivateAgentRoom({
               catalogueState={runtimeModelsState}
               provider={draft.provider}
               selectedModel={selectedModel}
+              selectedEffort={selectedEffort}
               fixedProvider={draft.provider}
               describedBy={
                 runtimeModelsState === "error"
@@ -2250,6 +2321,7 @@ function PrivateAgentRoom({
               }
               disabled={busy}
               onChange={(_provider, model) => onModelChange(model)}
+              onEffortChange={onEffortChange}
             />
             {runtimeModelsState === "error" && (
               <small id="private-model-status" role="status">
@@ -2428,6 +2500,7 @@ function ProjectChat({
   const [modelsByProvider, setModelsByProvider] = useState<
     Partial<Record<AgentProvider, string>>
   >({});
+  const [effortChoice, setEffortChoice] = useState<RuntimeEffort | null>(null);
   const [roughMessage, setRoughMessage] = useState("");
   const [messages, setMessages] = useState<SharedMessage[]>([]);
   const [messageLoadState, setMessageLoadState] =
@@ -2482,6 +2555,13 @@ function ProjectChat({
     storedModel && providerModels?.models.includes(storedModel)
       ? storedModel
       : providerModels?.defaultModel ?? "";
+  const selectedEffort =
+    effortChoice && runtimeModels?.efforts.includes(effortChoice)
+      ? effortChoice
+      : runtimeModels?.defaultEffort &&
+          runtimeModels.efforts.includes(runtimeModels.defaultEffort)
+        ? runtimeModels.defaultEffort
+        : runtimeModels?.efforts[0] ?? null;
   const draftProviderModels = draft
     ? runtimeModels?.providers.find(
         (candidate) => candidate.provider === draft.provider,
@@ -2839,9 +2919,13 @@ function ProjectChat({
   async function runDraft(draftId: string, draftProvider: AgentProvider) {
     try {
       const model = selectedModelFor(draftProvider);
+      const effort = selectedEffort ?? undefined;
       const result = await api.runConversationDraft(
         draftId,
-        model ? { model } : {},
+        {
+          ...(model ? { model } : {}),
+          ...(effort ? { effort } : {}),
+        },
       );
       setDraft(result.draft);
       setActionError(null);
@@ -3364,6 +3448,7 @@ function ProjectChat({
                 catalogueState={runtimeModelsState}
                 provider={provider}
                 selectedModel={selectedModel}
+                selectedEffort={selectedEffort}
                 selectedModels={modelsByProvider}
                 describedBy={
                   runtimeModelsState === "error"
@@ -3378,6 +3463,7 @@ function ProjectChat({
                     [nextProvider]: model,
                   }));
                 }}
+                onEffortChange={setEffortChoice}
               />
               <button
                 className="composer-submit"
@@ -3405,6 +3491,7 @@ function ProjectChat({
           recipient={selected}
           runtimeModels={runtimeModels}
           selectedModel={selectedDraftModel}
+          selectedEffort={selectedEffort}
           runtimeModelsState={runtimeModelsState}
           clarification={clarification}
           approvedContent={approvedContent}
@@ -3425,6 +3512,7 @@ function ProjectChat({
               [draft.provider]: model,
             }));
           }}
+          onEffortChange={setEffortChoice}
           onRetryRuntimeModels={onRetryRuntimeModels}
         />
       )}
