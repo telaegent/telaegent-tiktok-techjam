@@ -55,10 +55,10 @@ export function terminateProcessTree(
         // caller's direct-parent fallback.
         timeout: 5_000,
       });
-      // taskkill uses 128 when the target disappeared before it was signalled;
-      // that is already the desired terminal state. Every other failure lets
-      // the runner fall back to signalling the parent directly.
-      return !result.error && (result.status === 0 || result.status === 128);
+      // Only a successful tree walk proves cleanup. In particular, status 128
+      // means the root disappeared before taskkill could walk it; descendants
+      // may still be alive and must not be reported as stopped.
+      return !result.error && result.status === 0;
     } catch {
       return false;
     }
@@ -99,13 +99,16 @@ function processGroupIsAlive(pid: number): boolean {
 export async function terminateProcessTreeWithEscalation(
   child: ChildProcess,
   gracePeriodMs = 3_000,
-): Promise<void> {
+  postKillWaitMs = 1_000,
+): Promise<boolean> {
   const pid = child.pid;
   const treeSignalled = terminateProcessTree(child, "SIGTERM");
   if (!treeSignalled) child.kill("SIGTERM");
 
-  // taskkill /T /F is synchronous and already forceful on Windows.
-  if (process.platform === "win32" || pid === undefined) return;
+  // taskkill /T /F is synchronous and already forceful on Windows. Its return
+  // value is the only proof available without a Job Object established at
+  // spawn time, so propagate failure instead of claiming cleanup.
+  if (process.platform === "win32" || pid === undefined) return treeSignalled;
 
   const deadline = Date.now() + gracePeriodMs;
   while (processGroupIsAlive(pid) && Date.now() < deadline) {
@@ -113,7 +116,15 @@ export async function terminateProcessTreeWithEscalation(
       setTimeout(resolve, Math.min(50, Math.max(1, deadline - Date.now()))),
     );
   }
-  if (!processGroupIsAlive(pid)) return;
+  if (!processGroupIsAlive(pid)) return true;
 
   if (!terminateProcessTree(child, "SIGKILL")) child.kill("SIGKILL");
+
+  const postKillDeadline = Date.now() + postKillWaitMs;
+  while (processGroupIsAlive(pid) && Date.now() < postKillDeadline) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(25, Math.max(1, postKillDeadline - Date.now()))),
+    );
+  }
+  return !processGroupIsAlive(pid);
 }
