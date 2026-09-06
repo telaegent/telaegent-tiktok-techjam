@@ -104,6 +104,7 @@ export function buildContainerMiddlewareRunArgs(
       request,
       containerSchemaPath,
       "/workspace",
+      request.model || config.codexModel,
     ),
   ];
 }

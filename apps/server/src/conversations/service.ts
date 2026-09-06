@@ -6,6 +6,7 @@ import { HttpError, RunCancelledError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import type { AgentProvider } from "../runtime-contract.js";
 import { normalizeRuntimeFailure, RuntimeProviderError } from "../runtime-errors.js";
+import { isSupportedModel } from "../runtime-models.js";
 import { redactText } from "../telagent/redaction.js";
 import {
   PROTOCOL_LIMITS,
@@ -297,9 +298,31 @@ export class ConversationService {
     return toPrivateDraftView(draft);
   }
 
-  async runDraft(authenticatedUserId: string, draftId: string): Promise<PrivateDraftView> {
+  /**
+   * Starts a run, optionally on a model the owner picked for it.
+   *
+   * The choice belongs to the run rather than to the draft. It is not
+   * persisted, so a draft resumed after a restart runs on the deployment
+   * default again -- acceptable because every trigger comes from a UI that
+   * already has the picker's current value, and the alternative is changing a
+   * SQL function's signature to store a preference the caller re-sends anyway.
+   * Clarification is the same story: it returns the draft to `created` and the
+   * owner runs it again, choosing again.
+   */
+  async runDraft(
+    authenticatedUserId: string,
+    draftId: string,
+    model?: string | undefined,
+  ): Promise<PrivateDraftView> {
     const draft = await this.ownedDraft(authenticatedUserId, draftId);
     if (draft.state !== "created") throw new HttpError(409, "Private draft cannot be run");
+    // Which models exist depends on the provider, and the provider is on the
+    // draft rather than in the request body -- so this cannot be a schema check
+    // at the edge. Rejecting here is what turns a bad pick into a 400 instead
+    // of a turn that dies on a connector minutes later.
+    if (model !== undefined && !isSupportedModel(draft.provider, model)) {
+      throw new HttpError(400, "Requested model is not available for this provider");
+    }
     await this.authorizeDraft(draft, "run_draft");
 
     const turnId = this.createTurnId();
@@ -320,6 +343,7 @@ export class ConversationService {
       started = await this.runtime.start<ProtocolTurnOutput>({
         authorization: this.authorizationInput(draft),
         provider: draft.provider,
+        ...(model ? { model } : {}),
         role: draft.role,
         correlationId: draft.draftId,
         turnId,
@@ -356,7 +380,7 @@ export class ConversationService {
         conversationId: draft.conversationId,
       }).catch(() => false);
     }
-    void this.settleTurn(draft, turnId, started.completion);
+    void this.settleTurn(draft, turnId, started.completion, model);
     return toPrivateDraftView(running);
   }
 
@@ -575,6 +599,7 @@ export class ConversationService {
   private async runFollowUpRounds(
     draft: PrivateDraft,
     first: Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>,
+    model?: string | undefined,
   ): Promise<Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>> {
     if (!this.followUp) return first;
     let result = first;
@@ -603,6 +628,10 @@ export class ConversationService {
       const started = await this.runtime.start<ProtocolTurnOutput>({
         authorization: this.authorizationInput(draft),
         provider: draft.provider,
+        // A later round of the same turn is the same turn. Switching models
+        // between rounds would hand the approved files to something other than
+        // whatever asked for them.
+        ...(model ? { model } : {}),
         role: draft.role,
         correlationId: draft.draftId,
         deliveredResources: delivered,
@@ -629,6 +658,7 @@ export class ConversationService {
     draft: PrivateDraft,
     turnId: string,
     completion: StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"],
+    model?: string | undefined,
   ): Promise<void> {
     const draftId = draft.draftId;
     const followUpWait = new AbortController();
@@ -637,7 +667,7 @@ export class ConversationService {
       const first = await completion;
       this.activeRuntimeTurns.set(draftId, null);
       this.throwIfCancellationRequested(draftId);
-      const result = await this.runFollowUpRounds(draft, first);
+      const result = await this.runFollowUpRounds(draft, first, model);
       await this.completeTurn(draftId, draft.role, turnId, result.final);
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe

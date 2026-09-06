@@ -58,6 +58,9 @@ function harness() {
   }> = [];
   let cancelled = false;
   let starts = 0;
+  // What each round was asked to run on, in order. `undefined` is a real
+  // observation here: it is what a run with no chosen model must produce.
+  const startedModels: (string | undefined)[] = [];
   const access: ConversationAccessAuthorizer = {
     async authorize(input) {
       authorizations.push({
@@ -71,6 +74,7 @@ function harness() {
   const runtime: PrivateDraftTurnRuntime = {
     async start(input) {
       starts += 1;
+      startedModels.push(input.model);
       return {
         turnId: input.turnId ?? "44444444-4444-4444-8444-444444444444",
         streamId: "55555555-5555-4555-8555-555555555555",
@@ -108,6 +112,7 @@ function harness() {
     authorizations,
     wasCancelled: () => cancelled,
     starts: () => starts,
+    startedModels: () => startedModels,
     authenticatedUserId,
   };
 }
@@ -127,6 +132,157 @@ async function createDraft(
     },
   });
 }
+
+describe("model selection", () => {
+  async function appWith(test: ReturnType<typeof harness>) {
+    return createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+  }
+
+  it("publishes a catalogue the picker can be built from", async () => {
+    const test = harness();
+    const app = await appWith(test);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/runtime/models",
+      headers: { "x-test-user": OWNER },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      providers: [
+        {
+          provider: "claude",
+          models: ["opus", "sonnet", "haiku", "fable"],
+          defaultModel: "opus",
+        },
+        {
+          provider: "codex",
+          models: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"],
+          defaultModel: "gpt-6-astra",
+        },
+      ],
+    });
+  });
+
+  it("requires authentication for the catalogue", async () => {
+    const test = harness();
+    const app = await appWith(test);
+
+    const response = await app.inject({ method: "GET", url: "/api/runtime/models" });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("carries the chosen model into the turn", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "gpt-5.5" },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(test.startedModels()).toEqual(["gpt-5.5"]);
+  });
+
+  it("leaves the model unset when the run does not choose one", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    // Both shapes an existing client sends: no body at all, and `{}`.
+    const empty = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+
+    expect(empty.statusCode).toBe(202);
+    expect(test.startedModels()).toEqual([undefined]);
+  });
+
+  it("rejects a model this draft's provider does not offer", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    // The draft is Codex. `opus` is a real model -- just not this provider's.
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "opus" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(test.starts()).toBe(0);
+  });
+
+  it("rejects a model that is not in any catalogue", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "not-a-real-model" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(test.starts()).toBe(0);
+  });
+
+  it("rejects unknown fields on the run body", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "gpt-5.5", provider: "claude" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(test.starts()).toBe(0);
+  });
+
+  it("does not leave a rejected model's draft unrunnable", async () => {
+    const test = harness();
+    const app = await appWith(test);
+    const draftId = (await createDraft(app)).json().draft.draftId as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "opus" },
+    });
+    // The draft was never claimed, so a corrected retry must still work rather
+    // than meeting the 409 a claimed-then-abandoned draft would produce.
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: { model: "gpt-5.5" },
+    });
+
+    expect(retry.statusCode).toBe(202);
+    expect(test.startedModels()).toEqual(["gpt-5.5"]);
+  });
+});
 
 describe("canonical conversation API", () => {
   it("claims a draft before dispatch so concurrent run requests launch one provider turn", async () => {

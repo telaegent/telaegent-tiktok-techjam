@@ -90,6 +90,24 @@ export interface MiddlewareRunRequest {
    * Codex.
    */
   effort?: "low" | "medium" | "high" | undefined;
+
+  /**
+   * Which model of the chosen provider should answer.
+   *
+   * The one runtime field a product surface picks. Everything else here is
+   * decided by the server, so this is the only value in the request that
+   * originates with a caller -- which is why it is allowlisted at the
+   * authorization seam rather than passed through (see `runtime-models.ts`).
+   *
+   * Absent means "do not say", not "use the default": the runners omit
+   * `--model` entirely, leaving whatever the deployment configured
+   * (`CLAUDE_MODEL` / `CODEX_MODEL`) or the CLI's own default in charge. That
+   * is what makes adding this field a no-op for every existing caller.
+   *
+   * Honoured by both runners, unlike `toolMode` and `effort`. It is the first
+   * knob in this contract the two providers actually share.
+   */
+  model?: string | undefined;
 }
 
 /**

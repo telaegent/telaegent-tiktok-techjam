@@ -51,6 +51,14 @@ export interface ConnectorJobRequest {
   githubRepositoryId: string;
   conversationId: string;
   provider: AgentProvider;
+  /**
+   * Which model of `provider` the connector should run, or absent.
+   *
+   * Absent is not a gap the connector fills in: it means the cloud is not
+   * naming a model, and the connector's own deployment configuration decides.
+   * Already allowlisted before it reaches here.
+   */
+  model?: string | undefined;
   purpose: RunPurpose;
   runtimePrompt: string;
   persistedSummary: string;
@@ -141,6 +149,7 @@ export class ConnectorTurnExecutor
         githubRepositoryId: scope.githubRepositoryId,
         conversationId: scope.conversationId,
         provider: scope.provider,
+        ...(request.model ? { model: request.model } : {}),
         purpose: request.purpose,
         runtimePrompt: request.runtimePrompt,
         persistedSummary: request.persistedSummary,

@@ -130,6 +130,11 @@ const jobSchema = z.strictObject({
   githubRepositoryId: z.string().regex(/^[1-9][0-9]{0,18}$/),
   conversationId: idPart,
   provider: z.enum(["codex", "claude"]),
+  // Optional on the wire on purpose: a job that names no model is a job whose
+  // owner did not choose one, and this connector's own configuration decides.
+  // The value is already allowlisted cloud-side; the bound here is transport
+  // hygiene, not the policy check.
+  model: z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).optional(),
   purpose: z.enum(["sender_draft", "recipient_answer"]),
   runtimePrompt: z.string().min(1).max(1_048_576).refine((value) => !value.includes("\0")),
   persistedSummary: z.string().max(524_288).refine((value) => !value.includes("\0")),
@@ -514,6 +519,10 @@ export class ConnectorWorker {
           connectorBindingId: this.binding.connectorBindingId,
           workspacePath: this.binding.workspacePath,
           purpose: job.purpose,
+          // Both passes of a turn run on the model the owner picked. Splitting
+          // them across models would make the drafting pass reason about notes
+          // a different model wrote.
+          ...(job.model ? { model: job.model } : {}),
           runtimePrompt: buildInvestigationPrompt(job.runtimePrompt),
           persistedSummary: job.persistedSummary,
           // A research pass must not consume, rotate, or pollute the
@@ -557,6 +566,7 @@ export class ConnectorWorker {
       connectorBindingId: this.binding.connectorBindingId,
       workspacePath: this.binding.workspacePath,
       purpose: job.purpose,
+      ...(job.model ? { model: job.model } : {}),
       runtimePrompt: investigationNote
         ? [
             job.runtimePrompt,

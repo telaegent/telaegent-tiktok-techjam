@@ -193,6 +193,39 @@ describe("Codex runner protocol", () => {
     expect(codexProcessFailed(0, { errors: [] })).toBe(false);
   });
 
+  it("names a model only when one is supplied", () => {
+    const base = {
+      agentId: "agent",
+      provider: "codex",
+      purpose: "status",
+      workspacePath: "/tmp/workspace",
+      runtimePrompt: "Return status",
+      persistedSummary: "Status",
+      sessionMode: "fresh",
+      sandboxMode: "read-only",
+      networkMode: "none",
+      outputSchemaName: "status.schema.json",
+      correlationId: "corr-1",
+      maxTurns: 2,
+    } as const;
+
+    // No model means the connector's own CODEX_MODEL, or the CLI default.
+    expect(
+      buildCodexMiddlewareArgs(base, "/tmp/status.schema.json"),
+    ).not.toContain("--model");
+
+    const args = buildCodexMiddlewareArgs(
+      base,
+      "/tmp/status.schema.json",
+      base.workspacePath,
+      "gpt-5.6-luna",
+    );
+    expect(args[args.indexOf("--model") + 1]).toBe("gpt-5.6-luna");
+    // `--ignore-user-config` is what makes this the only model input the CLI
+    // sees. If it ever leaves the surface, the flag stops being authoritative.
+    expect(args).toContain("--ignore-user-config");
+  });
+
   it("builds a structured read-only middleware invocation", () => {
     const args = buildCodexMiddlewareArgs(
       {

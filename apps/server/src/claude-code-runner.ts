@@ -106,6 +106,13 @@ export function buildClaudeArgs(
     "--prompt-suggestions",
     "false",
   ];
+  // Measured against CLI 2.1.263: `--model` overrides the `ANTHROPIC_MODEL`
+  // environment variable that `childEnvironment()` sets from `CLAUDE_MODEL`.
+  // That ordering is the whole design -- a turn nobody chose a model for pushes
+  // no flag, so the deployment default still applies untouched.
+  if (request.model) {
+    args.push("--model", request.model);
+  }
   if (request.effort) {
     args.push("--effort", request.effort);
   }

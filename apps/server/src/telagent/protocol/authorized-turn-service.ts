@@ -45,6 +45,8 @@ import {
 export interface StartAuthorizedProtocolTurnInput {
   authorization: Readonly<AuthorizePrivateRuntimeInput>;
   provider: AgentProvider;
+  /** Which model of `provider` to run. Allowlisted at the authorization seam. */
+  model?: string | undefined;
   role: ProtocolRole;
   correlationId: string;
   /** Backend-owned identifier claimed in draft persistence before dispatch. */
@@ -249,6 +251,7 @@ export class AuthorizedProtocolTurnService {
       authorization: input.authorization,
       provider: input.provider,
       turn,
+      ...(input.model ? { model: input.model } : {}),
       ...(input.turnId ? { turnId: input.turnId } : {}),
     };
     return this.starter.start<T>(starterInput);
