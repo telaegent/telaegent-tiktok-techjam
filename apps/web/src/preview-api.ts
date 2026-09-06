@@ -44,7 +44,7 @@ const session: TelaegentSession = {
     userId: viewerUserId,
     githubUserId: "10000001",
     githubLogin: "duy-preview",
-    avatarUrl: null,
+    avatarUrl: "https://avatars.githubusercontent.com/u/583231?v=4",
   },
 };
 
@@ -98,6 +98,7 @@ const offlineProject: ProjectSummary = {
 let collaborator: ProjectCollaborator = {
   userId: peerUserId,
   githubLogin: "mark-preview",
+  avatarUrl: "https://avatars.githubusercontent.com/u/9919?v=4",
   connectionStatus: "connected",
   projectConnectionId: "66666666-6666-4666-8666-666666666666",
 };

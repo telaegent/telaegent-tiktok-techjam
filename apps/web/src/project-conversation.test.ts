@@ -18,6 +18,7 @@ function collaborator(
   return {
     userId,
     githubLogin: `user-${userId.at(-1)}`,
+    avatarUrl: `https://avatars.githubusercontent.com/u/${userId.at(-1)}?v=4`,
     connectionStatus,
     projectConnectionId:
       connectionStatus === "none" ? null : "30000000-0000-4000-8000-000000000001",
