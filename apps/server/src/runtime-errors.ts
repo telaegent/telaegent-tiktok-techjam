@@ -20,6 +20,7 @@ export type LocalRuntimeFailurePhase =
   | "event_stream"
   | "provider_exit"
   | "structured_output"
+  | "cleanup"
   | "timeout"
   | "output_limit";
 

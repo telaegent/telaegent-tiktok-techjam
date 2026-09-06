@@ -55,10 +55,10 @@ export function terminateProcessTree(
         // caller's direct-parent fallback.
         timeout: 5_000,
       });
-      // taskkill uses 128 when the target disappeared before it was signalled;
-      // that is already the desired terminal state. Every other failure lets
-      // the runner fall back to signalling the parent directly.
-      return !result.error && (result.status === 0 || result.status === 128);
+      // Only a successful tree walk proves cleanup. In particular, status 128
+      // means the root disappeared before taskkill could walk it; descendants
+      // may still be alive and must not be reported as stopped.
+      return !result.error && result.status === 0;
     } catch {
       return false;
     }
@@ -74,4 +74,57 @@ export function terminateProcessTree(
     // parent so termination still happens, just without the descendants.
     return false;
   }
+}
+
+function processGroupIsAlive(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    // A permissions failure still proves the group exists. Only ESRCH means
+    // there is no remaining process for an escalation to reach.
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/**
+ * Starts graceful tree termination and waits until the tree is gone, forcing
+ * any surviving descendants after the grace period.
+ *
+ * Waiting for the parent process is insufficient: it can accept SIGTERM while
+ * a shell or test runner it spawned ignores it. Keeping the escalation owned
+ * here prevents runner cleanup from cancelling the force kill when that parent
+ * closes first.
+ */
+export async function terminateProcessTreeWithEscalation(
+  child: ChildProcess,
+  gracePeriodMs = 3_000,
+  postKillWaitMs = 1_000,
+): Promise<boolean> {
+  const pid = child.pid;
+  const treeSignalled = terminateProcessTree(child, "SIGTERM");
+  if (!treeSignalled) child.kill("SIGTERM");
+
+  // taskkill /T /F is synchronous and already forceful on Windows. Its return
+  // value is the only proof available without a Job Object established at
+  // spawn time, so propagate failure instead of claiming cleanup.
+  if (process.platform === "win32" || pid === undefined) return treeSignalled;
+
+  const deadline = Date.now() + gracePeriodMs;
+  while (processGroupIsAlive(pid) && Date.now() < deadline) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(50, Math.max(1, deadline - Date.now()))),
+    );
+  }
+  if (!processGroupIsAlive(pid)) return true;
+
+  if (!terminateProcessTree(child, "SIGKILL")) child.kill("SIGKILL");
+
+  const postKillDeadline = Date.now() + postKillWaitMs;
+  while (processGroupIsAlive(pid) && Date.now() < postKillDeadline) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(25, Math.max(1, postKillDeadline - Date.now()))),
+    );
+  }
+  return !processGroupIsAlive(pid);
 }
