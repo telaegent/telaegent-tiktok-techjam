@@ -2400,6 +2400,46 @@ html[data-theme="dark"] .app-rail button > img {
   font-size: 12px;
 }
 
+.private-model-picker {
+  margin-top: 20px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.private-model-control {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.private-model-picker > small {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.private-model-picker > small button {
+  padding: 2px 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.private-model-picker > small button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .api-state {
   max-width: 560px;
   margin: auto;

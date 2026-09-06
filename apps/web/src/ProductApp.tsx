@@ -1916,6 +1916,10 @@ function PrivateAgentRoom({
   draft,
   answering,
   recipient,
+  modelOptions,
+  defaultModel,
+  selectedModel,
+  runtimeModelsState,
   clarification,
   approvedContent,
   editingCandidate,
@@ -1928,12 +1932,18 @@ function PrivateAgentRoom({
   onEdit,
   onSend,
   onRetry,
+  onModelChange,
+  onRetryRuntimeModels,
 }: {
   open: boolean;
   draft: PrivateDraftView | null;
   /** The approved collaborator message this draft answers, on a reply. */
   answering: SharedMessage | null;
   recipient: Collaborator;
+  modelOptions: string[];
+  defaultModel: string | null;
+  selectedModel: string;
+  runtimeModelsState: AsyncLoadState;
   clarification: string;
   approvedContent: string;
   editingCandidate: boolean;
@@ -1946,9 +1956,15 @@ function PrivateAgentRoom({
   onEdit: () => void;
   onSend: () => void;
   onRetry: () => void;
+  onModelChange: (model: string) => void;
+  onRetryRuntimeModels: () => void;
 }) {
   const state = draft?.state ?? "created";
   const isWorking = state === "created" || state === "agent_working";
+  const canRunAgain =
+    state === "needs_clarification" ||
+    state === "runtime_failed" ||
+    (state === "created" && !!error);
   const lastTurn = draft?.privateTurns.at(-1);
   const showPrivateMessage =
     !!draft?.privateMessage &&
@@ -2023,6 +2039,47 @@ function PrivateAgentRoom({
             <span>{draft ? formatProvider(draft.provider) : "Agent"}</span>
             <p>{draft?.privateMessage}</p>
           </article>
+        )}
+
+        {canRunAgain && draft && (
+          <div className="private-model-picker">
+            <label className="composer-routing-control private-model-control">
+              <span>{formatProvider(draft.provider)} model</span>
+              <select
+                value={selectedModel}
+                onChange={(event) => onModelChange(event.target.value)}
+                disabled={busy || modelOptions.length === 0}
+                aria-describedby={
+                  runtimeModelsState === "error"
+                    ? "private-model-status"
+                    : undefined
+                }
+              >
+                {modelOptions.length > 0 ? (
+                  modelOptions.map((model) => (
+                    <option value={model} key={model}>
+                      {model}
+                      {model === defaultModel ? " (default)" : ""}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">
+                    {runtimeModelsState === "loading"
+                      ? "Loading models"
+                      : "Server default"}
+                  </option>
+                )}
+              </select>
+            </label>
+            {runtimeModelsState === "error" && (
+              <small id="private-model-status" role="status">
+                <span>Server default will be used.</span>
+                <button type="button" onClick={onRetryRuntimeModels}>
+                  Retry models
+                </button>
+              </small>
+            )}
+          </div>
         )}
 
         {isWorking && (
@@ -2245,6 +2302,18 @@ function ProjectChat({
     storedModel && providerModels?.models.includes(storedModel)
       ? storedModel
       : providerModels?.defaultModel ?? "";
+  const draftProviderModels = draft
+    ? runtimeModels?.providers.find(
+        (candidate) => candidate.provider === draft.provider,
+      )
+    : null;
+  const storedDraftModel = draft
+    ? modelsByProvider[draft.provider]
+    : undefined;
+  const selectedDraftModel =
+    storedDraftModel && draftProviderModels?.models.includes(storedDraftModel)
+      ? storedDraftModel
+      : draftProviderModels?.defaultModel ?? "";
   const messageScopeKey = `${project.githubRepositoryId}:${conversationId ?? "none"}`;
   const activeMessageScope = useRef(messageScopeKey);
   const activeRepositoryScope = useRef(project.githubRepositoryId);
@@ -3176,6 +3245,10 @@ function ProjectChat({
           draft={draft}
           answering={answering}
           recipient={selected}
+          modelOptions={draftProviderModels?.models ?? []}
+          defaultModel={draftProviderModels?.defaultModel ?? null}
+          selectedModel={selectedDraftModel}
+          runtimeModelsState={runtimeModelsState}
           clarification={clarification}
           approvedContent={approvedContent}
           editingCandidate={editingCandidate}
@@ -3188,6 +3261,14 @@ function ProjectChat({
           onEdit={() => setEditingCandidate(true)}
           onSend={() => void sendDraft()}
           onRetry={() => void retryDraft()}
+          onModelChange={(model) => {
+            if (!draft) return;
+            setModelsByProvider((current) => ({
+              ...current,
+              [draft.provider]: model,
+            }));
+          }}
+          onRetryRuntimeModels={onRetryRuntimeModels}
         />
       )}
     </section>
