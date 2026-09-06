@@ -261,7 +261,9 @@ export async function previewRequest(url: string, options?: RequestInit): Promis
 
   if (url === "/api/auth/session" && method === "GET") return copy(session);
   if (url === "/api/auth/logout" && method === "POST") return {};
-  if (url === "/api/runtime/models" && method === "GET") return copy(runtimeModels);
+  if (url.startsWith("/api/runtime/models?") && method === "GET") {
+    return copy(runtimeModels);
+  }
   if (url === "/api/connectors/pairings" && method === "POST") {
     return {
       pairing: {

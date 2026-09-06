@@ -141,6 +141,8 @@ if (config.telaegentIdentityProvider === "github") {
       Math.max(config.claudeTimeoutMs, config.codexTimeoutMs),
     ),
   });
+  conversationOptions.availableProviders = (userId, githubRepositoryId) =>
+    relay.availableProviders(userId, githubRepositoryId);
   connectorTransportApi = {
     relay,
     resolveConnectorPrincipal,

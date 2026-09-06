@@ -18,6 +18,7 @@ import {
   FileOutputSchemaResolver,
   RuntimeProviderRegistry,
 } from "../runtime-provider-registry.js";
+import type { AgentProvider } from "../runtime-contract.js";
 import { repositoryProofResultSchema } from "../repository-proof/contract.js";
 import { connectorPrincipalSchema } from "../repository-proof/contract.js";
 import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worker.js";
@@ -240,7 +241,7 @@ async function main(): Promise<void> {
     process.once("SIGINT", () => stopLocalProviders("SIGINT"));
     process.once("SIGTERM", () => stopLocalProviders("SIGTERM"));
 
-    let successfulProbes = 0;
+    const connectedProviders: AgentProvider[] = [];
     for (const provider of selectedProviders) {
       try {
         // Cancellations and resource requests have priority over jobs in the
@@ -260,7 +261,7 @@ async function main(): Promise<void> {
         if (probeResult.provider !== provider) {
           throw new Error("Connector provider probe returned the wrong provider");
         }
-        successfulProbes += 1;
+        connectedProviders.push(provider);
         process.stdout.write(
           `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
         );
@@ -276,7 +277,7 @@ async function main(): Promise<void> {
         );
       }
     }
-    if (successfulProbes === 0) {
+    if (connectedProviders.length === 0) {
       throw new Error("No local coding provider passed the Telaegent live probe");
     }
 
@@ -327,7 +328,7 @@ async function main(): Promise<void> {
       serverOrigin,
       credential,
       `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
-      {},
+      { providers: connectedProviders },
       undefined,
       CONTROL_REQUEST_TIMEOUT_MS,
     );

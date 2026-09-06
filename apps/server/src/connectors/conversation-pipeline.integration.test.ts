@@ -378,6 +378,10 @@ class RelayWorkerTransport implements ConnectorWorkerTransport {
     this.relay.publishProgress(this.principal, jobId, event);
   }
 
+  async cancelled(jobId: string): Promise<void> {
+    this.relay.acknowledgeCancellation(this.principal, jobId);
+  }
+
   async result(jobId: string, result: ConnectorJobResult): Promise<void> {
     this.relay.complete(this.principal, jobId, result);
   }

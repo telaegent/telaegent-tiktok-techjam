@@ -5,6 +5,7 @@ import { HttpError } from "../errors.js";
 import { setPrivateNoStore } from "../http-cache.js";
 import { DEFAULT_RUNTIME_EFFORT, RUNTIME_EFFORTS } from "../runtime-efforts.js";
 import { DEFAULT_RUNTIME_MODEL, RUNTIME_MODELS } from "../runtime-models.js";
+import type { AgentProvider } from "../runtime-contract.js";
 import { PROTOCOL_LIMITS } from "../telagent/protocol/contract.js";
 import type { ConversationService } from "./service.js";
 
@@ -65,6 +66,7 @@ const messageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
   cursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
+const runtimeModelsQuery = z.strictObject({ githubRepositoryId: repositoryId });
 
 export type AuthenticatedUserResolver = (
   request: FastifyRequest,
@@ -73,6 +75,10 @@ export type AuthenticatedUserResolver = (
 export interface ConversationRouteDependencies {
   service: ConversationService;
   authenticatedUserId: AuthenticatedUserResolver;
+  availableProviders?: (
+    authenticatedUserId: string,
+    githubRepositoryId: string,
+  ) => readonly AgentProvider[];
 }
 
 export function registerConversationRoutes(
@@ -94,15 +100,21 @@ export function registerConversationRoutes(
   // looking up a list that would be identical under each provider.
   app.get("/api/runtime/models", async (request, reply) => {
     setPrivateNoStore(reply);
-    await user(request);
+    const authenticatedUserId = await user(request);
+    const { githubRepositoryId } = runtimeModelsQuery.parse(request.query);
+    const available = dependencies.availableProviders
+      ? new Set(
+          dependencies.availableProviders(authenticatedUserId, githubRepositoryId),
+        )
+      : new Set(Object.keys(RUNTIME_MODELS) as AgentProvider[]);
     return {
-      providers: (Object.keys(RUNTIME_MODELS) as (keyof typeof RUNTIME_MODELS)[]).map(
-        (provider) => ({
+      providers: (Object.keys(RUNTIME_MODELS) as AgentProvider[])
+        .filter((provider) => available.has(provider))
+        .map((provider) => ({
           provider,
           models: [...RUNTIME_MODELS[provider]],
           defaultModel: DEFAULT_RUNTIME_MODEL[provider],
-        }),
-      ),
+        })),
       efforts: [...RUNTIME_EFFORTS],
       defaultEffort: DEFAULT_RUNTIME_EFFORT,
     };

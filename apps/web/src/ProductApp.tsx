@@ -32,6 +32,7 @@ import {
 import {
   assertConversationScope,
   connectedCollaborators,
+  projectChatInstanceKey,
   selectConnectedPeer,
 } from "./project-conversation";
 import { AdaptivePoller, SingleFlightByKey } from "./adaptive-poller";
@@ -45,6 +46,7 @@ import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import { collectCursorPages } from "./cursor-pagination";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
+import { selectAvailableProvider } from "./runtime-selection";
 import ThemeSwitch from "./ThemeSwitch";
 import {
   ConnectorSetupPollTracker,
@@ -2589,10 +2591,13 @@ function ProjectChat({
     project.githubRepositoryId,
   );
   const conversationId = conversation?.conversationId ?? null;
+  const selectedProvider = selectAvailableProvider(runtimeModels, provider) ?? provider;
+  const runtimeSelectionReady =
+    runtimeModelsState === "ready" && (runtimeModels?.providers.length ?? 0) > 0;
   const providerModels = runtimeModels?.providers.find(
-    (candidate) => candidate.provider === provider,
+    (candidate) => candidate.provider === selectedProvider,
   );
-  const storedModel = modelsByProvider[provider];
+  const storedModel = modelsByProvider[selectedProvider];
   const selectedModel =
     storedModel && providerModels?.models.includes(storedModel)
       ? storedModel
@@ -2977,14 +2982,14 @@ function ProjectChat({
   }
 
   async function createAndRunDraft(message: string) {
-    if (!conversationId) return;
+    if (!conversationId || !runtimeSelectionReady) return;
     setBusy(true);
     setDraft(null);
     setActionError(null);
     try {
       const created = await api.createConversationDraft(conversationId, {
         githubRepositoryId: project.githubRepositoryId,
-        provider,
+        provider: selectedProvider,
         roughMessage: message,
       });
       setDraft(created.draft);
@@ -3006,7 +3011,7 @@ function ProjectChat({
    * as starting a message.
    */
   async function createAndRunReply(message: SharedMessage, forceNew = false) {
-    if (!conversationId) return;
+    if (!conversationId || !runtimeSelectionReady) return;
     setBusy(true);
     setDraft(null);
     setActionError(null);
@@ -3024,7 +3029,7 @@ function ProjectChat({
       );
       const created = await api.createConversationReply(conversationId, {
         githubRepositoryId: project.githubRepositoryId,
-        provider,
+        provider: selectedProvider,
         incomingMessageId: message.id,
         idempotencyKey,
       });
@@ -3048,7 +3053,8 @@ function ProjectChat({
       privateRoomOpen ||
       configurationError ||
       !conversationId ||
-      conversationState !== "ready"
+      conversationState !== "ready" ||
+      !runtimeSelectionReady
     )
       return;
     setRoughMessage(nextMessage);
@@ -3202,7 +3208,7 @@ function ProjectChat({
         </div>
         <div className="chat-header-meta">
           <span>
-            {formatProvider(provider)} / {selected?.provider ?? "local agent"}
+            {formatProvider(selectedProvider)} / {selected?.provider ?? "local agent"}
           </span>
         </div>
       </header>
@@ -3456,7 +3462,7 @@ function ProjectChat({
                 className="app-secondary-action shared-message-reply"
                 type="button"
                 onClick={() => void createAndRunReply(message)}
-                disabled={busy || privateRoomOpen}
+                disabled={busy || privateRoomOpen || !runtimeSelectionReady}
               >
                 Prepare reply
               </button>
@@ -3468,10 +3474,15 @@ function ProjectChat({
       <form className="shared-composer" onSubmit={submitRoughMessage}>
         {runtimeModelsState === "error" && (
           <small className="composer-model-status" id="composer-model-status">
-            <span>Models unavailable. Server default will be used.</span>
+            <span>Local provider availability is unavailable.</span>
             <button type="button" onClick={onRetryRuntimeModels}>
               Retry
             </button>
+          </small>
+        )}
+        {runtimeModelsState === "ready" && runtimeModels?.providers.length === 0 && (
+          <small className="composer-model-status" id="composer-model-status">
+            <span>No probed local provider is online. Reconnect your connector.</span>
           </small>
         )}
         <div className="composer-body">
@@ -3485,7 +3496,8 @@ function ProjectChat({
             disabled={
               !!configurationError ||
               !conversationId ||
-              conversationState !== "ready"
+              conversationState !== "ready" ||
+              !runtimeSelectionReady
             }
           />
           <div className="composer-toolbar">
@@ -3494,7 +3506,7 @@ function ProjectChat({
               <RuntimeRoutePicker
                 catalogue={runtimeModels}
                 catalogueState={runtimeModelsState}
-                provider={provider}
+                provider={selectedProvider}
                 selectedModel={selectedModel}
                 selectedEffort={selectedEffort}
                 selectedModels={modelsByProvider}
@@ -3503,7 +3515,7 @@ function ProjectChat({
                     ? "composer-model-status"
                     : undefined
                 }
-                disabled={busy}
+                disabled={busy || !runtimeSelectionReady}
                 onChange={(nextProvider, model) => {
                   setProvider(nextProvider);
                   setModelsByProvider((current) => ({
@@ -3521,7 +3533,8 @@ function ProjectChat({
                   !composer.trim() ||
                   !!configurationError ||
                   !conversationId ||
-                  conversationState !== "ready"
+                  conversationState !== "ready" ||
+                  !runtimeSelectionReady
                 }
               >
                 Prepare privately
@@ -3739,7 +3752,7 @@ function Workspace({
     }
     setRuntimeModelsState("loading");
     void api
-      .runtimeModels()
+      .runtimeModels(project.githubRepositoryId)
       .then((catalogue) => {
         if (!active) return;
         setRuntimeModels(catalogue);
@@ -3753,7 +3766,7 @@ function Workspace({
     return () => {
       active = false;
     };
-  }, [currentUserId, runtimeModelsAttempt]);
+  }, [currentUserId, project.githubRepositoryId, runtimeModelsAttempt]);
 
   async function loadCollaborators() {
     const requestId = ++collaboratorRequest.current;
@@ -3916,6 +3929,10 @@ function Workspace({
       </div>
       {tab === "chat" && (
         <ProjectChat
+          key={projectChatInstanceKey(
+            project.githubRepositoryId,
+            selectedPeer?.userId ?? null,
+          )}
           project={project}
           peer={selectedPeer}
           conversation={selectedConversation}

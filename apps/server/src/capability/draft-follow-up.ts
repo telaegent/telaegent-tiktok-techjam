@@ -108,7 +108,7 @@ export class DraftFollowUpService implements PrivateDraftFollowUp {
     } as const;
     const result = await this.#coordinator.runRound(context, requests);
     if (result.outcome !== "completed") return [];
-    if (result.delivered.length > 0) return deliveredBlocks(result.delivered);
+    const delivered = deliveredBlocks(result.delivered);
 
     // A hint is resolved to an opaque resource only by the owner's connector.
     // Once that same resource is already granted, immediately retry it by ID;
@@ -116,7 +116,9 @@ export class DraftFollowUpService implements PrivateDraftFollowUp {
     const ready = result.queued
       .filter((queued) => queued.outcome.outcome === "already_granted")
       .map((queued) => exactRequest(queued.candidateResourceId, queued.requestedReason));
-    if (ready.length > 0) return this.#deliverApproved(context, ready);
+    if (ready.length > 0) {
+      delivered.push(...(await this.#deliverApproved(context, ready)));
+    }
 
     const waiting = new Map(
       result.queued.flatMap((queued) => {
@@ -126,7 +128,7 @@ export class DraftFollowUpService implements PrivateDraftFollowUp {
           : [];
       }),
     );
-    if (waiting.size === 0) return [];
+    if (waiting.size === 0) return delivered;
 
     const expiresAt = Date.parse(task.expiresAt);
     while (waiting.size > 0 && this.#now() < expiresAt) {
@@ -152,7 +154,7 @@ export class DraftFollowUpService implements PrivateDraftFollowUp {
         );
         continue;
       }
-      if (resolutions.outcome === "task_unavailable") return [];
+      if (resolutions.outcome === "task_unavailable") return delivered;
 
       const approved: ConnectorResourceRequest[] = [];
       for (const resolution of resolutions.requests) {
@@ -162,7 +164,8 @@ export class DraftFollowUpService implements PrivateDraftFollowUp {
         // agree across the two durable reads before turning a hint into an
         // exact request. A mismatch fails closed rather than being retried.
         if (resolution.candidateResourceId !== queued.candidateResourceId) {
-          return [];
+          waiting.delete(resolution.scopeRequestId);
+          continue;
         }
         if (resolution.status === "pending") continue;
         waiting.delete(resolution.scopeRequestId);
@@ -172,15 +175,17 @@ export class DraftFollowUpService implements PrivateDraftFollowUp {
           );
         }
       }
-      if (approved.length > 0) return this.#deliverApproved(context, approved);
-      if (waiting.size === 0) return [];
+      if (approved.length > 0) {
+        delivered.push(...(await this.#deliverApproved(context, approved)));
+      }
+      if (waiting.size === 0) return delivered;
 
       await abortableDelay(
         Math.min(this.#approvalPollIntervalMs, Math.max(0, expiresAt - this.#now())),
         options.signal,
       );
     }
-    return [];
+    return delivered;
   }
 
   async #deliverApproved(

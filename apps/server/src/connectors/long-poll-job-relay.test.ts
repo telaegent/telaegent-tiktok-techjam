@@ -109,13 +109,17 @@ describe("LongPollConnectorJobRelay", () => {
     );
   });
 
-  it("cancels the cloud turn and rejects late connector results", async () => {
+  it("reports cancellation only after the connector confirms its local process stopped", async () => {
     const relay = new LongPollConnectorJobRelay({ jobTimeoutMs: 5_000 });
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);
     const completion = relay.dispatch(job);
     await relay.poll(principal, bindingId, 0);
-    await expect(relay.cancel(bindingId)).resolves.toBe(true);
-    await expect(completion).rejects.toBeInstanceOf(RunCancelledError);
+    let cancellationSettled = false;
+    const cancellation = relay.cancel(bindingId).finally(() => {
+      cancellationSettled = true;
+    });
+    await Promise.resolve();
+    expect(cancellationSettled).toBe(false);
     expect(relay.complete(principal, job.jobId, {
       provider: "claude",
       final: {},
@@ -130,6 +134,38 @@ describe("LongPollConnectorJobRelay", () => {
       kind: "cancel",
       jobId: job.jobId,
     });
+    expect(cancellationSettled).toBe(false);
+    expect(relay.acknowledgeCancellation(principal, job.jobId)).toBe(true);
+    await expect(cancellation).resolves.toBe(true);
+    await expect(completion).rejects.toBeInstanceOf(RunCancelledError);
+  });
+
+  it("fails visibly when a leased connector never confirms cancellation", async () => {
+    vi.useFakeTimers();
+    try {
+      const relay = new LongPollConnectorJobRelay({
+        jobTimeoutMs: 5_000,
+        cancellationTimeoutMs: 1_000,
+      });
+      relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+      const completion = relay.dispatch(job);
+      await relay.poll(principal, bindingId, 0);
+      const cancellation = relay.cancel(bindingId);
+      const cancellationFailure = expect(cancellation).rejects.toMatchObject({
+        code: "RUNTIME_UNAVAILABLE",
+      });
+      const completionFailure = expect(completion).rejects.toMatchObject({
+        code: "RUNTIME_UNAVAILABLE",
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await cancellationFailure;
+      await completionFailure;
+      expect(relay.acknowledgeCancellation(principal, job.jobId)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("times out jobs that never return", async () => {
@@ -187,6 +223,27 @@ describe("LongPollConnectorJobRelay", () => {
     await completion;
     now += 1_001;
     expect(relay.isBindingOnline(principal.authenticatedUserId, bindingId)).toBe(false);
+  });
+
+  it("reports only live-probed providers for the owning repository", () => {
+    let now = 1_000;
+    const relay = new LongPollConnectorJobRelay({
+      presenceTimeoutMs: 1_000,
+      now: () => now,
+    });
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId))
+      .toEqual([]);
+
+    relay.markBindingReady(principal, bindingId, ["codex"]);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId))
+      .toEqual(["codex"]);
+    expect(relay.availableProviders("10000000-0000-4000-8000-000000000099", job.githubRepositoryId))
+      .toEqual([]);
+
+    now += 1_001;
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId))
+      .toEqual([]);
   });
 
   it("removes proven bindings when the connector credential is rotated or revoked", async () => {
@@ -262,12 +319,7 @@ describe("LongPollConnectorJobRelay", () => {
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);
     const completion = relay.dispatch(job);
     await relay.poll(principal, bindingId, 0);
-    const cancellation = expect(completion).rejects.toBeInstanceOf(
-      RunCancelledError,
-    );
-
     await relay.unregisterRepositoryBinding(principal, job.githubRepositoryId);
-    await cancellation;
 
     const otherPrincipal = {
       ...principal,
@@ -280,6 +332,8 @@ describe("LongPollConnectorJobRelay", () => {
       kind: "cancel",
       jobId: job.jobId,
     });
+    expect(relay.acknowledgeCancellation(principal, job.jobId)).toBe(true);
+    await expect(completion).rejects.toBeInstanceOf(RunCancelledError);
     await expect(relay.poll(principal, bindingId, 0)).rejects.toMatchObject({
       code: "UNSUPPORTED_RUNTIME_POLICY",
     });

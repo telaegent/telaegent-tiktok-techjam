@@ -25,6 +25,19 @@ export function selectConnectedPeer(
 }
 
 /**
+ * React state inside ProjectChat belongs to one repository/recipient pair.
+ * Giving that scope a component identity makes changing collaborators tear
+ * down the old draft handlers, so a late response cannot populate the new
+ * recipient's private room or leave its Send button pointing at the old draft.
+ */
+export function projectChatInstanceKey(
+  githubRepositoryId: string,
+  peerUserId: string | null,
+): string {
+  return `${githubRepositoryId}:${peerUserId ?? "no-peer"}`;
+}
+
+/**
  * Treat the browser response as untrusted even though the backend also checks
  * this scope. A stale response from a previous project or peer must never be
  * rendered as the selected conversation.

@@ -146,7 +146,7 @@ describe("connector pairing HTTP flow", () => {
       method: "POST",
       url: `/api/connectors/bindings/${bindingId}/ready`,
       headers: { authorization: `Bearer ${connector.credential}` },
-      payload: {},
+      payload: { providers: ["codex"] },
     });
     expect(ready.statusCode).toBe(204);
 

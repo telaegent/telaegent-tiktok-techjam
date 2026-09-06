@@ -19,10 +19,12 @@ describe("project conversation API", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.runtimeModels();
+    await api.runtimeModels("123456789");
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/runtime/models");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/runtime/models?githubRepositoryId=123456789",
+    );
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       credentials: "same-origin",
     });

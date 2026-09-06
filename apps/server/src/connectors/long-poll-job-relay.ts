@@ -1,5 +1,9 @@
 import { RunCancelledError } from "../errors.js";
-import type { RuntimeProgressEvent, RuntimeProgressSink } from "../runtime-contract.js";
+import type {
+  AgentProvider,
+  RuntimeProgressEvent,
+  RuntimeProgressSink,
+} from "../runtime-contract.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
 import type {
@@ -21,6 +25,8 @@ interface RegisteredBinding {
   principal: ConnectorPrincipal;
   githubRepositoryId: string;
   lastSeenAt: number;
+  /** Providers that passed this connector's live local probe. */
+  providers: AgentProvider[];
 }
 
 interface PendingJob {
@@ -71,6 +77,9 @@ interface PendingCancellation {
   principal: ConnectorPrincipal;
   jobId: string;
   timeout: NodeJS.Timeout;
+  confirmation: Promise<boolean>;
+  resolve: (confirmed: boolean) => void;
+  reject: (error: unknown) => void;
 }
 
 export interface LongPollConnectorJobRelayOptions {
@@ -82,6 +91,8 @@ export interface LongPollConnectorJobRelayOptions {
    * a human has not approved as pending rather than waiting for them.
    */
   resourceTimeoutMs?: number;
+  /** Maximum time the browser waits for the local stop acknowledgement. */
+  cancellationTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -109,12 +120,15 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
   private readonly jobTimeoutMs: number;
   private readonly presenceTimeoutMs: number;
   private readonly resourceTimeoutMs: number;
+  private readonly cancellationTimeoutMs: number;
   private readonly now: () => number;
 
   constructor(options: LongPollConnectorJobRelayOptions = {}) {
     this.jobTimeoutMs = options.jobTimeoutMs ?? 300_000;
     this.presenceTimeoutMs = options.presenceTimeoutMs ?? 30_000;
     this.resourceTimeoutMs = options.resourceTimeoutMs ?? 30_000;
+    this.cancellationTimeoutMs =
+      options.cancellationTimeoutMs ?? this.presenceTimeoutMs;
     this.now = options.now ?? Date.now;
     if (!Number.isInteger(this.jobTimeoutMs) || this.jobTimeoutMs < 1_000) {
       throw new Error("Connector job timeout is invalid");
@@ -124,6 +138,12 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     }
     if (!Number.isInteger(this.resourceTimeoutMs) || this.resourceTimeoutMs < 1_000) {
       throw new Error("Connector resource timeout is invalid");
+    }
+    if (
+      !Number.isInteger(this.cancellationTimeoutMs) ||
+      this.cancellationTimeoutMs < 1_000
+    ) {
+      throw new Error("Connector cancellation timeout is invalid");
     }
   }
 
@@ -156,7 +176,7 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
       ) {
         continue;
       }
-      await this.cancel(bindingId);
+      void this.cancel(bindingId).catch(() => undefined);
       this.abandonResourceExchanges(bindingId);
       this.waiters.get(bindingId)?.settle(null);
       this.bindings.delete(bindingId);
@@ -182,7 +202,7 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
       ) {
         continue;
       }
-      await this.cancel(bindingId);
+      void this.cancel(bindingId).catch(() => undefined);
       this.abandonResourceExchanges(bindingId);
       this.waiters.get(bindingId)?.settle(null);
       this.bindings.delete(bindingId);
@@ -199,14 +219,55 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     // A recovered binding must not inherit an expired authorization epoch's
     // cancellation. Do not clear a live binding's cancellation during a
     // harmless proof replay, because its leased provider may still be stopping.
-    if (!this.bindings.has(connectorBindingId)) {
+    if (
+      !this.bindings.has(connectorBindingId) &&
+      !this.jobIdByBinding.has(connectorBindingId)
+    ) {
       this.clearCancellation(connectorBindingId);
     }
+    const existing = this.bindings.get(connectorBindingId);
+    const sameRegistration =
+      existing &&
+      samePrincipal(existing.principal, principal) &&
+      existing.githubRepositoryId === githubRepositoryId;
     this.bindings.set(connectorBindingId, {
       principal: { ...principal },
       githubRepositoryId,
       lastSeenAt: this.now(),
+      providers: sameRegistration ? [...existing.providers] : [],
     });
+  }
+
+  /** Records only providers that completed a live connector-to-provider probe. */
+  markBindingReady(
+    principal: Readonly<ConnectorPrincipal>,
+    connectorBindingId: string,
+    providers: readonly AgentProvider[],
+  ): void {
+    this.assertBindingOwner(principal, connectorBindingId);
+    const registration = this.bindings.get(connectorBindingId)!;
+    registration.providers = [...new Set(providers)];
+    registration.lastSeenAt = this.now();
+  }
+
+  /** Browser-safe live provider inventory for one owning user and repository. */
+  availableProviders(
+    authenticatedUserId: string,
+    githubRepositoryId: string,
+  ): AgentProvider[] {
+    const available = new Set<AgentProvider>();
+    for (const [bindingId, registration] of this.bindings) {
+      if (
+        registration.principal.authenticatedUserId !== authenticatedUserId ||
+        registration.githubRepositoryId !== githubRepositoryId ||
+        (this.now() - registration.lastSeenAt > this.presenceTimeoutMs &&
+          !this.jobIdByBinding.has(bindingId))
+      ) {
+        continue;
+      }
+      for (const provider of registration.providers) available.add(provider);
+    }
+    return (["claude", "codex"] as const).filter((provider) => available.has(provider));
   }
 
   async dispatch<T = unknown>(
@@ -277,20 +338,55 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     const jobId = this.jobIdByBinding.get(connectorBindingId);
     const pending = jobId ? this.jobs.get(jobId) : undefined;
     if (!pending) return false;
-    pending.cancelRequested = true;
-    if (pending.state === "leased") {
-      const registration = this.bindings.get(connectorBindingId);
-      if (registration) {
-        this.setCancellation(
-          connectorBindingId,
-          registration.principal,
-          pending.job.jobId,
-        );
-      }
+    const existing = this.cancellations.get(connectorBindingId);
+    if (pending.cancelRequested) {
+      return existing ? await existing.confirmation : false;
     }
+    if (pending.state === "queued") {
+      pending.cancelRequested = true;
+      this.removeJob(pending);
+      pending.reject(new RunCancelledError());
+      this.wake(connectorBindingId);
+      return true;
+    }
+
+    const registration = this.bindings.get(connectorBindingId);
+    if (!registration) return false;
+    pending.cancelRequested = true;
+    // The job lease no longer controls the deadline. From this point the
+    // shorter cancellation acknowledgement deadline is authoritative.
+    clearTimeout(pending.timeout);
+    const confirmation = this.setCancellation(
+      connectorBindingId,
+      registration.principal,
+      pending.job.jobId,
+    );
+    this.wake(connectorBindingId);
+    return await confirmation;
+  }
+
+  /** Completes cloud cancellation only after the owning connector stopped locally. */
+  acknowledgeCancellation(
+    principal: Readonly<ConnectorPrincipal>,
+    jobId: string,
+  ): boolean {
+    const pending = this.jobs.get(jobId);
+    if (!pending || !pending.cancelRequested || pending.state !== "leased") {
+      return false;
+    }
+    const connectorBindingId = pending.job.connectorBindingId;
+    const cancellation = this.cancellations.get(connectorBindingId);
+    if (
+      !cancellation ||
+      cancellation.jobId !== jobId ||
+      !samePrincipal(cancellation.principal, principal)
+    ) {
+      return false;
+    }
+    this.clearCancellation(connectorBindingId);
     this.removeJob(pending);
     pending.reject(new RunCancelledError());
-    this.wake(connectorBindingId);
+    cancellation.resolve(true);
     return true;
   }
 
@@ -547,7 +643,7 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     result: Readonly<ConnectorJobResult>,
   ): boolean {
     const pending = this.ownedLeasedJob(principal, jobId);
-    if (!pending) return false;
+    if (!pending || pending.cancelRequested) return false;
     this.removeJob(pending);
     pending.resolve(structuredClone(result));
     return true;
@@ -559,7 +655,7 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     code: RuntimeProviderError["code"],
   ): boolean {
     const pending = this.ownedLeasedJob(principal, jobId);
-    if (!pending) return false;
+    if (!pending || pending.cancelRequested) return false;
     this.removeJob(pending);
     pending.reject(new RuntimeProviderError(code, safeFailureMessage(code)));
     return true;
@@ -686,18 +782,39 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     connectorBindingId: string,
     principal: Readonly<ConnectorPrincipal>,
     jobId: string,
-  ): void {
+  ): Promise<boolean> {
     this.clearCancellation(connectorBindingId);
-    const timeout = setTimeout(
-      () => this.clearCancellation(connectorBindingId),
-      this.presenceTimeoutMs,
-    );
+    let resolve!: (confirmed: boolean) => void;
+    let reject!: (error: unknown) => void;
+    const confirmation = new Promise<boolean>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    const timeout = setTimeout(() => {
+      const cancellation = this.cancellations.get(connectorBindingId);
+      if (!cancellation || cancellation.jobId !== jobId) return;
+      this.clearCancellation(connectorBindingId);
+      const pending = this.jobs.get(jobId);
+      const error = new RuntimeProviderError(
+        "RUNTIME_UNAVAILABLE",
+        "Local connector did not confirm cancellation",
+      );
+      if (pending) {
+        this.removeJob(pending);
+        pending.reject(error);
+      }
+      cancellation.reject(error);
+    }, this.cancellationTimeoutMs);
     timeout.unref?.();
     this.cancellations.set(connectorBindingId, {
       principal: { ...principal },
       jobId,
       timeout,
+      confirmation,
+      resolve,
+      reject,
     });
+    return confirmation;
   }
 
   private takeCancellation(
@@ -708,7 +825,6 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     if (!cancellation || !samePrincipal(cancellation.principal, principal)) {
       return null;
     }
-    this.clearCancellation(connectorBindingId);
     return { kind: "cancel", jobId: cancellation.jobId };
   }
 

@@ -45,6 +45,7 @@ const pollQuerySchema = z.strictObject({
   waitMs: z.coerce.number().int().min(0).max(25_000).default(20_000),
 });
 const jobParamsSchema = z.strictObject({ jobId: jobIdSchema });
+const emptyBody = z.strictObject({}).optional();
 const resourceAuthorizationBodySchema = z.strictObject({
   grantId: z.string().uuid(),
   resourceId: resourceIdSchema,
@@ -96,6 +97,13 @@ const failureSchema = z.strictObject({
 });
 const providerSchema = z.enum(["codex", "claude"]);
 const probeBodySchema = z.strictObject({ provider: providerSchema });
+const readyBodySchema = z.strictObject({
+  providers: z
+    .array(providerSchema)
+    .min(1)
+    .max(2)
+    .refine((providers) => new Set(providers).size === providers.length),
+});
 const failureDetailSchema = z.strictObject({
   code: z.enum([
     "RUNTIME_UNAVAILABLE",
@@ -153,6 +161,7 @@ export interface ConnectorTransportRouteDependencies {
 export const connectorTransportRoutes = new Set([
   "/api/connectors/jobs/next",
   "/api/connectors/jobs/:jobId/progress",
+  "/api/connectors/jobs/:jobId/cancelled",
   "/api/connectors/jobs/:jobId/result",
   "/api/connectors/jobs/:jobId/failure",
   "/api/connectors/jobs/:jobId/resources",
@@ -339,7 +348,9 @@ export function registerConnectorTransportRoutes(
       setPrivateNoStore(reply);
       const principal = await dependencies.resolveConnectorPrincipal(request);
       const { connectorBindingId } = bindingParamsSchema.parse(request.params);
+      const { providers } = readyBodySchema.parse(request.body);
       await ensureRegisteredRepository(dependencies, principal, connectorBindingId);
+      dependencies.relay.markBindingReady(principal, connectorBindingId, providers);
       dependencies.pairings?.markLive(
         principal.authenticatedUserId,
         principal.connectorInstanceId,
@@ -388,6 +399,15 @@ export function registerConnectorTransportRoutes(
     return dependencies.relay.publishProgress(principal, jobId, progress)
       ? reply.code(204).send()
       : reply.code(409).send({ error: "Connector job is no longer active" });
+  });
+
+  app.post("/api/connectors/jobs/:jobId/cancelled", async (request, reply) => {
+    const principal = await dependencies.resolveConnectorPrincipal(request);
+    const { jobId } = jobParamsSchema.parse(request.params);
+    emptyBody.parse(request.body);
+    return dependencies.relay.acknowledgeCancellation(principal, jobId)
+      ? reply.code(204).send()
+      : reply.code(409).send({ error: "Connector cancellation is no longer active" });
   });
 
   app.post("/api/connectors/jobs/:jobId/result", async (request, reply) => {

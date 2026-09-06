@@ -84,6 +84,8 @@ class FakeTransport implements ConnectorWorkerTransport {
     if (this.rejectProgress) throw new Error("400 unrecognized_keys: target");
   }
 
+  async cancelled(_jobId: string): Promise<void> {}
+
   async result(_jobId: string, result: ConnectorJobResult): Promise<void> {
     this.results.push(result);
   }

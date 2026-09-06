@@ -9,6 +9,7 @@ import { HttpError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
 import { REPOSITORY_ACCESS_MAX_AGE_MS } from "../repository-proof/lifetime.js";
+import type { AgentProvider } from "../runtime-contract.js";
 import { createConfiguredConversationRepository } from "./conversation-repository-factory.js";
 import type { ConversationRepository } from "./repository.js";
 import type {
@@ -90,6 +91,10 @@ export interface ConversationApiFactoryOptions {
   repository?: ConversationRepository | undefined;
   runtime?: PrivateDraftTurnRuntime | undefined;
   authenticatedUserId?: AuthenticatedUserResolver | undefined;
+  availableProviders?: (
+    authenticatedUserId: string,
+    githubRepositoryId: string,
+  ) => readonly AgentProvider[];
   authorizer?: PrivateRuntimeAuthorizer | undefined;
   /**
    * The capability loop (build plan 8). Omitted, a turn that asks for files
@@ -127,5 +132,8 @@ export function createConversationApi(
     service,
     authenticatedUserId:
       options.authenticatedUserId ?? unresolvedAuthenticatedUserId,
+    ...(options.availableProviders
+      ? { availableProviders: options.availableProviders }
+      : {}),
   };
 }

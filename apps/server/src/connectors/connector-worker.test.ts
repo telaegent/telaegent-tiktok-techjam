@@ -52,6 +52,7 @@ class FakeTransport implements ConnectorWorkerTransport {
   readonly progressEvents: RuntimeProgressEvent[] = [];
   readonly results: ConnectorJobResult[] = [];
   readonly failures: string[] = [];
+  readonly cancelledJobs: string[] = [];
   readonly resourceResponses: ResourceExchangeResponse[] = [];
   readonly pollTimes: number[] = [];
   private deliveries: Array<ConnectorDelivery | Error>;
@@ -74,6 +75,10 @@ class FakeTransport implements ConnectorWorkerTransport {
 
   async progress(_jobId: string, event: RuntimeProgressEvent): Promise<void> {
     this.progressEvents.push(event);
+  }
+
+  async cancelled(jobId: string): Promise<void> {
+    this.cancelledJobs.push(jobId);
   }
 
   async result(_jobId: string, result: ConnectorJobResult): Promise<void> {
@@ -429,6 +434,7 @@ describe("ConnectorWorker", () => {
     const worker = new ConnectorWorker(binding, runtime, transport, { cancel });
     await expect(worker.runOnce()).resolves.toBe("cancelled");
     expect(cancel).toHaveBeenCalledWith(binding.connectorBindingId);
+    expect(transport.cancelledJobs).toEqual([job.jobId]);
     expect(transport.results).toHaveLength(0);
     expect(transport.failures).toHaveLength(0);
   });
@@ -456,6 +462,7 @@ describe("ConnectorWorker", () => {
     const worker = new ConnectorWorker(binding, runtime, transport, { cancel });
 
     await expect(worker.runOnce()).resolves.toBe("cancelled");
+    expect(transport.cancelledJobs).toEqual([]);
     expect(transport.results).toHaveLength(0);
     expect(transport.failures).toHaveLength(0);
   });
@@ -673,6 +680,27 @@ describe("HttpConnectorWorkerTransport", () => {
         body: JSON.stringify({ grantId, resourceId }),
         credentials: "omit",
         redirect: "error",
+      }),
+    );
+  });
+
+  it("acknowledges local cancellation through the dedicated transport route", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status: 204 }));
+    const transport = new HttpConnectorWorkerTransport(
+      "https://telaegent.example/",
+      binding.connectorBindingId,
+      "a".repeat(40),
+      fetchImplementation,
+    );
+
+    await transport.cancelled(job.jobId);
+
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      `https://telaegent.example/api/connectors/jobs/${job.jobId}/cancelled`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({}),
+        credentials: "omit",
       }),
     );
   });
