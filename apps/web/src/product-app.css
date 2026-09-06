@@ -2106,6 +2106,7 @@ html[data-theme="dark"] .app-rail button > img {
   gap: 6px;
   color: var(--text);
   background: transparent;
+  font: inherit;
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
@@ -2193,6 +2194,7 @@ html[data-theme="dark"] .app-rail button > img {
   color: var(--muted);
   text-align: left;
   background: transparent;
+  font: inherit;
   cursor: pointer;
 }
 
@@ -2289,8 +2291,10 @@ html[data-theme="dark"] .app-rail button > img {
   border-radius: 999px;
   color: var(--button-text);
   background: var(--button);
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 

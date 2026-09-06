@@ -1930,6 +1930,7 @@ function RuntimeRoutePicker({
   catalogueState,
   provider,
   selectedModel,
+  selectedModels,
   fixedProvider,
   describedBy,
   disabled,
@@ -1939,6 +1940,7 @@ function RuntimeRoutePicker({
   catalogueState: AsyncLoadState;
   provider: AgentProvider;
   selectedModel: string;
+  selectedModels?: Partial<Record<AgentProvider, string>>;
   fixedProvider?: AgentProvider;
   describedBy?: string;
   disabled: boolean;
@@ -1961,6 +1963,22 @@ function RuntimeRoutePicker({
     : catalogueState === "loading"
       ? "Loading models"
       : "Server default";
+
+  function selectedModelFor(
+    candidate: RuntimeModelCatalogue["providers"][number],
+  ): string {
+    const rememberedModel = selectedModels?.[candidate.provider];
+    if (rememberedModel && candidate.models.includes(rememberedModel)) {
+      return rememberedModel;
+    }
+    if (
+      candidate.provider === provider &&
+      candidate.models.includes(selectedModel)
+    ) {
+      return selectedModel;
+    }
+    return candidate.defaultModel;
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -2037,11 +2055,7 @@ function RuntimeRoutePicker({
                 >
                   <strong>{formatProvider(candidate.provider)}</strong>
                   <small>
-                    {formatRuntimeModel(
-                      candidate.provider === provider && selectedModel
-                        ? selectedModel
-                        : candidate.defaultModel,
-                    )}
+                    {formatRuntimeModel(selectedModelFor(candidate))}
                   </small>
                 </button>
               ))}
@@ -2058,9 +2072,7 @@ function RuntimeRoutePicker({
               aria-label={`${formatProvider(browsingCatalogue.provider)} models`}
             >
               {browsingCatalogue.models.map((model) => {
-                const selected =
-                  browsingCatalogue.provider === provider &&
-                  model === selectedModel;
+                const selected = model === selectedModelFor(browsingCatalogue);
                 return (
                   <button
                     type="button"
@@ -2076,7 +2088,9 @@ function RuntimeRoutePicker({
                     <span>{formatRuntimeModel(model)}</span>
                     <small>
                       {selected
-                        ? "Current"
+                        ? browsingCatalogue.provider === provider
+                          ? "Current"
+                          : "Selected"
                         : model === browsingCatalogue.defaultModel
                           ? "Default"
                           : ""}
@@ -3350,6 +3364,7 @@ function ProjectChat({
                 catalogueState={runtimeModelsState}
                 provider={provider}
                 selectedModel={selectedModel}
+                selectedModels={modelsByProvider}
                 describedBy={
                   runtimeModelsState === "error"
                     ? "composer-model-status"
