@@ -1931,6 +1931,7 @@ function RuntimeRoutePicker({
   provider,
   selectedModel,
   fixedProvider,
+  describedBy,
   disabled,
   onChange,
 }: {
@@ -1939,6 +1940,7 @@ function RuntimeRoutePicker({
   provider: AgentProvider;
   selectedModel: string;
   fixedProvider?: AgentProvider;
+  describedBy?: string;
   disabled: boolean;
   onChange: (provider: AgentProvider, model: string) => void;
 }) {
@@ -1984,6 +1986,10 @@ function RuntimeRoutePicker({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (disabled || providers.length === 0) setOpen(false);
+  }, [disabled, providers.length]);
+
   function togglePicker() {
     setBrowsingProvider(fixedProvider ?? provider);
     setOpen((current) => !current);
@@ -1997,6 +2003,7 @@ function RuntimeRoutePicker({
         ref={triggerRef}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-describedby={describedBy}
         aria-label={`Choose local provider and model. Current selection: ${formatProvider(provider)}, ${triggerModel}`}
         disabled={disabled || providers.length === 0}
         onClick={togglePicker}
@@ -2048,7 +2055,6 @@ function RuntimeRoutePicker({
             </header>
             <div
               className="runtime-model-options"
-              role="radiogroup"
               aria-label={`${formatProvider(browsingCatalogue.provider)} models`}
             >
               {browsingCatalogue.models.map((model) => {
@@ -2058,8 +2064,7 @@ function RuntimeRoutePicker({
                 return (
                   <button
                     type="button"
-                    role="radio"
-                    aria-checked={selected}
+                    aria-pressed={selected}
                     className={selected ? "selected" : undefined}
                     key={model}
                     onClick={() => {
@@ -2224,6 +2229,11 @@ function PrivateAgentRoom({
               provider={draft.provider}
               selectedModel={selectedModel}
               fixedProvider={draft.provider}
+              describedBy={
+                runtimeModelsState === "error"
+                  ? "private-model-status"
+                  : undefined
+              }
               disabled={busy}
               onChange={(_provider, model) => onModelChange(model)}
             />
@@ -3340,6 +3350,11 @@ function ProjectChat({
                 catalogueState={runtimeModelsState}
                 provider={provider}
                 selectedModel={selectedModel}
+                describedBy={
+                  runtimeModelsState === "error"
+                    ? "composer-model-status"
+                    : undefined
+                }
                 disabled={busy}
                 onChange={(nextProvider, model) => {
                   setProvider(nextProvider);

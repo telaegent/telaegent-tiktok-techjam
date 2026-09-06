@@ -3309,12 +3309,8 @@ html[data-theme="dark"] .app-rail button > img {
     max-width: 156px;
   }
 
-  .composer-toolbar .runtime-route-provider {
-    display: none;
-  }
-
-  .composer-submit {
-    margin-left: auto;
+  .runtime-route-popover:not(.single-provider) {
+    grid-template-columns: 108px minmax(0, 1fr);
   }
 
   .workspace-private-room > header,
