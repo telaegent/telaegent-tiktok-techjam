@@ -2097,7 +2097,7 @@ html[data-theme="dark"] .app-rail button > img {
 
 .runtime-route-trigger {
   min-height: 34px;
-  max-width: 220px;
+  max-width: 280px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -2120,7 +2120,8 @@ html[data-theme="dark"] .app-rail button > img {
 
 .runtime-route-trigger:focus-visible,
 .runtime-provider-tabs button:focus-visible,
-.runtime-model-options button:focus-visible {
+.runtime-model-options button:focus-visible,
+.runtime-effort-options button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -2131,17 +2132,31 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 .runtime-route-provider,
-.runtime-route-model {
+.runtime-route-model,
+.runtime-route-effort {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .runtime-route-provider {
+  flex: 0 1 auto;
   font-weight: 600;
 }
 
 .runtime-route-model {
+  flex: 1 1 auto;
   color: var(--muted);
+}
+
+.runtime-route-effort {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.runtime-route-separator {
+  flex: 0 0 auto;
+  color: var(--quiet);
 }
 
 .runtime-route-trigger > i {
@@ -2163,8 +2178,8 @@ html[data-theme="dark"] .app-rail button > img {
   right: 0;
   bottom: calc(100% + 9px);
   z-index: 8;
-  width: min(360px, calc(100vw - 56px));
-  max-height: min(330px, calc(100vh - 160px));
+  width: min(380px, calc(100vw - 56px));
+  max-height: min(390px, calc(100vh - 160px));
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   display: grid;
@@ -2172,11 +2187,12 @@ html[data-theme="dark"] .app-rail button > img {
   overflow: hidden;
   color: var(--text);
   background: var(--surface);
+  font-family: inherit;
   box-shadow: 0 16px 38px color-mix(in srgb, var(--text) 12%, transparent);
 }
 
 .runtime-route-popover.single-provider {
-  width: min(240px, calc(100vw - 56px));
+  width: min(280px, calc(100vw - 56px));
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -2187,7 +2203,8 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 .runtime-provider-tabs button,
-.runtime-model-options button {
+.runtime-model-options button,
+.runtime-effort-options button {
   width: 100%;
   border: 0;
   border-radius: 7px;
@@ -2204,14 +2221,17 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 .runtime-provider-tabs button + button,
-.runtime-model-options button + button {
+.runtime-model-options button + button,
+.runtime-effort-options button + button {
   margin-top: 2px;
 }
 
 .runtime-provider-tabs button:hover,
 .runtime-provider-tabs button.selected,
 .runtime-model-options button:hover,
-.runtime-model-options button.selected {
+.runtime-model-options button.selected,
+.runtime-effort-options button:hover,
+.runtime-effort-options button.selected {
   color: var(--text);
   background: var(--surface-selected);
 }
@@ -2229,7 +2249,6 @@ html[data-theme="dark"] .app-rail button > img {
   margin-top: 4px;
   overflow: hidden;
   color: var(--quiet);
-  font-family: var(--mono);
   font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2257,7 +2276,6 @@ html[data-theme="dark"] .app-rail button > img {
 
 .runtime-model-panel > header small {
   color: var(--quiet);
-  font-family: var(--mono);
   font-size: var(--type-caption);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2274,13 +2292,58 @@ html[data-theme="dark"] .app-rail button > img {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  font-family: var(--mono);
   font-size: var(--type-control);
 }
 
 .runtime-model-options button small {
   color: var(--quiet);
   font-family: inherit;
+  font-size: var(--type-caption);
+}
+
+.runtime-effort-picker {
+  margin-top: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.runtime-effort-picker > header {
+  min-height: 30px;
+  padding: 2px 7px 6px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.runtime-effort-picker > header strong {
+  font-size: var(--type-control);
+}
+
+.runtime-effort-picker > header small {
+  overflow: hidden;
+  color: var(--quiet);
+  font-size: var(--type-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-effort-options button {
+  min-height: 35px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: var(--type-control);
+}
+
+.runtime-effort-options button span {
+  font-weight: 600;
+}
+
+.runtime-effort-options button small {
+  color: var(--quiet);
   font-size: var(--type-caption);
 }
 
@@ -3310,7 +3373,12 @@ html[data-theme="dark"] .app-rail button > img {
   }
 
   .runtime-route-trigger {
-    max-width: 156px;
+    max-width: 190px;
+  }
+
+  .runtime-route-provider,
+  .runtime-route-separator.provider-model {
+    display: none;
   }
 
   .runtime-route-popover:not(.single-provider) {

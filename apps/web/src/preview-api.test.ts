@@ -26,11 +26,15 @@ describe("local UI preview", () => {
 
     const catalogue = await previewRequest("/api/runtime/models") as {
       providers: Array<{ provider: string; defaultModel: string }>;
+      efforts: string[];
+      defaultEffort: string;
     };
     expect(catalogue.providers).toEqual([
       expect.objectContaining({ provider: "claude", defaultModel: "opus" }),
       expect.objectContaining({ provider: "codex", defaultModel: "gpt-5.6-sol" }),
     ]);
+    expect(catalogue.efforts).toEqual(["low", "medium", "high"]);
+    expect(catalogue.defaultEffort).toBe("medium");
 
     const projects = await previewRequest("/api/projects?limit=50") as {
       projects: ProjectSummary[];
@@ -70,7 +74,7 @@ describe("local UI preview", () => {
 
     const started = await previewRequest(`/api/drafts/${created.draft.draftId}/run`, {
       method: "POST",
-      body: JSON.stringify({ model: "sonnet" }),
+      body: JSON.stringify({ model: "sonnet", effort: "high" }),
     }) as { draft: PrivateDraftView };
     expect(started.draft.state).toBe("agent_working");
 
