@@ -1960,7 +1960,8 @@ function PrivateAgentRoom({
   onRetryRuntimeModels: () => void;
 }) {
   const state = draft?.state ?? "created";
-  const isWorking = state === "created" || state === "agent_working";
+  const isWorking =
+    state === "agent_working" || (state === "created" && !error);
   const canRunAgain =
     state === "needs_clarification" ||
     state === "runtime_failed" ||
