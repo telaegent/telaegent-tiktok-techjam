@@ -196,6 +196,7 @@ export type ProjectSummary = {
 export type ProjectCollaborator = {
   userId: string;
   githubLogin: string;
+  avatarUrl: string | null;
   connectionStatus:
     | "none"
     | "pending_outgoing"

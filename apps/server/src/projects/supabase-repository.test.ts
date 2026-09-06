@@ -48,4 +48,30 @@ describe("SupabaseProjectRepository", () => {
       message: "Project discovery is temporarily unavailable",
     });
   });
+
+  it("accepts the GitHub avatar in the project-scoped collaborator projection", async () => {
+    const collaborator = {
+      userId: "40000000-0000-4000-8000-000000000001",
+      githubLogin: "octocat",
+      avatarUrl: "https://avatars.githubusercontent.com/u/583231?v=4",
+      connectionStatus: "connected",
+      projectConnectionId: "50000000-0000-4000-8000-000000000001",
+    } as const;
+    const fetchImplementation = vi.fn(async () =>
+      new Response(JSON.stringify([collaborator]), { status: 200 }),
+    );
+    const repository = new SupabaseProjectRepository(
+      "https://example.supabase.co",
+      `sb_secret_${"c".repeat(32)}`,
+      1_000,
+      fetchImplementation,
+    );
+
+    await expect(repository.listCollaborators({
+      authenticatedUserId: input.authenticatedUserId,
+      projectId: "20000000-0000-4000-8000-000000000001",
+      afterUserId: null,
+      limit: 21,
+    })).resolves.toEqual([collaborator]);
+  });
 });

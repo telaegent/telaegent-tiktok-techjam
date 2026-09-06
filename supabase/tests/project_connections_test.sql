@@ -41,6 +41,12 @@ begin
     ('20000000-0000-4000-8000-00000000d004', v_dave,  904, 'dave-gh',
      'connected', statement_timestamp(), statement_timestamp());
 
+  insert into public.account_github_identities (
+    user_id, github_user_id, github_login, avatar_url
+  ) values (
+    v_bob, 902, 'bob-gh', 'https://avatars.githubusercontent.com/u/902?v=4'
+  );
+
   insert into public.repository_projects (
     project_id, github_repository_id, repository_full_name, visibility,
     default_branch, status
@@ -77,6 +83,7 @@ begin
   if jsonb_array_length(v_page) <> 1 or
      v_page #>> '{0,userId}' <> v_bob::text or
      v_page #>> '{0,githubLogin}' <> 'bob-gh' or
+     v_page #>> '{0,avatarUrl}' <> 'https://avatars.githubusercontent.com/u/902?v=4' or
      v_page #>> '{0,connectionStatus}' <> 'none' or
      v_page #>> '{0,projectConnectionId}' is not null then
     raise exception 'T1 FAILED: eligible peer listing was invalid %', v_page;

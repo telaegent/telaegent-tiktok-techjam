@@ -140,8 +140,9 @@ type AsyncLoadState = "idle" | "loading" | "ready" | "error";
 
 type Collaborator = {
   id: string;
-  initial: string;
+  githubLogin: string;
   name: string;
+  avatarUrl: string | null;
   topic: string;
   provider: string;
   branch: string;
@@ -273,8 +274,9 @@ function draftFailureGuidance(draft: PrivateDraftView): string {
 function collaboratorView(collaborator: ProjectCollaborator): Collaborator {
   return {
     id: collaborator.userId,
-    initial: collaborator.githubLogin.slice(0, 2).toUpperCase(),
+    githubLogin: collaborator.githubLogin,
     name: `@${collaborator.githubLogin}`,
+    avatarUrl: collaborator.avatarUrl,
     topic: "Approved project conversation",
     provider: "Local agent",
     branch: "Repository scoped",
@@ -285,6 +287,42 @@ function collaboratorView(collaborator: ProjectCollaborator): Collaborator {
           ? "pending"
           : "available",
   };
+}
+
+function GitHubAvatar({
+  login,
+  avatarUrl,
+  className = "",
+}: {
+  login: string;
+  avatarUrl: string | null;
+  className?: string;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarUrl]);
+
+  const classes = `app-avatar${className ? ` ${className}` : ""}`;
+  if (avatarUrl && !imageFailed) {
+    return (
+      <img
+        className={classes}
+        src={avatarUrl}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setImageFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span className={classes} aria-hidden="true">
+      {login.slice(0, 2).toUpperCase() || "--"}
+    </span>
+  );
 }
 
 function repositoryParts(fullName: string): { owner: string; name: string } {
@@ -1627,9 +1665,10 @@ function LiveConnectionsScreen({
               const busy = mutatingKey === key;
               return (
                 <article className="connection-row" key={collaborator.userId}>
-                  <span className="app-avatar" aria-hidden="true">
-                    {collaborator.githubLogin.slice(0, 2).toUpperCase()}
-                  </span>
+                  <GitHubAvatar
+                    login={collaborator.githubLogin}
+                    avatarUrl={collaborator.avatarUrl}
+                  />
                   <div>
                     <strong>@{collaborator.githubLogin}</strong>
                     <small>
@@ -1873,7 +1912,10 @@ function WorkspaceSidebar({
                 key={person.id}
                 onClick={() => onSelect(person.id)}
               >
-                <span className="app-avatar">{person.initial}</span>
+                <GitHubAvatar
+                  login={person.githubLogin}
+                  avatarUrl={person.avatarUrl}
+                />
                 <span>
                   <strong>{person.name}</strong>
                   <small>{person.topic}</small>
@@ -3149,7 +3191,10 @@ function ProjectChat({
     >
       <header className="project-chat-header">
         <div>
-          <span className="app-avatar">{selected?.initial ?? "--"}</span>
+          <GitHubAvatar
+            login={selected?.githubLogin ?? ""}
+            avatarUrl={selected?.avatarUrl ?? null}
+          />
           <span>
             <strong>{selected?.name ?? "Select a collaborator"}</strong>
             <small>Approved project conversation</small>
@@ -3382,7 +3427,10 @@ function ProjectChat({
         )}
         {messageLoadState === "ready" && messages.length === 0 && (
           <div className="empty-conversation">
-            <span className="app-avatar">{selected?.initial ?? "--"}</span>
+            <GitHubAvatar
+              login={selected?.githubLogin ?? ""}
+              avatarUrl={selected?.avatarUrl ?? null}
+            />
             <h2>
               Start a project conversation with{" "}
               {selected?.name ?? "this collaborator"}.
@@ -3572,9 +3620,10 @@ function ProjectPeople({
         )}
         {collaborators.map((collaborator) => (
           <article key={collaborator.userId}>
-            <span className="app-avatar">
-              {collaborator.githubLogin.slice(0, 2).toUpperCase()}
-            </span>
+            <GitHubAvatar
+              login={collaborator.githubLogin}
+              avatarUrl={collaborator.avatarUrl}
+            />
             <div>
               <strong>@{collaborator.githubLogin}</strong>
               <small>
@@ -4158,9 +4207,11 @@ export default function ProductApp({
           )}
           <ThemeSwitch theme={theme} onToggle={onToggleTheme} />
           <div className="account-summary">
-            <span>
-              {(user?.githubLogin ?? "Demo").slice(0, 2).toUpperCase()}
-            </span>
+            <GitHubAvatar
+              login={user?.githubLogin ?? "Demo"}
+              avatarUrl={user?.avatarUrl ?? null}
+              className="account-avatar"
+            />
             <strong>{user?.githubLogin ?? "Demo"}</strong>
           </div>
           <button

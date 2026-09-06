@@ -102,6 +102,8 @@
   font-family: var(--mono);
   font-size: var(--type-caption);
   font-weight: 600;
+  object-fit: cover;
+  overflow: hidden;
 }
 
 .app-status-mark {
@@ -621,9 +623,10 @@ button.connector-presence:hover {
   gap: 8px;
 }
 
-.account-summary span {
+.account-summary .account-avatar {
   width: 28px;
   height: 28px;
+  flex-basis: 28px;
   border-radius: 50%;
   display: grid;
   place-items: center;

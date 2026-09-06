@@ -37,6 +37,7 @@ function collaborator(suffix: string): ProjectCollaborator {
   return {
     userId: `40000000-0000-4000-8000-${suffix.padStart(12, "0")}`,
     githubLogin: `collaborator-${suffix}`,
+    avatarUrl: `https://avatars.githubusercontent.com/u/${suffix}?v=4`,
     connectionStatus: "none",
     projectConnectionId: null,
   };
