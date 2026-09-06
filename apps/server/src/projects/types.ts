@@ -63,6 +63,12 @@ export interface ProjectListPage {
 export const projectCollaboratorSchema = z.strictObject({
   userId: z.string().uuid(),
   githubLogin: z.string().min(1).max(39),
+  avatarUrl: z
+    .string()
+    .url()
+    .max(2048)
+    .refine((value) => value.startsWith("https://"))
+    .nullable(),
   /**
    * Reported from the caller's own vantage point. `pending_outgoing` means the
    * caller asked; `pending_incoming` means the caller was asked and holds the
