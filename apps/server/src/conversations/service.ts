@@ -6,6 +6,7 @@ import { HttpError, RunCancelledError } from "../errors.js";
 import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordinator.js";
 import type { AgentProvider } from "../runtime-contract.js";
 import { normalizeRuntimeFailure, RuntimeProviderError } from "../runtime-errors.js";
+import type { RuntimeEffort } from "../runtime-efforts.js";
 import { isSupportedModel } from "../runtime-models.js";
 import { redactText } from "../telagent/redaction.js";
 import {
@@ -39,6 +40,18 @@ export type ConversationAction =
 
 export interface ConversationAccessAuthorizer {
   authorize(input: Readonly<AuthorizePrivateRuntimeInput & { action: ConversationAction }>): Promise<void>;
+}
+
+/**
+ * What the owner picked for one run.
+ *
+ * Both fields are optional and independent, and absent means "do not choose" --
+ * which is what every client sent before the pickers existed, and what a run
+ * triggered by anything other than the owner's own screen still sends.
+ */
+export interface PrivateRunChoice {
+  model?: string | undefined;
+  effort?: RuntimeEffort | undefined;
 }
 
 export interface PrivateDraftTurnRuntime {
@@ -299,12 +312,12 @@ export class ConversationService {
   }
 
   /**
-   * Starts a run, optionally on a model the owner picked for it.
+   * Starts a run, optionally on a model and an effort the owner picked for it.
    *
    * The choice belongs to the run rather than to the draft. It is not
    * persisted, so a draft resumed after a restart runs on the deployment
    * default again -- acceptable because every trigger comes from a UI that
-   * already has the picker's current value, and the alternative is changing a
+   * already has the pickers' current values, and the alternative is changing a
    * SQL function's signature to store a preference the caller re-sends anyway.
    * Clarification is the same story: it returns the draft to `created` and the
    * owner runs it again, choosing again.
@@ -312,8 +325,9 @@ export class ConversationService {
   async runDraft(
     authenticatedUserId: string,
     draftId: string,
-    model?: string | undefined,
+    choice: Readonly<PrivateRunChoice> = {},
   ): Promise<PrivateDraftView> {
+    const { model, effort } = choice;
     const draft = await this.ownedDraft(authenticatedUserId, draftId);
     if (draft.state !== "created") throw new HttpError(409, "Private draft cannot be run");
     // Which models exist depends on the provider, and the provider is on the
@@ -323,6 +337,10 @@ export class ConversationService {
     if (model !== undefined && !isSupportedModel(draft.provider, model)) {
       throw new HttpError(400, "Requested model is not available for this provider");
     }
+    // Effort has no matching check because it does not need one here: the
+    // rungs are the same on every provider, so the route schema rejects a bad
+    // one before this method is reached and the type says so. The authorization
+    // seam re-checks it anyway, where the input is untyped.
     await this.authorizeDraft(draft, "run_draft");
 
     const turnId = this.createTurnId();
@@ -344,6 +362,7 @@ export class ConversationService {
         authorization: this.authorizationInput(draft),
         provider: draft.provider,
         ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
         role: draft.role,
         correlationId: draft.draftId,
         turnId,
@@ -380,7 +399,7 @@ export class ConversationService {
         conversationId: draft.conversationId,
       }).catch(() => false);
     }
-    void this.settleTurn(draft, turnId, started.completion, model);
+    void this.settleTurn(draft, turnId, started.completion, choice);
     return toPrivateDraftView(running);
   }
 
@@ -599,7 +618,7 @@ export class ConversationService {
   private async runFollowUpRounds(
     draft: PrivateDraft,
     first: Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>,
-    model?: string | undefined,
+    choice: Readonly<PrivateRunChoice>,
   ): Promise<Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>> {
     if (!this.followUp) return first;
     let result = first;
@@ -630,8 +649,10 @@ export class ConversationService {
         provider: draft.provider,
         // A later round of the same turn is the same turn. Switching models
         // between rounds would hand the approved files to something other than
-        // whatever asked for them.
-        ...(model ? { model } : {}),
+        // whatever asked for them, and switching effort would answer the
+        // question at a depth the owner never asked for.
+        ...(choice.model ? { model: choice.model } : {}),
+        ...(choice.effort ? { effort: choice.effort } : {}),
         role: draft.role,
         correlationId: draft.draftId,
         deliveredResources: delivered,
@@ -658,7 +679,7 @@ export class ConversationService {
     draft: PrivateDraft,
     turnId: string,
     completion: StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"],
-    model?: string | undefined,
+    choice: Readonly<PrivateRunChoice>,
   ): Promise<void> {
     const draftId = draft.draftId;
     const followUpWait = new AbortController();
@@ -667,7 +688,7 @@ export class ConversationService {
       const first = await completion;
       this.activeRuntimeTurns.set(draftId, null);
       this.throwIfCancellationRequested(draftId);
-      const result = await this.runFollowUpRounds(draft, first, model);
+      const result = await this.runFollowUpRounds(draft, first, choice);
       await this.completeTurn(draftId, draft.role, turnId, result.final);
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe

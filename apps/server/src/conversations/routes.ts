@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isGitHubRepositoryId } from "../authorization/github-repository-id.js";
 import { HttpError } from "../errors.js";
 import { setPrivateNoStore } from "../http-cache.js";
+import { DEFAULT_RUNTIME_EFFORT, RUNTIME_EFFORTS } from "../runtime-efforts.js";
 import { DEFAULT_RUNTIME_MODEL, RUNTIME_MODELS } from "../runtime-models.js";
 import { PROTOCOL_LIMITS } from "../telagent/protocol/contract.js";
 import type { ConversationService } from "./service.js";
@@ -35,13 +36,16 @@ const createReplyBody = z.strictObject({
     .optional(),
 });
 const emptyBody = z.strictObject({}).optional();
-// A run may name a model. The shape is checked here; whether this provider has
-// that model is checked in the service, which is the layer that knows the
-// draft's provider. Absent means "do not choose", which is also what an older
-// client sends -- the endpoint's previous body was `{}`.
+// A run may name a model and an effort. Only the shape of `model` is checked
+// here -- whether this provider has it is checked in the service, the layer
+// that knows the draft's provider -- while `effort` is checked outright,
+// because the rungs are the same whichever provider the draft names. Absent
+// means "do not choose" for both, which is also what an older client sends:
+// the endpoint's previous body was `{}`.
 const runBody = z
   .strictObject({
     model: z.string().trim().min(1).max(64).optional(),
+    effort: z.enum(RUNTIME_EFFORTS).optional(),
   })
   .optional();
 const clarificationBody = z.strictObject({
@@ -81,9 +85,13 @@ export function registerConversationRoutes(
     return userId;
   };
 
-  // What a model picker can offer. Behind the same authentication as the rest
-  // of the surface -- it leaks nothing, but an unauthenticated endpoint that
+  // What the pickers can offer. Behind the same authentication as the rest of
+  // the surface -- it leaks nothing, but an unauthenticated endpoint that
   // exists for one logged-in screen is a surface with no reason to be one.
+  //
+  // Models are per provider and efforts are not, and the shape says so: a
+  // caller reads `efforts` once and reuses it for every draft, rather than
+  // looking up a list that would be identical under each provider.
   app.get("/api/runtime/models", async (request, reply) => {
     setPrivateNoStore(reply);
     await user(request);
@@ -95,6 +103,8 @@ export function registerConversationRoutes(
           defaultModel: DEFAULT_RUNTIME_MODEL[provider],
         }),
       ),
+      efforts: [...RUNTIME_EFFORTS],
+      defaultEffort: DEFAULT_RUNTIME_EFFORT,
     };
   });
 
@@ -135,11 +145,10 @@ export function registerConversationRoutes(
     setPrivateNoStore(reply);
     const { draftId } = draftParams.parse(request.params);
     const body = runBody.parse(request.body);
-    const draft = await dependencies.service.runDraft(
-      await user(request),
-      draftId,
-      body?.model,
-    );
+    const draft = await dependencies.service.runDraft(await user(request), draftId, {
+      ...(body?.model ? { model: body.model } : {}),
+      ...(body?.effort ? { effort: body.effort } : {}),
+    });
     return reply.code(202).send({ draft, pollUrl: `/api/drafts/${draft.draftId}` });
   });
 

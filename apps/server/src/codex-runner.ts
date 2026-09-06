@@ -29,6 +29,10 @@ import {
 } from "./process-tree.js";
 import { RuntimeWatchdog } from "./runtime-watchdog.js";
 import {
+  DEFAULT_RUNTIME_EFFORT,
+  type RuntimeEffort,
+} from "./runtime-efforts.js";
+import {
   onRuntimeCancellation,
   throwIfRuntimeCancelled,
 } from "./runtime-cancellation.js";
@@ -154,8 +158,17 @@ const defaultDependencies: CodexRunnerDependencies = {
  *   descriptions from the prompt: ~90k to ~31k input tokens per turn.
  * - `notify=[]` stops the per-turn hook launching a local executable.
  * - `web_search="disabled"` closes network egress from the model itself.
- * - `model_reasoning_effort` is pinned because ignoring the config drops the
- *   effort to `none`, which would quietly make every turn shallower.
+ * - `model_reasoning_effort` must be supplied because ignoring the config
+ *   drops the effort to `none`, which would quietly make every turn shallower.
+ *   It is the one entry here a caller can move: it carries the turn's chosen
+ *   effort, defaulting to `DEFAULT_RUNTIME_EFFORT` so that an unchosen turn
+ *   reasons exactly as the Claude runner's unchosen turn does. Verified by
+ *   behaviour rather than by acceptance -- at `low` a turn that spent 40
+ *   reasoning tokens at `medium` spent none -- and an unrecognised value is a
+ *   hard failure, not a fallback: `bogus` exits 1 with an empty stderr, and a
+ *   value this CLI knows but the chosen model does not (`minimal` on
+ *   `gpt-5.6-sol`) comes back as `turn.failed` from the API. Both are why
+ *   `RUNTIME_EFFORTS` is an allowlist checked before a connector claims a turn.
  *
  * A warning about verifying changes here. `-c` accepts unknown keys silently:
  * `-c this.key.is.nonsense=true` starts fine. So a key that is accepted is not
@@ -182,6 +195,7 @@ const defaultDependencies: CodexRunnerDependencies = {
  */
 export function closedToolSurface(
   platform: NodeJS.Platform = process.platform,
+  effort: RuntimeEffort = DEFAULT_RUNTIME_EFFORT,
 ): string[] {
   return [
     "--ignore-user-config",
@@ -193,7 +207,7 @@ export function closedToolSurface(
     "-c",
     'web_search="disabled"',
     "-c",
-    'model_reasoning_effort="medium"',
+    `model_reasoning_effort="${effort}"`,
   ];
 }
 
@@ -231,7 +245,10 @@ export function buildCodexMiddlewareArgs(
   const args = [
     "exec",
     "--json",
-    ...closedToolSurface(),
+    // The only runner surface that carries a caller's effort: `RunnerRequest`
+    // (the plain `codex exec` path above) has no such field, so it keeps the
+    // default.
+    ...closedToolSurface(process.platform, request.effort),
     "-c",
     'approval_policy="never"',
     "--sandbox",

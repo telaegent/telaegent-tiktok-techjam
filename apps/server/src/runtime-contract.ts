@@ -1,4 +1,5 @@
 import type { ConnectorResourceRequest } from "./connectors/resource-exchange.js";
+import type { RuntimeEffort } from "./runtime-efforts.js";
 import type { Agent } from "./types.js";
 
 export type AgentProvider = "codex" | "claude";
@@ -67,9 +68,10 @@ export interface MiddlewareRunRequest {
   /**
    * How much reasoning the provider should spend before answering.
    *
-   * Unset now means "medium", not "whatever the CLI does": the Claude runner
-   * defaults it (`DEFAULT_CLAUDE_EFFORT`) and Codex pins the same value in
-   * `closedToolSurface()`. Set this field only to depart from that.
+   * Unset means `DEFAULT_RUNTIME_EFFORT`, not "whatever the CLI does", and it
+   * means it on both providers: the Claude runner defaults `--effort` to that
+   * constant and `closedToolSurface()` writes the same one into Codex's
+   * `model_reasoning_effort`. Set this field only to depart from it.
    *
    * Left to the Claude CLI's own default it reasons at its maximum, which is
    * the right setting for a pass that has to work something out and the wrong
@@ -86,13 +88,14 @@ export interface MiddlewareRunRequest {
    * its remaining speed by writing a shorter answer -- 2425 characters on the
    * same prompt. Reach for the schema's maxLength before reaching for "low".
    *
-   * Honoured by the Claude runner as `--effort`. Codex ignores this field
-   * entirely -- its effort is pinned in `closedToolSurface()`, because ignoring
-   * the user config drops it to `none` otherwise. The two agree at medium, but
-   * by two unconnected routes: changing this field moves Claude and silently
-   * does not move Codex.
+   * Both runners honour it, but by unrelated routes: Claude takes `--effort`,
+   * while Codex has no flag for it and receives it as a `-c` config override
+   * that `--ignore-user-config` would otherwise blank to `none`. The rungs are
+   * therefore only as shared as `RUNTIME_EFFORTS` says they are -- each CLI
+   * accepts values the other does not, and on Codex the set narrows again per
+   * model. Allowlist first; neither CLI falls back on a value it dislikes.
    */
-  effort?: "low" | "medium" | "high" | undefined;
+  effort?: RuntimeEffort | undefined;
 
   /**
    * Which model of the chosen provider should answer.

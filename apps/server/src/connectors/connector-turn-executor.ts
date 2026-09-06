@@ -13,6 +13,7 @@ import type {
   RuntimeProgressSink,
   SessionMode,
 } from "../runtime-contract.js";
+import type { RuntimeEffort } from "../runtime-efforts.js";
 import { RuntimeProviderError } from "../runtime-errors.js";
 import type { ConnectorResourceRequest } from "./resource-exchange.js";
 
@@ -59,6 +60,14 @@ export interface ConnectorJobRequest {
    * Already allowlisted before it reaches here.
    */
   model?: string | undefined;
+  /**
+   * How hard the connector should ask the provider to think, or absent.
+   *
+   * Travels beside `model` and for the same reason: it is the owner's choice,
+   * not the connector's, and a connector that filled it in would answer a
+   * question the cloud deliberately left open. Already allowlisted.
+   */
+  effort?: RuntimeEffort | undefined;
   purpose: RunPurpose;
   runtimePrompt: string;
   persistedSummary: string;
@@ -150,6 +159,7 @@ export class ConnectorTurnExecutor
         conversationId: scope.conversationId,
         provider: scope.provider,
         ...(request.model ? { model: request.model } : {}),
+        ...(request.effort ? { effort: request.effort } : {}),
         purpose: request.purpose,
         runtimePrompt: request.runtimePrompt,
         persistedSummary: request.persistedSummary,
