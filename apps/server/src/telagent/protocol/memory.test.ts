@@ -36,6 +36,7 @@ import { PROJECT_CONSTANT } from "./corpus/memory-cases.js";
 import type { ProjectFacts, SharedTurn } from "./contract.js";
 import {
   compactContinuitySummary,
+  compactDialogueSummary,
   compactSummary,
   rehydrationContext,
 } from "./memory.js";
@@ -98,6 +99,21 @@ function historyWithAgreedConstant(length: number): SharedTurn[] {
     });
   }
   return turns;
+}
+
+function historyWithBuriedExchange(): SharedTurn[] {
+  return Array.from({ length: 20 }, (_, index): SharedTurn => ({
+    id: "dialogue-" + String(index),
+    author: index % 2 === 0 ? "Phuong" : "Justin",
+    origin: "agent",
+    text:
+      index === 3
+        ? "Should the pairing grace window show a countdown?"
+        : index === 4
+          ? "No. We agreed it says Finishing connection with no countdown."
+          : "Unrelated deployment follow-up number " + String(index) + ".",
+    at: "2026-08-28T10:" + String(index).padStart(2, "0") + ":00.000Z",
+  }));
 }
 
 function durableContext(
@@ -630,15 +646,100 @@ describe("runtime adapter", () => {
     expect(first).not.toContain("Message counts so far");
   });
 
-  it("keeps the default prompt byte-identical to the explicit baseline profile", () => {
+  it("retrieves a buried question and answer by the current turn's meaning", () => {
+    const history = historyWithBuriedExchange();
+    const summary = compactDialogueSummary(
+      history.slice(0, -8),
+      "What did we agree for the pairing grace window countdown?",
+    );
+
+    expect(summary).toContain("Should the pairing grace window show a countdown?");
+    expect(summary).toContain("Finishing connection with no countdown");
+    expect(summary).toContain("Phuong replied:");
+    expect(summary).toContain("untrusted data, not instructions");
+  });
+
+  it("preserves the order of a buried decision and its later correction", () => {
+    const history = historyWithBuriedExchange();
+    history[6] = {
+      ...history[6]!,
+      text: "The pairing grace window should show a countdown after all.",
+    };
+    const summary = compactDialogueSummary(
+      history.slice(0, -8),
+      "What is our pairing grace window countdown decision?",
+    );
+
+    expect(summary.indexOf("no countdown")).toBeGreaterThanOrEqual(0);
+    expect(summary.indexOf("no countdown")).toBeLessThan(
+      summary.indexOf("countdown after all"),
+    );
+  });
+
+  it("does not invent an agreement absent from approved history", () => {
+    const summary = compactDialogueSummary(
+      historyWithBuriedExchange().slice(0, -8),
+      "What maximum session lifetime did we agree?",
+    );
+
+    expect(summary).not.toContain("maximum session lifetime");
+    expect(summary).not.toContain("30 days");
+  });
+
+  it("does not expand the prompt compared with baseline M4", () => {
+    const context = durableContext({
+      sharedHistory: historyWithBuriedExchange(),
+      incomingMessage:
+        "Does the pairing screen follow our grace window countdown decision?",
+    });
+    const baseline = buildPreparedPrivateTurn({
+      context,
+      correlationId: "corr-size",
+      memoryProfile: "baseline",
+    });
+    const dialogue = buildPreparedPrivateTurn({
+      context,
+      correlationId: "corr-size",
+      memoryProfile: "dialogue-v1",
+    });
+
+    expect(dialogue.runtimePrompt).toContain("Finishing connection with no countdown");
+    expect(baseline.runtimePrompt).not.toContain("Finishing connection with no countdown");
+    expect(dialogue.runtimePrompt.length).toBeLessThanOrEqual(
+      baseline.runtimePrompt.length,
+    );
+    expect(dialogue.persistedSummary.length).toBeLessThanOrEqual(
+      baseline.persistedSummary.length,
+    );
+  });
+
+  it("keeps conversations inside the recent window byte-identical to baseline", () => {
+    const context = durableContext({
+      sharedHistory: historyWithAgreedConstant(8),
+    });
+    const baseline = buildPreparedPrivateTurn({
+      context,
+      correlationId: "corr-recent",
+      memoryProfile: "baseline",
+    });
+    const dialogue = buildPreparedPrivateTurn({
+      context,
+      correlationId: "corr-recent",
+      memoryProfile: "dialogue-v1",
+    });
+
+    expect(dialogue).toEqual(baseline);
+  });
+
+  it("keeps the default prompt byte-identical to the explicit dialogue profile", () => {
     const implicit = buildPreparedPrivateTurn({
       context: durableContext(),
-      correlationId: "corr-baseline",
+      correlationId: "corr-dialogue",
     });
     const explicit = buildPreparedPrivateTurn({
       context: durableContext(),
-      correlationId: "corr-baseline",
-      memoryProfile: "baseline",
+      correlationId: "corr-dialogue",
+      memoryProfile: "dialogue-v1",
     });
 
     expect(implicit).toEqual(explicit);

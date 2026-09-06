@@ -225,7 +225,11 @@ if (config.telaegentIdentityProvider === "github") {
       authorizer,
       loadContext: contextLoader.load,
       connector: relay,
-      memoryProfile: config.agentMemoryV2 ? "continuity-v2" : "baseline",
+      // Dialogue memory is deterministic and prompt-size non-expanding, so it
+      // is the production default rather than an experiment behind a flag.
+      // Keep the earlier continuity renderer available for operators already
+      // validating AGENT_MEMORY_V2 while that rollout seam still exists.
+      memoryProfile: config.agentMemoryV2 ? "continuity-v2" : "dialogue-v1",
       policy: {
         // Three, because two leaves the drafting pass no slack at all.
         //
