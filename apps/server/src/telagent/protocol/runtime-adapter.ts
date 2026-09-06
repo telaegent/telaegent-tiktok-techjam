@@ -235,7 +235,12 @@ function rejectProtocolContext(
  */
 export function toTurnInput(
   context: DurableConversationContext,
-  memory = rehydrationContext(context.sharedHistory, context.projectFacts),
+  memory = rehydrationContext(
+    context.sharedHistory,
+    context.projectFacts,
+    "dialogue-v1",
+    turnFocus(context),
+  ),
 ): ProtocolTurnInput {
   const shared = {
     facts: context.facts,
@@ -261,15 +266,22 @@ export function toTurnInput(
   return input;
 }
 
+function turnFocus(context: DurableConversationContext): string {
+  return context.role === "sender"
+    ? (context.ownerInput ?? "")
+    : (context.incomingMessage ?? "");
+}
+
 function renderTurn(
   context: DurableConversationContext,
   format: ProtocolFormatId,
-  memoryProfile: RehydrationMemoryProfile = "baseline",
+  memoryProfile: RehydrationMemoryProfile = "dialogue-v1",
 ): { runtimePrompt: string; persistedSummary: string } {
   const memory = rehydrationContext(
     context.sharedHistory,
     context.projectFacts,
     memoryProfile,
+    turnFocus(context),
   );
   const rendered = getFormat(format).render(toTurnInput(context, memory));
 

@@ -11,6 +11,7 @@ function freshParsed(): ParsedClaudeEvents {
   return {
     sessionId: null,
     structuredOutput: undefined,
+    structuredOutputAttempts: [],
     resultText: null,
     resultSubtype: null,
     errors: [],

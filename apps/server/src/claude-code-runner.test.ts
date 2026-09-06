@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   buildClaudeArgs,
@@ -5,6 +6,7 @@ import {
   completedStructuredOutputBeforeMaxTurns,
   extractClaudeFinalResult,
   parseClaudeStreamLine,
+  recoverClaudeOutputAtTurnLimit,
   type ParsedClaudeEvents,
 } from "./claude-code-runner.js";
 import type {
@@ -33,6 +35,7 @@ const request = (
 const emptyParsed = (): ParsedClaudeEvents => ({
   sessionId: null,
   structuredOutput: undefined,
+  structuredOutputAttempts: [],
   resultText: null,
   resultSubtype: null,
   errors: [],
@@ -111,6 +114,7 @@ describe("Claude Code runner protocol", () => {
     expect(denied).toContain("Glob");
     expect(denied).toContain("Grep");
     expect(args).toContain("--json-schema");
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
   });
 
   it("still gives a read-only pass its read tools by default", () => {
@@ -288,6 +292,83 @@ describe("Claude Code runner protocol", () => {
 
     expect(completedStructuredOutputBeforeMaxTurns(parsed)).toBe(true);
     expect(extractClaudeFinalResult(parsed)).toMatchObject({ state: "ready" });
+  });
+
+  it("recovers the observed three-attempt recipient failure against the production schema", async () => {
+    const parsed = emptyParsed();
+    const schema = JSON.parse(
+      await readFile(
+        new URL("./telagent/output-schemas/recipient-turn.schema.json", import.meta.url),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+
+    for (const input of [
+      {
+        state: "ready",
+        privateSummary: "x".repeat(2242),
+        riskFlags: [],
+        sourcePaths: ["src/pairing.ts"],
+        resourceRequests: [],
+      },
+      {
+        state: "ready",
+        privateSummary: "corrected summary",
+        sendCandidate: "The code expires after five minutes.",
+        sourcePaths: ["src/pairing.ts"],
+        resourceRequests: [],
+      },
+      {
+        privateSummary: "final summary",
+        sendCandidate: "The code expires after five minutes.",
+      },
+    ]) {
+      parseClaudeStreamLine(
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            content: [{ type: "tool_use", name: "StructuredOutput", input }],
+          },
+        }),
+        parsed,
+      );
+    }
+    parseClaudeStreamLine(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_max_turns",
+        is_error: true,
+        errors: ["Reached max turns"],
+      }),
+      parsed,
+    );
+
+    expect(recoverClaudeOutputAtTurnLimit(parsed, schema)).toEqual({
+      state: "ready",
+      privateSummary: "final summary",
+      sendCandidate: "The code expires after five minutes.",
+      riskFlags: [],
+      sourcePaths: ["src/pairing.ts"],
+      resourceRequests: [],
+    });
+  });
+
+  it("does not recover partial output unless the merged object passes the schema", () => {
+    const parsed = emptyParsed();
+    parsed.resultSubtype = "error_max_turns";
+    parsed.structuredOutputAttempts.push({ privateSummary: "notes only" });
+
+    expect(
+      recoverClaudeOutputAtTurnLimit(parsed, {
+        type: "object",
+        properties: {
+          privateSummary: { type: "string" },
+          sendCandidate: { type: "string" },
+        },
+        required: ["privateSummary", "sendCandidate"],
+        additionalProperties: false,
+      }),
+    ).toBeUndefined();
   });
 
   it("does not suppress execution errors merely because they include output", () => {

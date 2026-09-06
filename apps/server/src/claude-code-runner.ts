@@ -1,5 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
+import { Ajv } from "ajv";
 import type { AppConfig } from "./config.js";
 import { RunCancelledError } from "./errors.js";
 import type {
@@ -38,6 +39,7 @@ const execFileAsync = promisify(execFile);
 export interface ParsedClaudeEvents {
   sessionId: string | null;
   structuredOutput: unknown;
+  structuredOutputAttempts: Record<string, unknown>[];
   resultText: string | null;
   resultSubtype: string | null;
   errors: string[];
@@ -55,6 +57,53 @@ export function completedStructuredOutputBeforeMaxTurns(
   return (
     parsed.structuredOutput !== undefined && parsed.resultSubtype === "error_max_turns"
   );
+}
+
+const recoveryValidator = new Ajv({ allErrors: true, strict: false });
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Claude's StructuredOutput retry feedback names only the rejected fields. In
+ * practice the next attempt can contain only the correction and accidentally
+ * omit fields that were valid one turn earlier. Preserve each attempted object
+ * and carry a value forward only when a later attempt omitted that key.
+ *
+ * Recovery is intentionally narrow: only the CLI's max-turn terminal subtype
+ * is eligible, the newest supplied value always wins, and the reconstructed
+ * object must pass the exact same provider schema before it can leave the
+ * runner. The strict protocol parser and security guards still run afterward.
+ */
+export function recoverClaudeOutputAtTurnLimit(
+  parsed: Readonly<ParsedClaudeEvents>,
+  outputSchema: JsonSchemaDocument,
+): unknown | undefined {
+  if (
+    parsed.resultSubtype !== "error_max_turns" ||
+    parsed.structuredOutputAttempts.length === 0
+  ) {
+    return undefined;
+  }
+
+  const merged: Record<string, unknown> = {};
+  for (const attempt of parsed.structuredOutputAttempts) {
+    Object.assign(merged, attempt);
+  }
+
+  try {
+    const validate = recoveryValidator.compile(
+      providerCompatibleSchema("claude", outputSchema),
+    );
+    return validate(merged) ? merged : undefined;
+  } catch {
+    // A recovery validator must never weaken ordinary schema handling. If the
+    // provider schema itself cannot compile, use the existing failure path.
+    return undefined;
+  }
 }
 
 export function buildClaudeArgs(
@@ -96,7 +145,7 @@ export function buildClaudeArgs(
     "--max-turns",
     String(request.maxTurns),
     "--permission-mode",
-    readOnly ? "plan" : "acceptEdits",
+    noTools ? "dontAsk" : readOnly ? "plan" : "acceptEdits",
     "--tools",
     tools,
     "--allowedTools",
@@ -260,6 +309,10 @@ export function parseClaudeStreamLine(
         if (typeof block !== "object" || block === null) continue;
         const toolUse = block as Record<string, unknown>;
         if (toolUse.type !== "tool_use" || typeof toolUse.name !== "string") continue;
+        if (toolUse.name === "StructuredOutput") {
+          const attempt = recordValue(toolUse.input);
+          if (attempt) parsed.structuredOutputAttempts.push({ ...attempt });
+        }
         const activity = claudeToolActivity(toolUse.name);
         if (!activity) continue;
         const target = claudeToolTarget(toolUse.input);
@@ -455,6 +508,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
     const parsed: ParsedClaudeEvents = {
       sessionId: request.sessionMode === "continue" ? request.sessionId ?? null : null,
       structuredOutput: undefined,
+      structuredOutputAttempts: [],
       resultText: null,
       resultSubtype: null,
       errors: [],
@@ -541,9 +595,11 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
           exitCode,
         });
       }
+      const recoveredOutput = recoverClaudeOutputAtTurnLimit(parsed, outputSchema);
       if (
         (exitCode !== 0 || parsed.errors.length > 0) &&
-        !completedStructuredOutputBeforeMaxTurns(parsed)
+        !completedStructuredOutputBeforeMaxTurns(parsed) &&
+        recoveredOutput === undefined
       ) {
         // Classify the complete bounded error set. Claude can emit a useful
         // missing-session error followed by a generic terminal error; looking
@@ -558,7 +614,7 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
       }
       let final: unknown;
       try {
-        final = extractClaudeFinalResult(parsed);
+        final = recoveredOutput ?? extractClaudeFinalResult(parsed);
       } catch (error) {
         if (!(error instanceof RuntimeProviderError)) throw error;
         throw new RuntimeProviderError(error.code, error.message, {
