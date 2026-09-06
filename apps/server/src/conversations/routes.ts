@@ -66,6 +66,7 @@ const messageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
   cursor: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
+const draftListQuery = z.strictObject({ githubRepositoryId: repositoryId });
 const runtimeModelsQuery = z.strictObject({ githubRepositoryId: repositoryId });
 
 export type AuthenticatedUserResolver = (
@@ -151,6 +152,19 @@ export function registerConversationRoutes(
     setPrivateNoStore(reply);
     const { draftId } = draftParams.parse(request.params);
     return { draft: await dependencies.service.getDraft(await user(request), draftId) };
+  });
+
+  app.get("/api/conversations/:conversationId/drafts", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const { conversationId } = conversationParams.parse(request.params);
+    const query = draftListQuery.parse(request.query);
+    return {
+      drafts: await dependencies.service.listRecoverableDrafts({
+        authenticatedUserId: await user(request),
+        conversationId,
+        ...query,
+      }),
+    };
   });
 
   app.post("/api/drafts/:draftId/run", async (request, reply) => {

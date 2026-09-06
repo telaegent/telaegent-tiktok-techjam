@@ -56,6 +56,17 @@ export interface ConversationRepository {
     idempotencyKey: string;
   }>): Promise<CreateRecipientDraftResult | null>;
   getDraft(draftId: string): Promise<PrivateDraft | null>;
+  /**
+   * Lists owner-private, unfinished drafts for one exact conversation scope.
+   * Implementations must enforce all three keys; this is the recovery path
+   * after browser navigation or reload, never a cross-owner draft search.
+   */
+  listRecoverableDrafts(input: {
+    ownerUserId: string;
+    conversationId: string;
+    githubRepositoryId: string;
+    limit: number;
+  }): Promise<PrivateDraft[]>;
   markDraftRunning(input: {
     draftId: string;
     ownerUserId: string;

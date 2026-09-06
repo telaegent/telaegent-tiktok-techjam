@@ -44,7 +44,8 @@ import {
 } from "./app-routing";
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
-import { collectCursorPages } from "./cursor-pagination";
+import { collectCursorPages, collectCursorSnapshot } from "./cursor-pagination";
+import { mergeConversationMessages } from "./conversation-sync";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
 import { selectAvailableProvider } from "./runtime-selection";
 import ThemeSwitch from "./ThemeSwitch";
@@ -1085,8 +1086,8 @@ function ProjectsScreen({
           <span className="app-eyebrow">Project trust</span>
           <h2>Connections stay repository-scoped.</h2>
           <p>
-            Only repositories independently proven by your local GitHub CLI
-            appear here.
+            Only repositories reported by your authenticated connector after a
+            local GitHub CLI access check appear here.
           </p>
           <div className="permission-copy">
             <span>
@@ -1461,7 +1462,7 @@ function connectionStatusDetail(
 ): string {
   switch (status) {
     case "none":
-      return "Both of you independently proved access to this repository.";
+      return "Each authenticated connector reported local access to this repository.";
     case "pending_outgoing":
       return "Waiting for this person to accept the project connection.";
     case "pending_incoming":
@@ -1658,8 +1659,8 @@ function LiveConnectionsScreen({
             )}
             {!error && collaborators.length === 0 && (
               <p className="empty-line">
-                No other Telaegent user has independently proved this repository
-                yet.
+                No other Telaegent user's authenticated connector has reported
+                local access to this repository yet.
               </p>
             )}
             {collaborators.map((collaborator) => {
@@ -2363,7 +2364,13 @@ function PrivateAgentRoom({
                   ? "private-model-status"
                   : undefined
               }
-              disabled={busy}
+              disabled={
+                busy ||
+                runtimeModelsState !== "ready" ||
+                !runtimeModels?.providers.some(
+                  (candidate) => candidate.provider === draft.provider,
+                )
+              }
               onChange={(_provider, model) => onModelChange(model)}
               onEffortChange={onEffortChange}
             />
@@ -2504,7 +2511,13 @@ function PrivateAgentRoom({
                 className="send"
                 type="button"
                 onClick={onRetry}
-                disabled={busy}
+                disabled={
+                  busy ||
+                  runtimeModelsState !== "ready" ||
+                  !runtimeModels?.providers.some(
+                    (candidate) => candidate.provider === draft?.provider,
+                  )
+                }
               >
                 Retry
               </button>
@@ -2563,6 +2576,8 @@ function ProjectChat({
   const [grantError, setGrantError] = useState<ApiError | null>(null);
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PrivateDraftView | null>(null);
+  const [recoverableDrafts, setRecoverableDrafts] = useState<PrivateDraftView[]>([]);
+  const [draftRecoveryError, setDraftRecoveryError] = useState<ApiError | null>(null);
   // Set only while a reply draft is open, so the private room can show what is
   // being answered and Retry can reopen the same reply.
   const [answering, setAnswering] = useState<SharedMessage | null>(null);
@@ -2580,8 +2595,10 @@ function ProjectChat({
   // confirms or reconciliation proves the message was committed.
   const sendKeys = useRef(new Map<string, string>());
   const messageRequests = useRef(
-    new SingleFlightByKey<ConversationMessage[]>(),
+    new SingleFlightByKey<{ items: ConversationMessage[]; pollCursor: string | null }>(),
   );
+  const rawConversationMessages = useRef<ConversationMessage[]>([]);
+  const messagePollCursor = useRef<string | null>(null);
   const scopeRequestsInFlight = useRef(
     new SingleFlightByKey<CapabilityScopeRequest[]>(),
   );
@@ -2679,23 +2696,72 @@ function ProjectChat({
     scopeKey: string,
     selectedConversationId: string,
     repositoryId: string,
+    afterCursor: string | null,
     fresh = false,
   ) {
-    // A transcript outgrows one page, so every page is drained. Before this
-    // the server refused to return a conversation past its ceiling at all,
-    // which made an established conversation permanently unreadable.
+    // Initial load drains the transcript. Polls start after the retained
+    // cursor, so unchanged history is never downloaded again.
     const request = async () =>
-      collectCursorPages<ConversationMessage>(async (cursor) => {
+      collectCursorSnapshot<ConversationMessage>(async (cursor) => {
         const page = await api.conversationMessages(
           selectedConversationId,
           repositoryId,
           { limit: 200, ...(cursor ? { cursor } : {}) },
         );
-        return { items: page.messages, nextCursor: page.nextCursor };
-      });
+        return {
+          items: page.messages,
+          nextCursor: page.nextCursor,
+          pollCursor: page.pollCursor,
+        };
+      }, 1_000, afterCursor ?? undefined);
+    const requestKey = `${scopeKey}:${afterCursor ?? "initial"}`;
     return fresh
-      ? messageRequests.current.runFresh(scopeKey, request)
-      : messageRequests.current.run(scopeKey, request);
+      ? messageRequests.current.runFresh(requestKey, request)
+      : messageRequests.current.run(requestKey, request);
+  }
+
+  function applyMessageSnapshot(snapshot: {
+    items: ConversationMessage[];
+    pollCursor: string | null;
+  }, replace: boolean): number {
+    rawConversationMessages.current = replace
+      ? snapshot.items
+      : mergeConversationMessages(rawConversationMessages.current, snapshot.items);
+    messagePollCursor.current = snapshot.pollCursor;
+    setMessages(
+      rawConversationMessages.current.map((message) =>
+        mapConversationMessage(
+          message,
+          currentUserId,
+          ownMessageIds.current.has(message.messageId),
+        ),
+      ),
+    );
+    return snapshot.items.length;
+  }
+
+  function openRecoveredDraft(nextDraft: PrivateDraftView) {
+    setDraft(nextDraft);
+    setRoughMessage(nextDraft.roughMessage ?? "");
+    setClarification("");
+    setApprovedContent(nextDraft.sendCandidate ?? "");
+    setEditingCandidate(false);
+    setActionError(null);
+    setAnswering(
+      nextDraft.incomingMessageId
+        ? messages.find((message) => message.id === nextDraft.incomingMessageId) ?? null
+        : null,
+    );
+    setPrivateRoomOpen(true);
+    // A `created` draft has no provider turn to poll. This state can be left
+    // behind when navigation wins the race between creation and /run, so
+    // reopening must resume it instead of displaying an endless spinner.
+    if (nextDraft.state === "created") {
+      setBusy(true);
+      void runDraft(nextDraft.draftId, nextDraft.provider).finally(() => {
+        setBusy(false);
+      });
+    }
   }
 
   async function loadScopeRequests(showError = true, fresh = false) {
@@ -2758,18 +2824,12 @@ function ProjectChat({
         scopeKey,
         selectedConversationId,
         repositoryId,
+        null,
         fresh,
       );
       if (activeMessageScope.current !== scopeKey) return;
-      setMessages(
-        nextMessages.map((message) =>
-          mapConversationMessage(
-            message,
-            currentUserId,
-            ownMessageIds.current.has(message.messageId),
-          ),
-        ),
-      );
+      applyMessageSnapshot(nextMessages, true);
+      setMessageError(null);
       setMessageLoadState("ready");
     } catch (error) {
       if (activeMessageScope.current !== scopeKey) return;
@@ -2778,15 +2838,40 @@ function ProjectChat({
     }
   }
 
+  async function loadRecoverableDrafts(isActive: () => boolean = () => true) {
+    if (configurationError || !conversationId) {
+      setRecoverableDrafts([]);
+      setDraftRecoveryError(null);
+      return;
+    }
+    const scopeKey = messageScopeKey;
+    try {
+      const result = await api.recoverableConversationDrafts(
+        conversationId,
+        project.githubRepositoryId,
+      );
+      if (!isActive() || activeMessageScope.current !== scopeKey) return;
+      setRecoverableDrafts(result.drafts);
+      setDraftRecoveryError(null);
+    } catch (error) {
+      if (!isActive() || activeMessageScope.current !== scopeKey) return;
+      setDraftRecoveryError(normalizeApiError(error));
+    }
+  }
+
   useEffect(() => {
     let active = true;
     ownMessageIds.current.clear();
+    rawConversationMessages.current = [];
+    messagePollCursor.current = null;
     replyCreationKeys.current.clear();
     sendKeys.current.clear();
     setComposer("");
     setRoughMessage("");
     setPrivateRoomOpen(false);
     setDraft(null);
+    setRecoverableDrafts([]);
+    setDraftRecoveryError(null);
     setAnswering(null);
     setActionError(null);
     if (configurationError || !conversationId) {
@@ -2799,18 +2884,10 @@ function ProjectChat({
     setMessageLoadState("loading");
     setMessageError(null);
     const scopeKey = messageScopeKey;
-    void requestMessages(scopeKey, conversationId, project.githubRepositoryId)
+    void requestMessages(scopeKey, conversationId, project.githubRepositoryId, null)
       .then((nextMessages) => {
         if (!active || activeMessageScope.current !== scopeKey) return;
-        setMessages(
-          nextMessages.map((message) =>
-            mapConversationMessage(
-              message,
-              currentUserId,
-              ownMessageIds.current.has(message.messageId),
-            ),
-          ),
-        );
+        applyMessageSnapshot(nextMessages, true);
         setMessageLoadState("ready");
       })
       .catch((error: unknown) => {
@@ -2818,6 +2895,7 @@ function ProjectChat({
         setMessageError(normalizeApiError(error));
         setMessageLoadState("error");
       });
+    void loadRecoverableDrafts(() => active);
     return () => {
       active = false;
     };
@@ -2839,21 +2917,19 @@ function ProjectChat({
           scopeKey,
           conversationId,
           project.githubRepositoryId,
+          messagePollCursor.current,
         );
         if (!active || activeMessageScope.current !== scopeKey) return false;
-        setMessages(
-          nextMessages.map((message) =>
-            mapConversationMessage(
-              message,
-              currentUserId,
-              ownMessageIds.current.has(message.messageId),
-            ),
-          ),
-        );
-        return nextMessages.length > 0;
+        const added = applyMessageSnapshot(nextMessages, false);
+        setMessageError(null);
+        return added > 0;
       },
-      onError: () => {
-        // Keep the last approved snapshot. An explicit load exposes connection errors.
+      onError: (error) => {
+        if (active && activeMessageScope.current === scopeKey) {
+          // Keep the last approved snapshot visible, but never hide that it may
+          // now be stale.
+          setMessageError(normalizeApiError(error));
+        }
       },
     });
     const stop = startVisiblePolling(poller, false);
@@ -2938,6 +3014,11 @@ function ProjectChat({
         .then(({ draft: nextDraft }) => {
           if (!active) return;
           setDraft(nextDraft);
+          setRecoverableDrafts((current) =>
+            current.map((candidate) =>
+              candidate.draftId === nextDraft.draftId ? nextDraft : candidate,
+            ),
+          );
           setActionError(null);
           if (nextDraft.state === "ready") {
             setApprovedContent(nextDraft.sendCandidate ?? "");
@@ -2975,6 +3056,10 @@ function ProjectChat({
         },
       );
       setDraft(result.draft);
+      setRecoverableDrafts((current) => [
+        result.draft,
+        ...current.filter((candidate) => candidate.draftId !== result.draft.draftId),
+      ]);
       setActionError(null);
     } catch (error) {
       setActionError(normalizeApiError(error));
@@ -2993,6 +3078,10 @@ function ProjectChat({
         roughMessage: message,
       });
       setDraft(created.draft);
+      setRecoverableDrafts((current) => [
+        created.draft,
+        ...current.filter((candidate) => candidate.draftId !== created.draft.draftId),
+      ]);
       setPrivateRoomOpen(true);
       await runDraft(created.draft.draftId, created.draft.provider);
     } catch (error) {
@@ -3034,6 +3123,10 @@ function ProjectChat({
         idempotencyKey,
       });
       setDraft(created.draft);
+      setRecoverableDrafts((current) => [
+        created.draft,
+        ...current.filter((candidate) => candidate.draftId !== created.draft.draftId),
+      ]);
       setPrivateRoomOpen(true);
       await runDraft(created.draft.draftId, created.draft.provider);
     } catch (error) {
@@ -3092,6 +3185,10 @@ function ProjectChat({
         clarification.trim(),
       );
       setDraft(clarified.draft);
+      setRecoverableDrafts((current) => [
+        clarified.draft,
+        ...current.filter((candidate) => candidate.draftId !== clarified.draft.draftId),
+      ]);
       setClarification("");
       await runDraft(clarified.draft.draftId, clarified.draft.provider);
     } catch (error) {
@@ -3110,6 +3207,9 @@ function ProjectChat({
     setActionError(null);
     try {
       await api.cancelConversationDraft(draft.draftId);
+      setRecoverableDrafts((current) =>
+        current.filter((candidate) => candidate.draftId !== draft.draftId),
+      );
       sendKeys.current.delete(draft.draftId);
       if (answering) replyCreationKeys.current.delete(answering.id);
       setPrivateRoomOpen(false);
@@ -3140,10 +3240,22 @@ function ProjectChat({
       sendKeys.current.delete(sendingDraft.draftId);
       ownMessageIds.current.add(result.message.messageId);
       if (answering) replyCreationKeys.current.delete(answering.id);
-      setMessages((current) => [
-        ...current,
-        mapConversationMessage(result.message, currentUserId, true),
-      ]);
+      rawConversationMessages.current = mergeConversationMessages(
+        rawConversationMessages.current,
+        [result.message],
+      );
+      setMessages(
+        rawConversationMessages.current.map((message) =>
+          mapConversationMessage(
+            message,
+            currentUserId,
+            ownMessageIds.current.has(message.messageId),
+          ),
+        ),
+      );
+      setRecoverableDrafts((current) =>
+        current.filter((candidate) => candidate.draftId !== sendingDraft.draftId),
+      );
       setMessageLoadState("ready");
       setPrivateRoomOpen(false);
       setDraft(null);
@@ -3178,6 +3290,7 @@ function ProjectChat({
   }
 
   async function retryDraft() {
+    if (!runtimeSelectionReady) return;
     if (draft?.state === "created") {
       setBusy(true);
       await runDraft(draft.draftId, draft.provider);
@@ -3215,7 +3328,7 @@ function ProjectChat({
 
       <div className="chat-project-strip">
         <span>
-          <StatusMark tone={messageLoadState === "error" ? "warn" : "ok"} />{" "}
+          <StatusMark tone={messageError ? "warn" : "ok"} />{" "}
           {project.repositoryFullName}
         </span>
         <small className="chat-project-repository-id">
@@ -3224,6 +3337,37 @@ function ProjectChat({
       </div>
 
       <div className="shared-thread" aria-live="polite">
+        {!privateRoomOpen && recoverableDrafts.length > 0 && (
+          <section className="api-state" aria-label="Unfinished private drafts">
+            <strong>
+              {recoverableDrafts.length === 1
+                ? "An unfinished private draft is ready to reopen"
+                : `${recoverableDrafts.length} unfinished private drafts are ready to reopen`}
+            </strong>
+            <p>These remain private and nothing has been sent.</p>
+            <div>
+              {recoverableDrafts.map((candidate) => (
+                <button
+                  type="button"
+                  key={candidate.draftId}
+                  onClick={() => openRecoveredDraft(candidate)}
+                >
+                  Reopen {formatProvider(candidate.provider)} draft ·{" "}
+                  {formatMessageTime(candidate.updatedAt)}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+        {draftRecoveryError && (
+          <div className="api-state error" role="alert">
+            <strong>Private draft recovery is unavailable</strong>
+            <p>{apiErrorGuidance(draftRecoveryError)}</p>
+            <button type="button" onClick={() => void loadRecoverableDrafts()}>
+              Retry
+            </button>
+          </div>
+        )}
         {(ownedGrants.length > 0 || grantError) && (
           <section className="grant-inventory" aria-label="Active file grants">
             <header>
@@ -3417,11 +3561,13 @@ function ProjectChat({
             </p>
           </div>
         )}
-        {messageLoadState === "error" && messageError && (
+        {messageError && (
           <div className="api-state error" role="alert">
             <strong>
-              {messageError.code ||
-                `Conversation unavailable (${messageError.status || "offline"})`}
+              {messageLoadState === "ready"
+                ? "Conversation updates are paused"
+                : messageError.code ||
+                  `Conversation unavailable (${messageError.status || "offline"})`}
             </strong>
             <p>{apiErrorGuidance(messageError)}</p>
             {messageError.retryable && (
@@ -3431,7 +3577,7 @@ function ProjectChat({
             )}
           </div>
         )}
-        {messageLoadState === "ready" && messages.length === 0 && (
+        {messageLoadState === "ready" && !messageError && messages.length === 0 && (
           <div className="empty-conversation">
             <GitHubAvatar
               login={selected?.githubLogin ?? ""}
@@ -3611,7 +3757,7 @@ function ProjectPeople({
         {state === "loading" && (
           <div className="api-state">
             <TypingDots label="Loading collaborators" />
-            <p>Loading independently verified project members.</p>
+            <p>Loading members with connector-attested project access.</p>
           </div>
         )}
         {state === "error" && error && (

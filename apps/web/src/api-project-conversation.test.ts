@@ -6,6 +6,22 @@ afterEach(() => {
 });
 
 describe("project conversation API", () => {
+  it("loads owner-private recoverable drafts under the exact conversation scope", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
+        JSON.stringify({ drafts: [] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.recoverableConversationDrafts("conversation/id", "123456789");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/conversations/conversation%2Fid/drafts?githubRepositoryId=123456789",
+    );
+  });
+
   it("loads the ordered runtime model and effort catalogue", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
@@ -72,7 +88,7 @@ describe("project conversation API", () => {
     );
   });
 
-  it("requests project trust from an independently verified member", async () => {
+  it("requests project trust from a connector-attested member", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(
       JSON.stringify({ connection: { status: "pending" } }),
       { status: 200, headers: { "content-type": "application/json" } },

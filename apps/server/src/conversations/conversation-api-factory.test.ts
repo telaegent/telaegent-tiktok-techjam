@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import {
+  AuthorizedConversationAccess,
   ConnectorUnavailableDraftRuntime,
   createConversationApi,
 } from "./conversation-api-factory.js";
@@ -24,6 +25,10 @@ const routes = [
     },
   },
   { method: "GET" as const, url: `/api/drafts/${DRAFT}` },
+  {
+    method: "GET" as const,
+    url: `/api/conversations/${CONVERSATION}/drafts?githubRepositoryId=${REPOSITORY}`,
+  },
   { method: "POST" as const, url: `/api/drafts/${DRAFT}/run` },
   {
     method: "POST" as const,
@@ -97,5 +102,33 @@ describe("ConnectorUnavailableDraftRuntime", () => {
       code: "RUNTIME_UNAVAILABLE",
     });
     await expect(runtime.cancel()).resolves.toBe(false);
+  });
+});
+
+describe("AuthorizedConversationAccess", () => {
+  it("does not require a live runtime for read, send, or cancel", async () => {
+    const authorizePrivateRuntime = vi.fn(async () => ({
+      userId: USER,
+      githubRepositoryId: REPOSITORY,
+      runtimeBindingId: "binding",
+    }));
+    const authorizeConversationAccess = vi.fn(async () => undefined);
+    const access = new AuthorizedConversationAccess({
+      authorizePrivateRuntime,
+      authorizeConversationAccess,
+    });
+    const scope = {
+      authenticatedUserId: USER,
+      githubRepositoryId: REPOSITORY,
+      conversationId: CONVERSATION,
+    };
+
+    for (const action of ["read", "send", "cancel"] as const) {
+      await access.authorize({ ...scope, action });
+    }
+    await access.authorize({ ...scope, action: "run_draft" });
+
+    expect(authorizeConversationAccess).toHaveBeenCalledTimes(3);
+    expect(authorizePrivateRuntime).toHaveBeenCalledTimes(1);
   });
 });

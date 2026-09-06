@@ -74,6 +74,30 @@ export class InMemoryConversationRepository implements ConversationRepository {
     return draft ? cloneDraft(draft) : null;
   }
 
+  async listRecoverableDrafts(input: {
+    ownerUserId: string;
+    conversationId: string;
+    githubRepositoryId: string;
+    limit: number;
+  }): Promise<PrivateDraft[]> {
+    return [...this.drafts.values()]
+      .filter(
+        (draft) =>
+          draft.ownerUserId === input.ownerUserId &&
+          draft.conversationId === input.conversationId &&
+          draft.githubRepositoryId === input.githubRepositoryId &&
+          draft.state !== "sent" &&
+          draft.state !== "cancelled",
+      )
+      .sort(
+        (left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt) ||
+          right.draftId.localeCompare(left.draftId),
+      )
+      .slice(0, input.limit)
+      .map(cloneDraft);
+  }
+
   async markDraftRunning(input: {
     draftId: string;
     ownerUserId: string;

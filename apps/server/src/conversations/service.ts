@@ -95,10 +95,13 @@ const MAX_FOLLOW_UP_ROUNDS = 5;
 
 /** Largest transcript page one read may return. */
 export const MAX_TRANSCRIPT_PAGE_SIZE = 200;
+export const MAX_RECOVERABLE_DRAFTS = 50;
 
 export interface SharedMessageListPage {
   messages: SharedMessage[];
   nextCursor: string | null;
+  /** Cursor after the last returned message, including on the final page. */
+  pollCursor: string | null;
 }
 
 const transcriptCursorPayload = z.strictObject({
@@ -309,6 +312,36 @@ export class ConversationService {
     const draft = await this.ownedDraft(authenticatedUserId, draftId);
     await this.authorizeDraft(draft, "read");
     return toPrivateDraftView(draft);
+  }
+
+  /** Reopens unfinished owner-private work after navigation or browser reload. */
+  async listRecoverableDrafts(input: Readonly<{
+    authenticatedUserId: string;
+    githubRepositoryId: string;
+    conversationId: string;
+  }>): Promise<PrivateDraftView[]> {
+    await this.authorize(input, "read");
+    const drafts = await this.repository.listRecoverableDrafts({
+      ownerUserId: input.authenticatedUserId,
+      githubRepositoryId: input.githubRepositoryId,
+      conversationId: input.conversationId,
+      limit: MAX_RECOVERABLE_DRAFTS,
+    });
+    // Treat persistence as untrusted even after its owner filter. A bad adapter
+    // must not turn the recovery endpoint into another user's private inbox.
+    if (
+      drafts.some(
+        (draft) =>
+          draft.ownerUserId !== input.authenticatedUserId ||
+          draft.githubRepositoryId !== input.githubRepositoryId ||
+          draft.conversationId !== input.conversationId ||
+          draft.state === "sent" ||
+          draft.state === "cancelled",
+      )
+    ) {
+      throw new HttpError(503, "Private draft recovery is temporarily unavailable");
+    }
+    return drafts.slice(0, MAX_RECOVERABLE_DRAFTS).map(toPrivateDraftView);
   }
 
   /**
@@ -563,6 +596,9 @@ export class ConversationService {
         rows.length > limit && last
           ? encodeTranscriptCursor(last.sentAt, last.messageId)
           : null,
+      pollCursor: last
+        ? encodeTranscriptCursor(last.sentAt, last.messageId)
+        : input.cursor ?? null,
     };
   }
 

@@ -200,8 +200,9 @@ Before changing product behavior, architecture, security policy, API contracts, 
 The three-minute scenario, in order:
 
 1. **Sign in** at <https://telaegent.live> with GitHub, and open a project. The
-   repository appears because a connector proved access with that developer's
-   own `gh` identity - the cloud never received a token for it.
+   repository appears because the authenticated connector attested a successful
+   local access check with that developer's own `gh` identity - the cloud never
+   received a token for it and did not independently repeat the check.
 2. **Show both connectors online.** Two developers, two machines, one
    repository. Each connector dialled out; neither opened a port.
 3. **Ask a question.** Type a rough request. It stays private while your own

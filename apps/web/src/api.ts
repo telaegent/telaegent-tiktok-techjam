@@ -187,7 +187,8 @@ export type ProjectSummary = {
 };
 
 /**
- * A project member who independently proved access to the same repository.
+ * A project member whose authenticated connector attested local access to the
+ * same repository. This is not cloud-side GitHub authorization.
  *
  * `connectionStatus` is reported from the viewer's own vantage point:
  * `pending_outgoing` means you asked, `pending_incoming` means you were asked
@@ -354,7 +355,7 @@ export const api = {
    * Project members who could be asked to connect, and where each pair stands.
    *
    * Not a GitHub collaborator listing: everyone here connected their own GitHub
-   * identity and proved this same repository themselves.
+   * identity and their authenticated connector attested this same repository.
    */
   projectCollaborators: (
     projectId: string,
@@ -504,10 +505,18 @@ export const api = {
     return request<{
       messages: ConversationMessage[];
       nextCursor: string | null;
+      pollCursor: string | null;
     }>(
       `/api/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
     );
   },
+  recoverableConversationDrafts: (
+    conversationId: string,
+    githubRepositoryId: string,
+  ) =>
+    request<{ drafts: PrivateDraftView[] }>(
+      `/api/conversations/${encodeURIComponent(conversationId)}/drafts?githubRepositoryId=${encodeURIComponent(githubRepositoryId)}`,
+    ),
   createConversationDraft: (
     conversationId: string,
     body: {
