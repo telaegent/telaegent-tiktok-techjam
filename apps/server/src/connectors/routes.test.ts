@@ -318,6 +318,20 @@ describe("connector long-poll HTTP transport", () => {
     const probe = await probeRequest;
     expect(probe.statusCode).toBe(200);
     expect(probe.json()).toEqual({ connected: true, provider: "codex", durationMs: 25 });
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId))
+      .toEqual(["codex"]);
+
+    // The npm artifact published as 0.1.17 sent `{}` here even though the
+    // matching source release sent `providers`. Preserve that client long
+    // enough for users to move to the corrected release.
+    const legacyReady = await app.inject({
+      method: "POST",
+      url: `/api/connectors/bindings/${bindingId}/ready`,
+      payload: {},
+    });
+    expect(legacyReady.statusCode).toBe(204);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId))
+      .toEqual(["codex"]);
     await app.close();
   });
 

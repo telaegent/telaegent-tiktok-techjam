@@ -91,6 +91,15 @@ test("the website command pins the exact package release", async () => {
   );
 });
 
+test("the packaged CLI announces the providers that passed its live probes", async () => {
+  const contents = await readFile(binPath, "utf8");
+  assert.match(contents, /\{ providers: connectedProviders \}/);
+  assert.doesNotMatch(
+    contents,
+    /bindings\/\$\{registered\.connectorBindingId\}\/ready`, \{\}/,
+  );
+});
+
 test("the package excludes removed runtime schemas", async () => {
   await assert.rejects(
     readFile(

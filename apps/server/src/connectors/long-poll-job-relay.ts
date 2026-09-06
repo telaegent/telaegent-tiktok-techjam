@@ -238,15 +238,45 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     });
   }
 
-  /** Records only providers that completed a live connector-to-provider probe. */
-  markBindingReady(
+  /**
+   * Records one provider immediately after its live connector-to-provider probe
+   * succeeds. Keeping this separately from the final readiness announcement
+   * lets the server safely support connector 0.1.17, whose published artifact
+   * sent an empty readiness body.
+   */
+  markProviderProbeSucceeded(
     principal: Readonly<ConnectorPrincipal>,
     connectorBindingId: string,
-    providers: readonly AgentProvider[],
+    provider: AgentProvider,
   ): void {
     this.assertBindingOwner(principal, connectorBindingId);
     const registration = this.bindings.get(connectorBindingId)!;
-    registration.providers = [...new Set(providers)];
+    if (!registration.providers.includes(provider)) {
+      registration.providers.push(provider);
+    }
+    registration.lastSeenAt = this.now();
+  }
+
+  /**
+   * Finalizes the provider inventory. When providers are omitted, preserve the
+   * successful probes already recorded for the broken published 0.1.17 client.
+   */
+  markBindingReady(
+    principal: Readonly<ConnectorPrincipal>,
+    connectorBindingId: string,
+    providers?: readonly AgentProvider[],
+  ): void {
+    this.assertBindingOwner(principal, connectorBindingId);
+    const registration = this.bindings.get(connectorBindingId)!;
+    if (providers !== undefined) {
+      registration.providers = [...new Set(providers)];
+    }
+    if (registration.providers.length === 0) {
+      throw new RuntimeProviderError(
+        "RUNTIME_UNAVAILABLE",
+        "No local coding provider passed the Telaegent live probe",
+      );
+    }
     registration.lastSeenAt = this.now();
   }
 
