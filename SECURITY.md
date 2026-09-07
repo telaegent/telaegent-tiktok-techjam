@@ -130,6 +130,16 @@ without keeping the revoked binding authorized. Connector credentials are
 still validated for revocation, expiry, and account status on every request,
 while safe `last_seen_at` telemetry is written at most once per 30 seconds.
 
+The installed CLI bootstraps that bearer through a device-authorization flow.
+The unauthenticated terminal receives a high-entropy device secret and a short
+human-readable code. Only hashes are stored by the cloud. A signed-in browser
+must explicitly approve the short-lived request before the terminal can claim
+the bearer, and each device secret is single-use. Polling is throttled, issuance
+is bounded per installation and globally, and approved requests still expire.
+The CLI stores the bearer only in the operating-system credential vault; the
+adjacent file contains the non-secret connector installation ID only. There is
+no plaintext fallback when the credential vault is unavailable.
+
 ## Data handling
 
 Durable:
@@ -178,8 +188,11 @@ resolved.
 The current long-poll queue and binding-presence map are process-local. An
 authenticated connector can restore its durable ready binding after a cloud
 restart, but queued jobs are not durably redelivered across that restart.
-Connector packaging, signed updates, and production operational review remain
-open.
+Connector publication now has a protected GitHub Actions and npm trusted-
+publishing path with provenance. The protected environment configuration,
+real npm publication, signed-in two-machine acceptance run, update policy, and
+production operational review remain release gates rather than completed
+claims.
 
 Repository registration accepts only a strict, fresh proof from an
 authenticated local connector. The connector obtains repository identity,

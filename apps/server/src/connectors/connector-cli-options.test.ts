@@ -4,6 +4,7 @@ import { parseConnectorCliOptions } from "./connector-cli-options.js";
 describe("connector CLI options", () => {
   it("defaults to the current repository and interactive provider selection", () => {
     expect(parseConnectorCliOptions(["connect"])).toEqual({
+      command: "connect",
       workspaceCandidate: ".",
       provider: "choose",
       probeOnly: false,
@@ -18,7 +19,7 @@ describe("connector CLI options", () => {
         "D:\\repo",
         "--provider",
         provider,
-      ])).toEqual({ workspaceCandidate: "D:\\repo", provider, probeOnly: false });
+      ])).toEqual({ command: "connect", workspaceCandidate: "D:\\repo", provider, probeOnly: false });
     },
   );
 
@@ -29,7 +30,7 @@ describe("connector CLI options", () => {
       "/repo",
       "--provider",
       "codex",
-    ])).toEqual({ workspaceCandidate: "/repo", provider: "codex", probeOnly: true });
+    ])).toEqual({ command: "connect", workspaceCandidate: "/repo", provider: "codex", probeOnly: true });
   });
 
   it("accepts one-command connector settings without requiring shell-specific environment syntax", () => {
@@ -43,6 +44,7 @@ describe("connector CLI options", () => {
       "--credential",
       "connector-credential",
     ])).toEqual({
+      command: "connect",
       workspaceCandidate: ".",
       provider: "choose",
       probeOnly: false,
@@ -61,12 +63,27 @@ describe("connector CLI options", () => {
       "--pair",
       "pairing-code",
     ])).toEqual({
+      command: "connect",
       workspaceCandidate: ".",
       provider: "choose",
       probeOnly: false,
       serverOrigin: "https://telaegent.live",
       pairingCode: "pairing-code",
     });
+  });
+
+  it("supports repository disconnect, machine auth, help, and version commands", () => {
+    expect(parseConnectorCliOptions(["disconnect", ".", "--yes"])).toEqual({
+      command: "disconnect",
+      workspaceCandidate: ".",
+      yes: true,
+    });
+    expect(parseConnectorCliOptions(["auth", "status"])).toEqual({
+      command: "auth",
+      action: "status",
+    });
+    expect(parseConnectorCliOptions(["--help"])).toEqual({ command: "help" });
+    expect(parseConnectorCliOptions(["--version"])).toEqual({ command: "version" });
   });
 
   it.each([
@@ -81,6 +98,8 @@ describe("connector CLI options", () => {
     ["connect", "--pair"],
     ["connect", "--pair", "pair", "--credential", "bearer"],
     ["connect", "--unknown"],
+    ["--help", "extra"],
+    ["auth", "login"],
   ])("fails closed for invalid arguments: %j", (argv) => {
     expect(() => parseConnectorCliOptions(argv)).toThrow();
   });

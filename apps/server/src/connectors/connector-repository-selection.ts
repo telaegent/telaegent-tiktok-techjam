@@ -46,6 +46,27 @@ export async function confirmRepositorySelection(
   }
 }
 
+export async function confirmRepositoryDisconnection(
+  repositoryFullName: string,
+  workspacePath: string,
+  skipPrompt = false,
+  ask: (prompt: string) => Promise<string> = askInTerminal,
+): Promise<void> {
+  if (skipPrompt) return;
+  const answer = (await ask(
+    [
+      "\nTELAEGENT REPOSITORY DISCONNECT",
+      `GitHub: ${repositoryFullName}`,
+      `Local root: ${workspacePath}`,
+      "Active Telaegent work for this repository will stop. Shared history remains.",
+      "Disconnect this repository? [y/N] ",
+    ].join("\n"),
+  )).trim().toLowerCase();
+  if (answer !== "y" && answer !== "yes") {
+    throw new Error("Repository disconnect cancelled");
+  }
+}
+
 async function askInTerminal(prompt: string): Promise<string> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error(

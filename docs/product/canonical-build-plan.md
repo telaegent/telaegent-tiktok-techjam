@@ -127,13 +127,14 @@ The connector is the only new local requirement.
 Example:
 
 ```bash
-telaegent connect .
+tlg connect
 ```
 
 or:
 
 ```bash
-npx telaegent connect .
+npm install --global @telaegent/connector
+tlg connect
 ```
 
 It should:

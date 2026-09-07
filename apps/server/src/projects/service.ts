@@ -182,6 +182,21 @@ export class ProjectService {
     return { disconnect };
   }
 
+  async disconnectRepositoryByGitHubId(input: Readonly<{
+    authenticatedUserId: string;
+    githubRepositoryId: string;
+  }>): Promise<{ disconnect: ProjectDisconnect }> {
+    if (!this.repository.disconnectRepositoryByGitHubId) throw notAvailable();
+    const disconnect = await this.repository.disconnectRepositoryByGitHubId({
+      authenticatedUserId: uuid.parse(input.authenticatedUserId),
+      githubRepositoryId: z.string().regex(/^[1-9][0-9]{0,18}$/).parse(
+        input.githubRepositoryId,
+      ),
+    });
+    if (disconnect === null) throw notAvailable();
+    return { disconnect };
+  }
+
   /**
    * Opens, or returns, the shared conversation for one connected pair.
    *

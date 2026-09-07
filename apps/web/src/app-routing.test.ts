@@ -35,6 +35,9 @@ describe("browser app routing", () => {
       productLocationFromUrl("/app/projects/new", "", false).route,
     ).toBe("add-project");
     expect(
+      productLocationFromUrl("/app/connect-device", "?code=ABCD-EFGH", false).route,
+    ).toBe("connect-device");
+    expect(
       productLocationFromUrl("/app/connections", "", false).route,
     ).toBe("connections");
     expect(productLocationFromUrl("/app/settings", "", false).route).toBe(
@@ -48,6 +51,7 @@ describe("browser app routing", () => {
   it("builds durable paths and keeps local preview mode query-gated", () => {
     expect(productPath("projects")).toBe("/app");
     expect(productPath("add-project")).toBe("/app/projects/new");
+    expect(productPath("connect-device")).toBe("/app/connect-device");
     expect(productPath("onboarding", null, true)).toBe(
       "/app/onboarding?preview=1",
     );

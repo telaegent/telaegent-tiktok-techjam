@@ -24,6 +24,8 @@ import {
   createConnectorPrincipalResolver,
 } from "./connectors/connector-credentials.js";
 import { ConnectorPairingService } from "./connectors/connector-pairing.js";
+import { ConnectorDeviceAuthorizationService } from "./connectors/connector-device-authorization.js";
+import { SupabaseConnectorDeviceAuthorizationRepository } from "./connectors/connector-device-authorization-repository.js";
 import { LongPollConnectorJobRelay } from "./connectors/long-poll-job-relay.js";
 import type { ConnectorTransportRouteDependencies } from "./connectors/routes.js";
 import type { RepositoryProofRouteDependencies } from "./repository-proof/routes.js";
@@ -132,6 +134,13 @@ if (config.telaegentIdentityProvider === "github") {
   const resolveConnectorPrincipal = createConnectorPrincipalResolver(
     credentialService,
   );
+  const projectService = new ProjectService(
+    new SupabaseProjectRepository(
+      config.supabaseUrl,
+      config.supabaseSecretKey,
+      config.githubOAuthTimeoutMs,
+    ),
+  );
   const relay = new LongPollConnectorJobRelay({
     // A connector job now contains a bounded research pass followed by the
     // ordinary provider turn. The cloud lease must cover both plus enough time
@@ -148,7 +157,21 @@ if (config.telaegentIdentityProvider === "github") {
     resolveConnectorPrincipal,
     credentials: credentialService,
     pairings: new ConnectorPairingService(),
+    deviceAuthorizations: new ConnectorDeviceAuthorizationService(
+      new SupabaseConnectorDeviceAuthorizationRepository(
+        config.supabaseUrl,
+        config.supabaseSecretKey,
+        config.githubOAuthTimeoutMs,
+      ),
+      credentialService,
+      config.telaegentPublicOrigin,
+    ),
     authenticatedUserId,
+    disconnectRepository: (principal, githubRepositoryId) =>
+      projectService.disconnectRepositoryByGitHubId({
+        authenticatedUserId: principal.authenticatedUserId,
+        githubRepositoryId,
+      }),
   };
   repositoryProofApi = {
     service: new RepositoryProofService(
@@ -191,13 +214,7 @@ if (config.telaegentIdentityProvider === "github") {
   }
 
   projectApi = {
-    service: new ProjectService(
-      new SupabaseProjectRepository(
-        config.supabaseUrl,
-        config.supabaseSecretKey,
-        config.githubOAuthTimeoutMs,
-      ),
-    ),
+    service: projectService,
     authenticatedUserId,
     isBindingOnline: (userId, connectorBindingId) =>
       relay.isBindingOnline(userId, connectorBindingId),

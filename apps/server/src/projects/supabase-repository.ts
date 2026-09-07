@@ -117,6 +117,16 @@ export class SupabaseProjectRepository implements ProjectRepository {
     }, projectDisconnectSchema);
   }
 
+  async disconnectRepositoryByGitHubId(input: Readonly<{
+    authenticatedUserId: string;
+    githubRepositoryId: string;
+  }>): Promise<ProjectDisconnect | null> {
+    return this.call("disconnect_user_repository_by_github_id", {
+      p_user_id: input.authenticatedUserId,
+      p_github_repository_id: input.githubRepositoryId,
+    }, projectDisconnectSchema);
+  }
+
   async createConversation(input: Readonly<{
     conversationId: string;
     projectId: string;
