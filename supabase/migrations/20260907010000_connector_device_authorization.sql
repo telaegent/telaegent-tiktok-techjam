@@ -105,9 +105,9 @@ declare
   v_authorization public.connector_device_authorizations%rowtype;
 begin
   if p_user_code_hash_hex !~ '^[0-9a-f]{64}$' then return null; end if;
-  select authorization.* into v_authorization
-  from public.connector_device_authorizations authorization
-  where authorization.user_code_hash = decode(p_user_code_hash_hex, 'hex')
+  select device_auth.* into v_authorization
+  from public.connector_device_authorizations device_auth
+  where device_auth.user_code_hash = decode(p_user_code_hash_hex, 'hex')
   for update;
   if not found then return null; end if;
 
@@ -150,9 +150,9 @@ begin
     return null;
   end if;
 
-  select authorization.* into v_authorization
-  from public.connector_device_authorizations authorization
-  where authorization.user_code_hash = decode(p_user_code_hash_hex, 'hex')
+  select device_auth.* into v_authorization
+  from public.connector_device_authorizations device_auth
+  where device_auth.user_code_hash = decode(p_user_code_hash_hex, 'hex')
   for update;
   if not found then return null; end if;
 
@@ -194,9 +194,9 @@ begin
   if p_device_code_hash_hex !~ '^[0-9a-f]{64}$' then
     return jsonb_build_object('outcome', 'expired');
   end if;
-  select authorization.* into v_authorization
-  from public.connector_device_authorizations authorization
-  where authorization.device_code_hash = decode(p_device_code_hash_hex, 'hex')
+  select device_auth.* into v_authorization
+  from public.connector_device_authorizations device_auth
+  where device_auth.device_code_hash = decode(p_device_code_hash_hex, 'hex')
   for update;
   if not found then return jsonb_build_object('outcome', 'expired'); end if;
 
