@@ -96,7 +96,12 @@ begin
   if not public.create_connector_device_authorization(
     repeat('3', 64), repeat('4', 64), repeat('5', 64),
     'connector_cleanup_new', v_now, v_now + interval '5 minutes', 3
-  ) or exists (
+  ) then
+    raise exception 'T8 FAILED: cleanup-triggering authorization was not created';
+  end if;
+  -- Keep this check in a separate statement. PostgreSQL does not guarantee
+  -- left-to-right evaluation of Boolean subexpressions with side effects.
+  if exists (
     select 1 from public.connector_device_authorizations
     where connector_instance_id = 'connector_cleanup_test'
   ) then
