@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { authorizeConnectorDevice, createConnectorInstanceId } from "./connector-device-client.js";
 
 describe("connector device client", () => {
-  it("opens the complete browser URL and polls until the approved credential arrives", async () => {
+  it("recovers an approved credential when the commit response is lost at expiry", async () => {
     const connectorInstanceId = createConnectorInstanceId();
     const deviceCode = "d".repeat(43);
     const fetchImplementation = vi.fn<typeof fetch>()
@@ -32,12 +32,16 @@ describe("connector device client", () => {
       }), { status: 201, headers: { "content-type": "application/json" } }));
     const openBrowser = vi.fn(async () => undefined);
     const sleep = vi.fn(async () => undefined);
+    const now = vi.fn()
+      .mockReturnValueOnce(Date.parse("2026-09-07T10:04:55.000Z"))
+      .mockReturnValueOnce(Date.parse("2026-09-07T10:04:58.000Z"))
+      .mockReturnValueOnce(Date.parse("2026-09-07T10:05:01.000Z"));
 
     const authorized = await authorizeConnectorDevice(
       "https://telaegent.live",
       connectorInstanceId,
       fetchImplementation,
-      { now: () => Date.parse("2026-09-07T10:00:00.000Z"), sleep, openBrowser },
+      { now, sleep, openBrowser },
     );
     expect(authorized).toMatchObject({ connectorInstanceId });
     expect(authorized.credential).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -54,5 +58,36 @@ describe("connector device client", () => {
     expect(fetchImplementation.mock.calls[1]?.[0].toString()).toBe(
       "https://telaegent.live/api/connectors/device-authorizations/token",
     );
+    expect(now).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops polling when the consumed-response recovery window ends", async () => {
+    const connectorInstanceId = createConnectorInstanceId();
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        deviceAuthorization: {
+          deviceCode: "d".repeat(43),
+          userCode: "ABCD-EFGH",
+          verificationUri: "https://telaegent.live/app/connect-device",
+          verificationUriComplete: "https://telaegent.live/app/connect-device?code=ABCD-EFGH",
+          expiresAt: "2026-09-07T10:05:00.000Z",
+          intervalSeconds: 3,
+        },
+      }), { status: 201, headers: { "content-type": "application/json" } }),
+    );
+    const sleep = vi.fn(async () => undefined);
+
+    await expect(authorizeConnectorDevice(
+      "https://telaegent.live",
+      connectorInstanceId,
+      fetchImplementation,
+      {
+        now: () => Date.parse("2026-09-07T10:06:00.000Z"),
+        sleep,
+        openBrowser: async () => undefined,
+      },
+    )).rejects.toThrow("Telaegent device authorization expired");
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
   });
 });

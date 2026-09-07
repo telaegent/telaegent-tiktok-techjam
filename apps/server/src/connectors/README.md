@@ -111,10 +111,12 @@ the 0.2 registry publication and a two-machine packaged live proof remain
 release work. `tlg connect` creates the future bearer locally, sends only its
 hash, and uses a short-lived browser approval. One database transaction
 activates that precommitted hash, so a lost success response can be retried
-without minting another credential. The bearer never enters browser state, the
-cloud, clipboard, shell history, or process arguments and is persisted only in
-the operating-system credential vault. Installer/update signing and durable
-presence telemetry remain follow-up work.
+without minting another credential, including during a one-minute consumed-only
+recovery window at the authorization deadline. Anonymous creation and token
+polling have separate verified-IP limits. The bearer never enters browser
+state, the cloud, clipboard, shell history, or process arguments and is
+persisted only in the operating-system credential vault. Installer/update
+signing and durable presence telemetry remain follow-up work.
 
 ## Resource requests (loop closed end to end)
 

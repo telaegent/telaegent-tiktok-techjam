@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { CONNECTOR_DEVICE_RECOVERY_GRACE_MS } from "./connector-device-authorization-policy.js";
 
 const execFileAsync = promisify(execFile);
 const issuedSchema = z.strictObject({
@@ -76,9 +77,12 @@ export async function authorizeConnectorDevice(
   });
 
   const expiresAtMs = Date.parse(issued.expiresAt);
+  const recoveryDeadlineMs = expiresAtMs + CONNECTOR_DEVICE_RECOVERY_GRACE_MS;
   let intervalMs = issued.intervalSeconds * 1_000;
   for (;;) {
-    if (now() >= expiresAtMs) throw new Error("Telaegent device authorization expired");
+    if (now() >= recoveryDeadlineMs) {
+      throw new Error("Telaegent device authorization expired");
+    }
     await sleep(intervalMs);
     let response: Response;
     try {

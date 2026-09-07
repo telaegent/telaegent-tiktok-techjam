@@ -8,6 +8,7 @@ import { setPrivateNoStore } from "../http-cache.js";
 import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { ConnectorPairingService } from "./connector-pairing.js";
 import type { ConnectorDeviceAuthorizationService } from "./connector-device-authorization.js";
+import { CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE } from "./connector-device-authorization-policy.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
 import { TURN_STATES } from "../telagent/protocol/contract.js";
@@ -283,6 +284,14 @@ export function registerConnectorTransportRoutes(
 
     app.post(
       "/api/connectors/device-authorizations/token",
+      {
+        config: {
+          rateLimit: {
+            max: CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE,
+            timeWindow: "1 minute",
+          },
+        },
+      },
       async (request, reply) => {
         setPrivateNoStore(reply);
         const { deviceCode } = deviceAuthorizationTokenSchema.parse(request.body);

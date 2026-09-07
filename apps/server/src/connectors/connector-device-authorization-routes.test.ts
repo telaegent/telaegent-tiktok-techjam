@@ -13,6 +13,7 @@ import {
   ConnectorDeviceAuthorizationService,
   InMemoryConnectorDeviceAuthorizationRepository,
 } from "./connector-device-authorization.js";
+import { CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE } from "./connector-device-authorization-policy.js";
 import { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 
 const userId = "10000000-0000-4000-8000-000000000001";
@@ -60,7 +61,7 @@ describe("connector device authorization HTTP flow", () => {
     }));
     const relay = new LongPollConnectorJobRelay();
     const app = await createApp(
-      loadConfig({ NODE_ENV: "test" }),
+      loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }),
       undefined,
       undefined,
       undefined,
@@ -146,7 +147,7 @@ describe("connector device authorization HTTP flow", () => {
     const credentialRepository = new MemoryCredentials();
     const credentials = new ConnectorCredentialService(credentialRepository, 3_600);
     const app = await createApp(
-      loadConfig({ NODE_ENV: "test" }),
+      loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }),
       undefined,
       undefined,
       undefined,
@@ -185,6 +186,48 @@ describe("connector device authorization HTTP flow", () => {
         connectorInstanceId: "connector_rate_limit_10",
         credentialHash: createHash("sha256").update("credential-10").digest("hex"),
       },
+    });
+    expect(limited.statusCode).toBe(429);
+    await app.close();
+  });
+
+  it("rate limits random unauthenticated token exchanges by request IP", async () => {
+    const credentialRepository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(credentialRepository, 3_600);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay: new LongPollConnectorJobRelay(),
+        credentials,
+        deviceAuthorizations: new ConnectorDeviceAuthorizationService(
+          new InMemoryConnectorDeviceAuthorizationRepository(credentials),
+          "https://telaegent.live",
+          3_600,
+        ),
+        authenticatedUserId: async () => userId,
+        resolveConnectorPrincipal: createConnectorPrincipalResolver(credentials),
+      },
+    );
+
+    for (let index = 0; index < CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE; index += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/connectors/device-authorizations/token",
+        headers: { "x-forwarded-for": `203.0.113.${(index % 250) + 1}` },
+        payload: { deviceCode: index.toString(36).padStart(43, "a") },
+      });
+      expect(response.statusCode).toBe(410);
+    }
+    const limited = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations/token",
+      headers: { "x-forwarded-for": "198.51.100.10" },
+      payload: { deviceCode: "z".repeat(43) },
     });
     expect(limited.statusCode).toBe(429);
     await app.close();

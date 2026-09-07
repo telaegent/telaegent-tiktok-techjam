@@ -63,6 +63,18 @@ describe("connector device authorization", () => {
       connector: { connectorInstanceId: "connector_instance_0001" },
     });
     expect(activateHash).toHaveBeenCalledOnce();
+
+    advance(60_001);
+    await expect(service.exchange(authorization.deviceCode)).resolves.toMatchObject({
+      outcome: "approved",
+      connector: { connectorInstanceId: "connector_instance_0001" },
+    });
+    expect(activateHash).toHaveBeenCalledOnce();
+
+    advance(57_000);
+    await expect(service.exchange(authorization.deviceCode)).resolves.toEqual({
+      outcome: "consumed",
+    });
   });
 
   it("does not allow an approved request to be claimed after expiry", async () => {

@@ -69,6 +69,21 @@ begin
            and connector_instance_id = 'connector_device_test_01') <> 1 then
     raise exception 'T6 FAILED: redemption retry was not idempotent %', v_result;
   end if;
+  v_result := public.redeem_connector_device_authorization(
+    repeat('a', 64), v_now + interval '5 minutes 30 seconds', 3600
+  );
+  if v_result #>> '{outcome}' <> 'approved'
+     or (select count(*) from public.connector_credentials
+         where user_id = v_user
+           and connector_instance_id = 'connector_device_test_01') <> 1 then
+    raise exception 'T6 FAILED: consumed retry was not recoverable after expiry %', v_result;
+  end if;
+  v_result := public.redeem_connector_device_authorization(
+    repeat('a', 64), v_now + interval '6 minutes 1 second', 3600
+  );
+  if v_result #>> '{outcome}' <> 'consumed' then
+    raise exception 'T6 FAILED: consumed recovery grace was not bounded %', v_result;
+  end if;
 
   if not public.create_connector_device_authorization(
     repeat('c', 64), repeat('d', 64), repeat('f', 64),

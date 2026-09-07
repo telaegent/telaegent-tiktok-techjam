@@ -77,7 +77,7 @@ verifies the real repository/provider/relay path:
    browser key as `SUPABASE_SECRET_KEY`, and never commit `.env`.
    If Caddy or another reverse proxy connects to Fastify, also set
    `TELAEGENT_TRUSTED_PROXY_CIDRS` to only that proxy's exact IP/CIDR so the
-   public device-authorization limiter sees the verified client IP. Leave it
+   public device-authorization limiters see the verified client IP. Leave it
    empty when Fastify is directly exposed.
 4. Install GitHub CLI and authenticate locally with `gh auth login`.
 5. Install and authenticate at least one local provider: Codex CLI or Claude
@@ -110,8 +110,9 @@ On first use, the connector creates a high-entropy device code and future
 connector bearer, sends only their hashes, and opens a short-lived approval page
 in the signed-in Telaegent website. The approval expires after five minutes and
 is terminal. Credential activation is atomic and retry-safe: repeating a poll
-after a lost response only confirms the same precommitted bearer hash. The
-browser and cloud never receive the raw bearer. After approval, the CLI stores
+after a lost response only confirms the same precommitted bearer hash, including
+during a one-minute consumed-only recovery window at the authorization deadline.
+The browser and cloud never receive the raw bearer. After approval, the CLI stores
 it in the operating-system credential vault rather than a file, clipboard,
 shell history, or process argument.
 

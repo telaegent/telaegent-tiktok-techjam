@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { ConnectorCredentialService } from "./connector-credentials.js";
+import { CONNECTOR_DEVICE_RECOVERY_GRACE_MS } from "./connector-device-authorization-policy.js";
 
 const connectorInstanceIdSchema = z
   .string()
@@ -125,7 +126,8 @@ export class InMemoryConnectorDeviceAuthorizationRepository
     if (record.status === "consumed") {
       if (
         record.credentialExpiresAt &&
-        Date.parse(input.now) < Date.parse(record.expiresAt) &&
+        Date.parse(input.now) <
+          Date.parse(record.expiresAt) + CONNECTOR_DEVICE_RECOVERY_GRACE_MS &&
         Date.parse(input.now) < Date.parse(record.credentialExpiresAt)
       ) {
         return {

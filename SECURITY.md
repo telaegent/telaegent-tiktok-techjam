@@ -136,9 +136,11 @@ bearer, sending only their hashes and a short human-readable code to the cloud.
 A signed-in browser must explicitly approve the short-lived request before one
 database transaction activates the precommitted bearer hash. Retrying a lost
 success response only confirms that same active hash; it cannot mint or rotate
-a credential. Polling is throttled, public creation is limited by verified
-request IP, and database issuance is bounded per installation, per rolling
-global window, and by an atomically serialized active-row cap. Expired rows are
+a credential. A consumed request has a one-minute confirmation-only recovery
+window for responses lost at the authorization deadline. Both public creation
+and token polling are limited by verified request IP, and database issuance is
+bounded per installation, per rolling global window, and by an atomically
+serialized active-row cap. Expired rows are
 opportunistically deleted in bounded batches after a short terminal-response
 retention window when new authorizations are created.
 The CLI stores the bearer only in the operating-system credential vault; the

@@ -21,9 +21,10 @@ On first use, the CLI creates the future bearer locally, sends only its hash,
 and opens a short-lived Telaegent browser approval page. Once approved, the
 connector stores that credential in the operating-system credential vault.
 Retrying a lost approval response confirms the same hash without minting a new
-credential. The raw bearer never appears in the browser, cloud, clipboard,
-shell history, or process arguments. The repository checkout, local path,
-GitHub/provider credentials, and provider sessions remain on this machine.
+credential, including during a one-minute consumed-only recovery window at the
+authorization deadline. The raw bearer never appears in the browser, cloud,
+clipboard, shell history, or process arguments. The repository checkout, local
+path, GitHub/provider credentials, and provider sessions remain on this machine.
 
 Run the command from the repository root. Before connecting,
 the connector prints the canonical local root and exact GitHub `owner/name`;

@@ -262,7 +262,9 @@ begin
       and credential.token_hash = v_authorization.credential_token_hash
       and credential.revoked_at is null
       and credential.expires_at > p_now
-      and v_authorization.expires_at > p_now;
+      -- Keep the device code useful only for recovering a response that was
+      -- lost after activation committed. It cannot activate new authority.
+      and v_authorization.expires_at + interval '1 minute' > p_now;
     if found then
       return jsonb_build_object(
         'outcome', 'approved',
