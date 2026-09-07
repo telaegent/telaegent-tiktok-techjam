@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { AgentProvider } from "../runtime-contract.js";
 
-export type ConnectorProviderSelection = AgentProvider | "auto" | "choose";
+export type ConnectorProviderSelection = AgentProvider | "auto" | "choose" | "both";
 
 export type ConnectorCliOptions =
   | {
@@ -28,7 +28,7 @@ export type ConnectorCliOptions =
   | { command: "help" }
   | { command: "version" };
 
-const providerSchema = z.enum(["choose", "auto", "codex", "claude"]);
+const providerSchema = z.enum(["choose", "auto", "both", "codex", "claude"]);
 
 /** Parse only local operator input; provider and repository selection are never cloud-controlled. */
 export function parseConnectorCliOptions(argv: readonly string[]): ConnectorCliOptions {
@@ -153,11 +153,13 @@ function requiredOptionValue(argv: readonly string[], index: number): string {
 export function connectorCliUsage(): string {
   return [
     "Usage:",
-    "  tlg connect [workspace] [--provider choose|auto|codex|claude] [--probe-only]",
+    "  tlg connect [workspace] [--provider choose|both|auto|codex|claude] [--probe-only]",
     "  tlg disconnect [workspace] [--yes]",
     "  tlg auth status|logout",
     "  tlg --help | --version",
     "",
+    "choose: show both CLIs and choose locally; both: require both CLIs; auto: use available CLIs.",
+    "To change providers, finish/cancel active work, press Ctrl+C, then reconnect with --provider choose.",
     "Advanced compatibility options: --url origin, --pair code, --instance-id id --credential bearer",
   ].join("\n");
 }

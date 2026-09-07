@@ -408,8 +408,13 @@ export class ClaudeCodeRunner implements MiddlewareProviderRunner {
         timeout: 5_000,
         env: this.childEnvironment(),
       });
-    } catch {
-      return { installed: false, authenticated: false, reason: "not_installed" };
+    } catch (error) {
+      const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+      return {
+        installed: !missing,
+        authenticated: false,
+        reason: missing ? "not_installed" : "probe_failed",
+      };
     }
     if (this.config.claudeApiKey) {
       return { installed: true, authenticated: true, reason: null };

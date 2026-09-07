@@ -102,8 +102,28 @@ test("the website command pins the exact package release", async () => {
   );
 });
 
+test("the packaged connector exposes unavailable providers and can add both on reconnect", async () => {
+  const { parseConnectorCliOptions } = await import("../dist/connectors/connector-cli-options.js");
+  const { selectConnectorProviders } = await import("../dist/connectors/connector-provider-selection.js");
+  assert.equal(parseConnectorCliOptions(["connect", "--provider", "both"]).provider, "both");
+  const ready = { installed: true, authenticated: true, reason: null };
+  const signedOut = { installed: true, authenticated: false, reason: "not_authenticated" };
+  let checks = 0;
+  const prompts = [];
+  const selected = await selectConnectorProviders("choose", async () => ({
+    claude: checks++ === 0 ? signedOut : ready,
+    codex: ready,
+  }), async (prompt) => {
+    prompts.push(prompt);
+    return prompts.length === 1 ? "4" : "3";
+  });
+  assert.match(prompts[0], /Claude Code.*Not signed in/);
+  assert.deepEqual(selected, ["claude", "codex"]);
+});
+
 test("the packaged CLI announces the providers that passed its live probes", async () => {
   const contents = await readFile(binPath, "utf8");
+  assert.match(contents, /bindings\/\$\{registered\.connectorBindingId\}\/probing/);
   assert.match(contents, /\{ providers: connectedProviders \}/);
   assert.doesNotMatch(
     contents,

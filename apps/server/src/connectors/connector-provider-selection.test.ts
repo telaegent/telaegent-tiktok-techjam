@@ -37,6 +37,7 @@ describe("connector provider selection", () => {
     ["codex", ["codex"]],
     ["choose", ["claude", "codex"]],
     ["auto", ["claude", "codex"]],
+    ["both", ["claude", "codex"]],
   ] as const)("only detects provider candidates allowed by %s", (selection, expected) => {
     expect(connectorProviderCandidates(selection)).toEqual(expected);
   });
@@ -45,13 +46,15 @@ describe("connector provider selection", () => {
     ["claude", connected, missing],
     ["codex", missing, connected],
   ] as const)(
-    "automatically selects the only authenticated %s CLI",
+    "shows both providers even when only %s is authenticated",
     async (provider, claude, codex) => {
-      const ask = vi.fn<() => Promise<string>>();
+      const ask = vi.fn(async () => provider);
       await expect(
         selectConnectorProviders("choose", capabilities(claude, codex), ask),
       ).resolves.toEqual([provider]);
-      expect(ask).not.toHaveBeenCalled();
+      expect(ask).toHaveBeenCalledOnce();
+      expect(ask.mock.calls[0]).toBeDefined();
+      expect(ask).toHaveBeenCalledWith(expect.stringContaining("CLI executable unavailable"));
     },
   );
 
@@ -90,16 +93,51 @@ describe("connector provider selection", () => {
   it("fails with provider-specific recovery when an explicit CLI is unavailable", async () => {
     await expect(
       selectConnectorProviders("claude", capabilities(missing, connected)),
-    ).rejects.toThrow("Claude Code CLI is not installed");
+    ).rejects.toThrow("Claude Code: CLI executable unavailable");
     await expect(
       selectConnectorProviders("codex", capabilities(connected, signedOut)),
-    ).rejects.toThrow("Codex CLI is not authenticated");
+    ).rejects.toThrow("Codex: Not signed in");
   });
 
   it("fails before pairing when neither CLI is authenticated", async () => {
     await expect(
-      selectConnectorProviders("choose", capabilities(missing, signedOut)),
+      selectConnectorProviders("auto", capabilities(missing, signedOut)),
     ).rejects.toThrow("No authenticated Claude Code or Codex CLI is available");
+  });
+
+  it("rechecks local setup before connecting both, without carrying the old choice", async () => {
+    const detect = vi.fn()
+      .mockResolvedValueOnce(capabilities(signedOut, connected))
+      .mockResolvedValueOnce(capabilities(connected, connected));
+    const ask = vi.fn().mockResolvedValueOnce("4").mockResolvedValueOnce("3");
+    await expect(selectConnectorProviders("choose", detect, ask)).resolves.toEqual(["claude", "codex"]);
+    expect(detect).toHaveBeenCalledTimes(2);
+    expect(ask).toHaveBeenNthCalledWith(1, expect.stringContaining("Not signed in"));
+    expect(ask).toHaveBeenNthCalledWith(2, expect.stringContaining("Claude Code — Available"));
+  });
+
+  it("lets the owner inspect and cancel setup when neither provider is available", async () => {
+    const ask = vi.fn(async () => "q");
+    await expect(selectConnectorProviders("choose", capabilities(missing, signedOut), ask)).rejects.toThrow("no pairing code was consumed");
+    expect(ask).toHaveBeenCalledWith(expect.stringContaining("Not signed in"));
+  });
+
+  it.each(["both", "choose"] as const)("never silently reduces %s to a single provider", async (selection) => {
+    await expect(selectConnectorProviders(selection, capabilities(signedOut, connected), async () => "3")).rejects.toThrow("Claude Code: Not signed in");
+  });
+
+  it("rejects an unavailable provider selected from the menu", async () => {
+    await expect(selectConnectorProviders("choose", capabilities(missing, connected), async () => "1")).rejects.toThrow("Claude Code: CLI executable unavailable");
+  });
+
+  it("does not diagnose a failed check as a signed-out account", async () => {
+    await expect(selectConnectorProviders("claude", capabilities({ ...signedOut, reason: "probe_failed" }, connected))).rejects.toThrow("Local CLI check failed");
+  });
+
+  it("supports explicit both without a prompt", async () => {
+    const ask = vi.fn();
+    await expect(selectConnectorProviders("both", capabilities(connected, connected), ask)).resolves.toEqual(["claude", "codex"]);
+    expect(ask).not.toHaveBeenCalled();
   });
 
   it("does not silently choose after an invalid interactive answer", async () => {
