@@ -2,6 +2,7 @@ export type AppSurface = "landing" | "product";
 
 export type ProductRoute =
   | "onboarding"
+  | "connect-device"
   | "projects"
   | "add-project"
   | "connections"
@@ -15,6 +16,7 @@ export type ProductLocation = {
 
 export const APP_PATH = "/app";
 export const ONBOARDING_PATH = "/app/onboarding";
+export const CONNECT_DEVICE_PATH = "/app/connect-device";
 
 export function surfaceFromUrl(pathname: string, search: string): AppSurface {
   if (pathname === APP_PATH || pathname.startsWith(`${APP_PATH}/`)) {
@@ -46,6 +48,9 @@ export function productLocationFromUrl(
 ): ProductLocation {
   if (pathname === ONBOARDING_PATH) {
     return { route: "onboarding", projectId: null };
+  }
+  if (pathname === CONNECT_DEVICE_PATH) {
+    return { route: "connect-device", projectId: null };
   }
   if (pathname === `${APP_PATH}/connections`) {
     return { route: "connections", projectId: null };
@@ -86,6 +91,8 @@ export function productPath(
   const pathname =
     route === "onboarding"
       ? ONBOARDING_PATH
+      : route === "connect-device"
+        ? CONNECT_DEVICE_PATH
       : route === "add-project"
         ? `${APP_PATH}/projects/new`
       : route === "connections"

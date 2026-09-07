@@ -129,6 +129,15 @@ begin
           'd2000000-0000-4000-8000-000000000099') is not null then
     raise exception 'T4 FAILED: unauthorized scope did not fail closed';
   end if;
+
+  -- T5: the connector-facing stable-repository-ID wrapper reaches the same
+  -- transaction without accepting a cloud-controlled local path or binding.
+  v_result := public.disconnect_user_repository_by_github_id(v_alice, 6202);
+  if v_result #>> '{projectId}' <> v_other::text
+     or v_result #>> '{githubRepositoryId}' <> '6202'
+     or v_result #>> '{bindingStatus}' <> 'stopped' then
+    raise exception 'T5 FAILED: repository-ID disconnect wrapper failed %', v_result;
+  end if;
 end;
 $$;
 
@@ -137,7 +146,12 @@ begin
   if has_function_privilege('anon', 'public.disconnect_user_repository(uuid,uuid)', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.disconnect_user_repository(uuid,uuid)', 'EXECUTE')
      or not has_function_privilege('service_role', 'public.disconnect_user_repository(uuid,uuid)', 'EXECUTE') then
-    raise exception 'T5 FAILED: disconnect RPC ACL is unsafe';
+    raise exception 'T6 FAILED: disconnect RPC ACL is unsafe';
+  end if;
+  if has_function_privilege('anon', 'public.disconnect_user_repository_by_github_id(uuid,bigint)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.disconnect_user_repository_by_github_id(uuid,bigint)', 'EXECUTE')
+     or not has_function_privilege('service_role', 'public.disconnect_user_repository_by_github_id(uuid,bigint)', 'EXECUTE') then
+    raise exception 'T6 FAILED: connector disconnect RPC ACL is unsafe';
   end if;
 end;
 $$;

@@ -60,6 +60,8 @@ Normalized provider states and recovery behavior are defined in
 
 ## Local connector responsibilities
 
+- machine authorization through a short-lived browser approval, with its
+  bearer stored in the operating-system credential vault
 - local GitHub CLI access verification and safe repository metadata registration
 - Claude Code/Codex installation and provider connection probe
 - fresh or resumed local Telaegent-created provider sessions
@@ -131,7 +133,7 @@ Collaborator discovery uses mutual proof: both Telaegent users independently con
 
 ## Unresolved gates
 
-- connector packaging, authentication, update, and revocation
+- connector update policy and signed-in two-machine release validation
 - local Claude Code/Codex probing and supported non-interactive invocation
 - WebSocket versus long-poll job delivery and reconnect semantics
 - local user x repository workspace/provider-session isolation

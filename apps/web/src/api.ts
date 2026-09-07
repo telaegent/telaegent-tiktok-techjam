@@ -121,6 +121,12 @@ export type ConnectorPairing = {
   expiresAt: string;
 };
 
+export type ConnectorDeviceAuthorization = {
+  connectorInstanceId: string;
+  status: "pending" | "approved" | "denied" | "expired" | "consumed";
+  expiresAt: string;
+};
+
 /** Owner-scoped, non-secret state used to verify connector onboarding. */
 export type ConnectorSetupStatus = {
   connectorInstanceId: string;
@@ -338,6 +344,18 @@ export const api = {
     request<{ pairing: ConnectorPairing }>("/api/connectors/pairings", {
       method: "POST",
     }),
+  connectorDeviceAuthorization: (userCode: string) =>
+    request<{ authorization: ConnectorDeviceAuthorization }>(
+      `/api/connectors/device-authorizations/${encodeURIComponent(userCode)}`,
+    ),
+  decideConnectorDeviceAuthorization: (
+    userCode: string,
+    decision: "approve" | "deny",
+  ) =>
+    request<{ authorization: ConnectorDeviceAuthorization }>(
+      `/api/connectors/device-authorizations/${encodeURIComponent(userCode)}/decision`,
+      { method: "POST", body: JSON.stringify({ decision }) },
+    ),
   connectorSetupStatus: (connectorInstanceId: string) =>
     request<{ connector: ConnectorSetupStatus }>(
       `/api/connectors/installations/${encodeURIComponent(connectorInstanceId)}/status`,

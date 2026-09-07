@@ -7,6 +7,8 @@ import type { AuthenticatedUserResolver } from "../conversations/routes.js";
 import { setPrivateNoStore } from "../http-cache.js";
 import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { ConnectorPairingService } from "./connector-pairing.js";
+import type { ConnectorDeviceAuthorizationService } from "./connector-device-authorization.js";
+import { CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE } from "./connector-device-authorization-policy.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
 import { TURN_STATES } from "../telagent/protocol/contract.js";
@@ -56,6 +58,22 @@ const credentialBodySchema = z.strictObject({
 const credentialParamsSchema = credentialBodySchema;
 const pairingExchangeSchema = z.strictObject({
   pairingCode: z.string().length(43).regex(/^[A-Za-z0-9_-]+$/),
+});
+const deviceAuthorizationIssueSchema = z.strictObject({
+  connectorInstanceId: credentialBodySchema.shape.connectorInstanceId,
+  credentialHash: z.string().length(64).regex(/^[0-9a-f]+$/),
+});
+const deviceAuthorizationCodeParamsSchema = z.strictObject({
+  userCode: z.string().min(9).max(9).regex(/^[A-Za-z0-9-]+$/),
+});
+const deviceAuthorizationDecisionSchema = z.strictObject({
+  decision: z.enum(["approve", "deny"]),
+});
+const deviceAuthorizationTokenSchema = z.strictObject({
+  deviceCode: z.string().length(43).regex(/^[A-Za-z0-9_-]+$/),
+});
+const githubRepositoryParamsSchema = z.strictObject({
+  githubRepositoryId: z.string().regex(/^[1-9][0-9]{0,18}$/),
 });
 const bindingParamsSchema = z.strictObject({ connectorBindingId: bindingIdSchema });
 const relativeChangedPath = z
@@ -155,8 +173,13 @@ export interface ConnectorTransportRouteDependencies {
   resolveConnectorPrincipal: ConnectorPrincipalResolver;
   credentials?: ConnectorCredentialService | undefined;
   pairings?: ConnectorPairingService | undefined;
+  deviceAuthorizations?: ConnectorDeviceAuthorizationService | undefined;
   authenticatedUserId?: AuthenticatedUserResolver | undefined;
   capabilityAuthorization?: CapabilityRouteAuthorizer | undefined;
+  disconnectRepository?: ((
+    principal: Readonly<ConnectorPrincipal>,
+    githubRepositoryId: string,
+  ) => Promise<unknown>) | undefined;
 }
 
 export const connectorTransportRoutes = new Set([
@@ -171,6 +194,11 @@ export const connectorTransportRoutes = new Set([
   "/api/connectors/credentials/:connectorInstanceId",
   "/api/connectors/pairings",
   "/api/connectors/pairings/exchange",
+  "/api/connectors/device-authorizations",
+  "/api/connectors/device-authorizations/:userCode",
+  "/api/connectors/device-authorizations/:userCode/decision",
+  "/api/connectors/device-authorizations/token",
+  "/api/connectors/repositories/:githubRepositoryId/disconnect",
   "/api/connectors/installations/:connectorInstanceId/status",
   "/api/connectors/bindings/:connectorBindingId/probe",
   "/api/connectors/bindings/:connectorBindingId/ready",
@@ -187,6 +215,112 @@ export function registerConnectorTransportRoutes(
       connector: await dependencies.resolveConnectorPrincipal(request),
     };
   });
+
+  if (dependencies.credentials) {
+    app.delete("/api/connectors/session", async (request, reply) => {
+      setPrivateNoStore(reply);
+      const principal = await dependencies.resolveConnectorPrincipal(request);
+      await dependencies.relay.unregisterPrincipal(principal);
+      await dependencies.credentials!.revoke(
+        principal.authenticatedUserId,
+        principal.connectorInstanceId,
+      );
+      return reply.code(204).send();
+    });
+  }
+
+  if (dependencies.deviceAuthorizations && dependencies.authenticatedUserId) {
+    app.post(
+      "/api/connectors/device-authorizations",
+      {
+        config: {
+          rateLimit: {
+            max: 10,
+            timeWindow: "1 minute",
+          },
+        },
+      },
+      async (request, reply) => {
+        setPrivateNoStore(reply);
+        const { connectorInstanceId, credentialHash } =
+          deviceAuthorizationIssueSchema.parse(request.body);
+        return reply.code(201).send({
+          deviceAuthorization: await dependencies.deviceAuthorizations!.issue(
+            connectorInstanceId,
+            credentialHash,
+          ),
+        });
+      },
+    );
+
+    app.get(
+      "/api/connectors/device-authorizations/:userCode",
+      async (request, reply) => {
+        setPrivateNoStore(reply);
+        await dependencies.authenticatedUserId!(request);
+        const { userCode } = deviceAuthorizationCodeParamsSchema.parse(request.params);
+        const authorization = await dependencies.deviceAuthorizations!.inspect(userCode);
+        if (!authorization) return reply.code(404).send({ error: "Device authorization not found" });
+        return { authorization };
+      },
+    );
+
+    app.post(
+      "/api/connectors/device-authorizations/:userCode/decision",
+      async (request, reply) => {
+        setPrivateNoStore(reply);
+        const authenticatedUserId = await dependencies.authenticatedUserId!(request);
+        const { userCode } = deviceAuthorizationCodeParamsSchema.parse(request.params);
+        const { decision } = deviceAuthorizationDecisionSchema.parse(request.body);
+        const authorization = await dependencies.deviceAuthorizations!.decide(
+          userCode,
+          authenticatedUserId,
+          decision,
+        );
+        if (!authorization) return reply.code(404).send({ error: "Device authorization not found" });
+        return { authorization };
+      },
+    );
+
+    app.post(
+      "/api/connectors/device-authorizations/token",
+      {
+        config: {
+          rateLimit: {
+            max: CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE,
+            timeWindow: "1 minute",
+          },
+        },
+      },
+      async (request, reply) => {
+        setPrivateNoStore(reply);
+        const { deviceCode } = deviceAuthorizationTokenSchema.parse(request.body);
+        const result = await dependencies.deviceAuthorizations!.exchange(deviceCode);
+        if (result.outcome === "approved") return reply.code(201).send(result);
+        if (result.outcome === "pending") return reply.code(202).send(result);
+        if (result.outcome === "slow_down") return reply.code(429).send(result);
+        if (result.outcome === "denied") return reply.code(403).send(result);
+        return reply.code(410).send(result);
+      },
+    );
+  }
+
+  if (dependencies.disconnectRepository) {
+    app.post(
+      "/api/connectors/repositories/:githubRepositoryId/disconnect",
+      async (request, reply) => {
+        setPrivateNoStore(reply);
+        const principal = await dependencies.resolveConnectorPrincipal(request);
+        const { githubRepositoryId } = githubRepositoryParamsSchema.parse(request.params);
+        const result = await dependencies.disconnectRepository!(principal, githubRepositoryId);
+        await dependencies.relay.unregisterUserRepositoryBindings(
+          principal.authenticatedUserId,
+          githubRepositoryId,
+        );
+        return reply.send(result);
+      },
+    );
+  }
 
   if (dependencies.credentials && dependencies.authenticatedUserId) {
     if (dependencies.pairings) {

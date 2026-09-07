@@ -15,6 +15,7 @@ const webCommandPath = path.resolve(packageRoot, "../../apps/web/src/connector-c
 const repositoryNodeModules = path.resolve(packageRoot, "../../node_modules");
 
 test("the package launches with only its declared production dependencies", async () => {
+  assert.equal(packageJson.bin.tlg, packageJson.bin.telaegent);
   const contents = await readFile(binPath, "utf8");
   assert.ok(contents.startsWith("#!/usr/bin/env node\n"));
 
@@ -46,15 +47,24 @@ test("the package launches with only its declared production dependencies", asyn
     }
 
     const isolatedBin = path.join(installedPackage, packageJson.bin.telaegent);
-    const result = spawnSync(process.execPath, [isolatedBin], {
+    const result = spawnSync(process.execPath, [isolatedBin, "--help"], {
       cwd: installedPackage,
       encoding: "utf8",
       shell: false,
       windowsHide: true,
     });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /Usage: telaegent connect/);
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /tlg connect/);
     assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/);
+
+    const version = spawnSync(process.execPath, [isolatedBin, "--version"], {
+      cwd: installedPackage,
+      encoding: "utf8",
+      shell: false,
+      windowsHide: true,
+    });
+    assert.equal(version.status, 0);
+    assert.equal(version.stdout.trim(), packageJson.version);
   } finally {
     await rm(installationRoot, { recursive: true, force: true });
   }
@@ -74,6 +84,7 @@ test("the packaged CLI accepts a one-time pairing code without a connector beare
       "pairing-code",
     ]),
     {
+      command: "connect",
       workspaceCandidate: ".",
       provider: "choose",
       probeOnly: false,
@@ -111,4 +122,17 @@ test("the package excludes removed runtime schemas", async () => {
     ),
     { code: "ENOENT" },
   );
+});
+
+test("the public package excludes cloud routes and persistence adapters", async () => {
+  for (const relativePath of [
+    "dist/index.js",
+    "dist/connectors/routes.js",
+    "dist/connectors/connector-device-authorization-repository.js",
+    "dist/projects/supabase-repository.js",
+  ]) {
+    await assert.rejects(readFile(path.join(packageRoot, relativePath), "utf8"), {
+      code: "ENOENT",
+    });
+  }
 });

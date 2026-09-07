@@ -32,7 +32,9 @@ Human approval can be *narrowed and reused* within one task, never widened. See
 ## Canonical end-to-end flow
 
 1. User signs in to the cloud-hosted Telaegent product.
-2. User starts the local Telaegent connector for the selected local repository.
+2. User opens the exact local repository root and runs `tlg connect`. On first
+   use, the CLI opens a short-lived Telaegent browser approval page and stores
+   the resulting machine credential in the operating-system credential vault.
 3. The connector uses the user's local GitHub CLI identity to verify repository access and registers only safe metadata, including the stable GitHub repository ID.
 4. The connector detects the user's local Claude Code, Codex, or both and passes a real live probe using the user's existing local authentication.
 5. User selects a repository. Repository, branch, and commit define the current project context.

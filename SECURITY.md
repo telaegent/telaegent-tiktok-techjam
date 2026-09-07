@@ -130,6 +130,23 @@ without keeping the revoked binding authorized. Connector credentials are
 still validated for revocation, expiry, and account status on every request,
 while safe `last_seen_at` telemetry is written at most once per 30 seconds.
 
+The installed CLI bootstraps that bearer through a device-authorization flow.
+The CLI generates both a high-entropy device secret and the future connector
+bearer, sending only their hashes and a short human-readable code to the cloud.
+A signed-in browser must explicitly approve the short-lived request before one
+database transaction activates the precommitted bearer hash. Retrying a lost
+success response only confirms that same active hash; it cannot mint or rotate
+a credential. A consumed request has a one-minute confirmation-only recovery
+window for responses lost at the authorization deadline. Both public creation
+and token polling are limited by verified request IP, and database issuance is
+bounded per installation, per rolling global window, and by an atomically
+serialized active-row cap. Expired rows are
+opportunistically deleted in bounded batches after a short terminal-response
+retention window when new authorizations are created.
+The CLI stores the bearer only in the operating-system credential vault; the
+adjacent file contains the non-secret connector installation ID only. There is
+no plaintext fallback when the credential vault is unavailable.
+
 ## Data handling
 
 Durable:
@@ -178,8 +195,13 @@ resolved.
 The current long-poll queue and binding-presence map are process-local. An
 authenticated connector can restore its durable ready binding after a cloud
 restart, but queued jobs are not durably redelivered across that restart.
-Connector packaging, signed updates, and production operational review remain
-open.
+Connector publication has a fail-closed GitHub Actions path for npm trusted
+publishing with provenance. It accepts only `main` and verifies that the
+`connector-release` environment has required reviewers and a custom `main`
+deployment policy before reaching the publish step. Creating that environment,
+configuring the exact npm trusted publisher, real publication, the signed-in
+two-machine acceptance run, update policy, and production operational review
+remain release gates rather than completed claims.
 
 Repository registration accepts only a strict, fresh proof from an
 authenticated local connector. The connector obtains repository identity,

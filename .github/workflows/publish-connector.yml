@@ -1,0 +1,68 @@
+name: Publish Telaegent connector
+
+on:
+  workflow_dispatch:
+    inputs:
+      live_acceptance:
+        description: "Type two-machines-passed after the signed-in two-machine live acceptance run"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: read
+
+jobs:
+  publish:
+    name: Verify and publish npm package
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: connector-release
+    permissions:
+      contents: read
+      deployments: read
+      id-token: write
+    steps:
+      - name: Require main and protected release environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          environment_json="$(gh api "repos/$GITHUB_REPOSITORY/environments/connector-release")"
+          jq -e '.protection_rules | any(.type == "required_reviewers")' <<<"$environment_json"
+          jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$environment_json"
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/environments/connector-release/deployment-branch-policies" \
+            --jq '.branch_policies[].name' | grep -Fx main
+
+      - name: Require the live acceptance gate
+        env:
+          LIVE_ACCEPTANCE: ${{ inputs.live_acceptance }}
+        run: test "$LIVE_ACCEPTANCE" = "two-machines-passed"
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24 for npm trusted publishing
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run repository checks
+        run: npm run check
+
+      - name: Inspect the public package
+        run: npm pack --dry-run --workspace @telaegent/connector
+
+      - name: Publish with provenance
+        working-directory: packages/connector
+        run: npm publish --provenance --access public

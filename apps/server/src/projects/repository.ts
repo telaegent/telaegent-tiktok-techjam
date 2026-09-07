@@ -55,6 +55,11 @@ export interface ProjectRepository {
     projectId: string;
   }>): Promise<ProjectDisconnect | null>;
 
+  disconnectRepositoryByGitHubId?(input: Readonly<{
+    authenticatedUserId: string;
+    githubRepositoryId: string;
+  }>): Promise<ProjectDisconnect | null>;
+
   createConversation(input: Readonly<{
     conversationId: string;
     projectId: string;

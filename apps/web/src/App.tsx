@@ -299,6 +299,10 @@ export default function App() {
       );
     }
     if (session.enabled && !session.authenticated) {
+      const requestedPath = `${window.location.pathname}${window.location.search}`;
+      const returnTo = requestedPath.startsWith("/app")
+        ? requestedPath
+        : ONBOARDING_PATH;
       return (
         <main className="onboarding-shell">
           <section className="onboarding-card">
@@ -310,7 +314,7 @@ export default function App() {
             </p>
             <a
               className="app-primary-action"
-              href={`/api/auth/github/start?returnTo=${encodeURIComponent(ONBOARDING_PATH)}`}
+              href={`/api/auth/github/start?returnTo=${encodeURIComponent(returnTo)}`}
             >
               Continue with GitHub
             </a>

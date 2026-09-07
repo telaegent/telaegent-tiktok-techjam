@@ -75,6 +75,10 @@ verifies the real repository/provider/relay path:
 
    Keep the generated `TELAEGENT_COOKIE_SECRET`. Never use a publishable or
    browser key as `SUPABASE_SECRET_KEY`, and never commit `.env`.
+   If Caddy or another reverse proxy connects to Fastify, also set
+   `TELAEGENT_TRUSTED_PROXY_CIDRS` to only that proxy's exact IP/CIDR so the
+   public device-authorization limiters see the verified client IP. Leave it
+   empty when Fastify is directly exposed.
 4. Install GitHub CLI and authenticate locally with `gh auth login`.
 5. Install and authenticate at least one local provider: Codex CLI or Claude
    Code CLI. Telaegent reuses that local login and never uploads it.
@@ -90,18 +94,27 @@ legacy runtime POC.
 ## Start a connector
 
 Normal users do not need a Telaegent source checkout. After the release owner
-publishes `@telaegent/connector`, sign in at Telaegent, create a connector
-pairing command, open a terminal in the repository to connect, and run the exact
-command shown by the website:
+publishes `@telaegent/connector`, install it once:
 
 ```text
-npx --yes @telaegent/connector@0.1.18 connect . --url https://telaegent.live --pair ONE_TIME_CODE
+npm install --global @telaegent/connector
 ```
 
-The pairing code is high-entropy, expires after five minutes, and can be used
-only once. The connector exchanges it directly for the longer-lived connector
-credential; that bearer never appears in browser state, the clipboard, shell
-history, or process arguments.
+Open a terminal at the exact repository root and run:
+
+```text
+tlg connect
+```
+
+On first use, the connector creates a high-entropy device code and future
+connector bearer, sends only their hashes, and opens a short-lived approval page
+in the signed-in Telaegent website. The approval expires after five minutes and
+is terminal. Credential activation is atomic and retry-safe: repeating a poll
+after a lost response only confirms the same precommitted bearer hash, including
+during a one-minute consumed-only recovery window at the authorization deadline.
+The browser and cloud never receive the raw bearer. After approval, the CLI stores
+it in the operating-system credential vault rather than a file, clipboard,
+shell history, or process argument.
 
 The same command syntax works on Windows, macOS, and Linux. The connector
 automatically uses the only authenticated Claude Code or Codex CLI it detects.
@@ -110,8 +123,8 @@ If both are ready, it asks which provider to connect; pass `--provider claude`,
 Run it from the actual Git repository root: the connector rejects a nested
 folder that would silently resolve to an ancestor checkout. It prints the
 canonical local root
-and exact GitHub `owner/name`, then requires `y` before consuming the pairing
-code. After confirmation it verifies local GitHub access, registers safe
+and exact GitHub `owner/name`, then requires `y` before registering the
+repository. After confirmation it verifies local GitHub access, registers safe
 repository metadata, runs a real provider probe, and begins outbound long
 polling. No local path, credential, repository checkout, or provider session is
 uploaded.
@@ -120,17 +133,29 @@ The Projects page separates repositories whose connectors are present in the
 live relay from previous offline, stopped, or unverified connections. Durable
 `ready` state alone is never presented as current connector presence.
 
-The package is built with `npm run connector:package` and must be published
-before a production frontend displays this command.
+Press Ctrl+C to stop the foreground connector temporarily. Run
+`tlg disconnect` from the same exact repository root to suspend the local
+binding and revoke repository-scoped runtime authority while preserving shared
+project history and collaborator trust. `tlg auth status` inspects remembered
+machine authorization; `tlg auth logout` revokes and removes it.
+
+The package is built with `npm run connector:package`. Publishing is gated by
+repository checks, package inspection, a two-machine signed-in acceptance run,
+the protected `connector-release` GitHub environment, and npm trusted
+publishing with provenance. Before enabling the workflow, an administrator must
+create `connector-release`, require reviewers, add a custom deployment-branch
+policy containing exactly `main`, and configure npm trusted publishing for
+`telaegent/telaegent-tiktok-techjam`, `publish-connector.yml`, and the
+`connector-release` environment. The workflow fails closed if the environment
+or either protection rule is missing, and it refuses every ref except `main`.
 
 ### Source-checkout development fallback
 
-Source-checkout developers can use the same browser-issued pairing code without
-waiting for npm publication. Build once, then replace the published-package
-part of the displayed command with the local script:
+Source-checkout developers can exercise the same device-authorization flow
+without waiting for npm publication:
 
 ```text
-npm run connector:connect -- connect . --url http://localhost:3000 --pair ONE_TIME_CODE
+npm run connector:connect -- connect . --url http://localhost:3000
 ```
 
 The older ignored `connector.env` path remains available for low-level recovery
@@ -154,7 +179,10 @@ accepted in the browser.
 | `npm run doctor:live -- [workspace]` | Source-checkout fallback probe using `connector.env` |
 | `npm run setup:check` | Platform-neutral setup self-check used by CI |
 | `npm run check` | Typecheck, deterministic tests, and production build |
-| `npm run connector:connect -- connect .` | Build and start the canonical local connector |
+| `npm run connector:connect -- connect .` | Build and start the source-checkout connector |
+| `tlg connect` | Start the installed connector for the exact current repository root |
+| `tlg disconnect` | Suspend the current repository binding and revoke its runtime authority |
+| `tlg auth status` / `tlg auth logout` | Inspect or revoke remembered machine authorization |
 
 Provider authentication is validated only by the connector's real bounded
 startup probe (or the source-only `doctor:live` fallback), not by setup finding an executable. If the probe

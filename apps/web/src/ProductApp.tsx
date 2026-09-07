@@ -19,6 +19,7 @@ import {
   type CapabilityScopeDecision,
   type CapabilityScopeRequest,
   type ConnectorPairing,
+  type ConnectorDeviceAuthorization,
   type ConversationMessage,
   type PrivateDraftView,
   type OwnedCapabilityGrant,
@@ -44,6 +45,7 @@ import {
 } from "./app-routing";
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
+import { deviceAuthorizationUiOutcome } from "./device-authorization-ui";
 import { collectCursorPages, collectCursorSnapshot } from "./cursor-pagination";
 import { mergeConversationMessages } from "./conversation-sync";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
@@ -83,11 +85,152 @@ type ConnectorSetupAttempt = Pick<
   "connectorInstanceId" | "expiresAt"
 > & { credential: ConnectorCredentialLease | null };
 
+type DeviceApprovalState =
+  | { kind: "loading" }
+  | { kind: "ready"; authorization: ConnectorDeviceAuthorization }
+  | { kind: "submitting"; authorization: ConnectorDeviceAuthorization }
+  | { kind: "approved"; authorization: ConnectorDeviceAuthorization }
+  | { kind: "denied"; authorization: ConnectorDeviceAuthorization }
+  | { kind: "error"; message: string };
+
 function pairingExpiredError(): ApiError {
   return new ApiError(
     "This one-time command expired. Generate a new command and try again.",
     410,
     "CONNECTOR_PAIRING_EXPIRED",
+  );
+}
+
+function DeviceAuthorizationScreen({
+  theme,
+  onToggleTheme,
+  onExit,
+  onDone,
+  preview,
+  user,
+}: {
+  theme: Theme;
+  onToggleTheme: () => void;
+  onExit: () => void;
+  onDone: () => void;
+  preview: boolean;
+  user: TelaegentWebUser | null;
+}) {
+  const userCode = new URLSearchParams(window.location.search).get("code")?.trim().toUpperCase() ?? "";
+  const [state, setState] = useState<DeviceApprovalState>(() => preview
+    ? {
+        kind: "ready",
+        authorization: {
+          connectorInstanceId: "connector_preview_installation",
+          status: "pending",
+          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        },
+      }
+    : { kind: "loading" });
+
+  function applyAuthorizationState(authorization: ConnectorDeviceAuthorization) {
+    const outcome = deviceAuthorizationUiOutcome(authorization.status);
+    if (outcome === "expired") {
+      setState({ kind: "error", message: "This device authorization request has expired." });
+    } else {
+      setState({ kind: outcome, authorization });
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    if (preview) return () => { active = false; };
+    if (!/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/.test(userCode)) {
+      setState({ kind: "error", message: "This device authorization link is invalid." });
+      return () => { active = false; };
+    }
+    void api.connectorDeviceAuthorization(userCode)
+      .then(({ authorization }) => {
+        if (!active) return;
+        applyAuthorizationState(authorization);
+      })
+      .catch((error: unknown) => {
+        if (active) setState({ kind: "error", message: normalizeApiError(error).message });
+      });
+    return () => { active = false; };
+  }, [preview, userCode]);
+
+  async function decide(decision: "approve" | "deny") {
+    if (state.kind !== "ready") return;
+    setState({ kind: "submitting", authorization: state.authorization });
+    if (preview) {
+      setState({ kind: decision === "approve" ? "approved" : "denied", authorization: state.authorization });
+      return;
+    }
+    try {
+      const { authorization } = await api.decideConnectorDeviceAuthorization(userCode, decision);
+      applyAuthorizationState(authorization);
+    } catch (error) {
+      setState({ kind: "error", message: normalizeApiError(error).message });
+    }
+  }
+
+  const authorization = "authorization" in state ? state.authorization : null;
+  return (
+    <main className="device-approval-shell">
+      <header className="device-approval-topbar">
+        <button className="app-wordmark" type="button" onClick={onExit} aria-label="Back to Telaegent landing">
+          <img src={theme === "dark" ? telaegentLogoBright : telaegentLogo} alt="Telaegent" />
+        </button>
+        <ThemeSwitch theme={theme} onToggle={onToggleTheme} />
+      </header>
+      <section className="device-approval-card" aria-live="polite">
+        <span className="app-eyebrow">Local connector approval</span>
+        {state.kind === "loading" && (
+          <>
+            <h1>Checking this request.</h1>
+            <p>The approval details are being loaded from Telaegent.</p>
+            <TypingDots label="Checking device authorization" />
+          </>
+        )}
+        {(state.kind === "ready" || state.kind === "submitting") && authorization && (
+          <>
+            <h1>Allow this terminal to connect?</h1>
+            <p>
+              Approve only if you just ran <code>tlg connect</code>. The terminal will still show and confirm the exact repository before it is connected.
+            </p>
+            <dl className="device-approval-details">
+              <div><dt>Verification code</dt><dd>{userCode}</dd></div>
+              <div><dt>Telaegent account</dt><dd>@{user?.githubLogin ?? "preview"}</dd></div>
+              <div><dt>Installation</dt><dd>{authorization.connectorInstanceId.slice(-12)}</dd></div>
+              <div><dt>Expires</dt><dd>{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(authorization.expiresAt))}</dd></div>
+            </dl>
+            <div className="device-approval-actions">
+              <button className="app-secondary-action" type="button" disabled={state.kind === "submitting"} onClick={() => void decide("deny")}>Deny</button>
+              <button className="app-primary-action" type="button" disabled={state.kind === "submitting"} onClick={() => void decide("approve")}>
+                {state.kind === "submitting" ? "Approving..." : "Approve terminal"}
+              </button>
+            </div>
+          </>
+        )}
+        {state.kind === "approved" && (
+          <>
+            <h1>Terminal approved.</h1>
+            <p>Return to the terminal while Telaegent verifies the repository and your local coding agent.</p>
+            <button className="app-primary-action" type="button" onClick={onDone}>Open projects</button>
+          </>
+        )}
+        {state.kind === "denied" && (
+          <>
+            <h1>Request denied.</h1>
+            <p>No connector credential was issued. You can close this page safely.</p>
+            <button className="app-secondary-action" type="button" onClick={onDone}>Open projects</button>
+          </>
+        )}
+        {state.kind === "error" && (
+          <>
+            <h1>Approval unavailable.</h1>
+            <p>{state.message}</p>
+            <button className="app-secondary-action" type="button" onClick={onDone}>Open projects</button>
+          </>
+        )}
+      </section>
+    </main>
   );
 }
 
@@ -415,6 +558,26 @@ function Onboarding({
     }
   }
 
+  async function verifyCliConnection() {
+    setGithubStage("issuing");
+    setConnectorError(null);
+    try {
+      const projects = await loadAllProjects();
+      if (!projects.some((project) => projectAvailability(project) === "Open")) {
+        throw new ApiError(
+          "No active repository connector was found yet. Keep tlg connect running, then check again.",
+          409,
+          "CONNECTOR_NOT_READY",
+          true,
+        );
+      }
+      setGithubStage("connected");
+    } catch (error) {
+      setConnectorError(normalizeApiError(error));
+      setGithubStage("idle");
+    }
+  }
+
   async function copyConnectorCommand() {
     if (!connectorPairing) return;
     if (nextPairingPollDelay(connectorPairing.expiresAt) === null) {
@@ -600,8 +763,9 @@ function Onboarding({
                   <li>
                     <strong>Telaegent connector</strong>
                     <small>
-                      From the repository folder, run{" "}
-                      <code>npx telaegent connect .</code>.
+                      Install once with{" "}
+                      <code>npm install --global @telaegent/connector</code>,
+                      then run <code>tlg connect</code> from the repository root.
                     </small>
                   </li>
                 </ol>
@@ -652,29 +816,41 @@ function Onboarding({
               </p>
 
               {githubStage === "idle" && (
-                <div className="setup-row">
+                <div className="device-flow cli-device-flow">
                   <div>
-                    <strong>Local Telaegent connector</strong>
-                    <small>Not connected for this repository</small>
+                    <span>Run from the exact repository root</span>
+                    <code className="connector-command">tlg connect</code>
                   </div>
+                  <p>
+                    The CLI opens Telaegent for approval, verifies the local
+                    GitHub repository, and asks you to confirm it before the
+                    connector starts.
+                  </p>
                   <button
+                    className="app-primary-action"
                     type="button"
-                    onClick={() => void createConnectorPairing()}
+                    onClick={() => void verifyCliConnection()}
                   >
-                    Connect
+                    Check connection
                   </button>
+                  {connectorError && (
+                    <div className="api-state error" role="alert">
+                      <strong>{connectorError.code ?? "Connector not ready"}</strong>
+                      <p>{connectorError.message}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
               {githubStage === "issuing" && (
                 <div className="setup-row">
                   <div>
-                    <strong>Preparing a secure one-time command</strong>
+                    <strong>Checking for an active connector</strong>
                     <small>
-                      Bound to this Telaegent account and installation only
+                      Looking for a verified repository and local provider
                     </small>
                   </div>
-                  <TypingDots label="Preparing secure connector command" />
+                  <TypingDots label="Checking repository connector" />
                 </div>
               )}
 
@@ -1104,6 +1280,76 @@ function ProjectsScreen({
 }
 
 function AddProjectScreen({
+  onBack,
+  onConnected,
+  project,
+}: {
+  onBack: () => void;
+  onConnected: () => void;
+  project?: ProjectSummary | null;
+  autoGenerate?: boolean;
+}) {
+  const [copied, setCopied] = useState<"install" | "connect" | null>(null);
+
+  async function copy(command: string, kind: "install" | "connect") {
+    await navigator.clipboard.writeText(command);
+    setCopied(kind);
+  }
+
+  return (
+    <div className="app-page compact-page add-project-page">
+      <button className="app-text-button add-project-back" type="button" onClick={onBack}>
+        ← Back to projects
+      </button>
+      <header className="app-page-heading">
+        <span className="app-eyebrow">Repository connection</span>
+        <h1>Connect from your terminal.</h1>
+        <p>
+          {project
+            ? `Open the exact root of ${project.repositoryFullName} in a terminal. `
+            : "Open the exact repository root in a terminal. "}
+          Telaegent keeps the checkout, GitHub credential, and coding-agent sessions on your computer.
+        </p>
+      </header>
+
+      <section className="add-project-card cli-connect-card">
+        <ol className="cli-connect-steps">
+          <li>
+            <div><span>Install once</span><strong>Install the Telaegent CLI globally</strong></div>
+            <div className="cli-command-row">
+              <code>npm install --global @telaegent/connector</code>
+              <button className="app-secondary-action" type="button" onClick={() => void copy("npm install --global @telaegent/connector", "install")}>
+                {copied === "install" ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </li>
+          <li>
+            <div><span>Connect this repository</span><strong>Run from the repository root</strong></div>
+            <div className="cli-command-row">
+              <code>tlg connect</code>
+              <button className="app-secondary-action" type="button" onClick={() => void copy("tlg connect", "connect")}>
+                {copied === "connect" ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </li>
+          <li>
+            <div><span>Approve in the browser</span><strong>Confirm the terminal, then the repository</strong></div>
+            <p>The CLI opens a short-lived approval page and returns to the terminal automatically.</p>
+          </li>
+        </ol>
+        <div className="cli-connect-note">
+          <StatusMark />
+          <p>Keep <code>tlg connect</code> running while you use Telaegent. Press Ctrl+C to stop it temporarily, or run <code>tlg disconnect</code> to revoke this repository connection.</p>
+        </div>
+        <button className="app-primary-action" type="button" onClick={onConnected}>
+          Refresh projects
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function LegacyAddProjectScreen({
   onBack,
   onConnected,
   project,
@@ -4322,6 +4568,19 @@ export default function ProductApp({
         onExit={onExit}
         user={user}
         onComplete={() => navigateProduct("projects", null, true)}
+      />
+    );
+  }
+
+  if (route === "connect-device") {
+    return (
+      <DeviceAuthorizationScreen
+        theme={theme}
+        onToggleTheme={onToggleTheme}
+        onExit={onExit}
+        onDone={() => navigateProduct("projects", null, true)}
+        preview={preview}
+        user={user}
       />
     );
   }

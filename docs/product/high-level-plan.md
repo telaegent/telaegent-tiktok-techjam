@@ -126,9 +126,12 @@ The deployed shape is:
 | Coding providers | developer's locally authenticated Claude Code CLI and/or Codex CLI |
 
 The connector transport is outbound long-polling. The control plane does not
-provision provider runtimes. Connector pairing, local repository proof, job
-delivery and the human-gated message flow have been exercised against the live
-deployment. Revocation under adversarial conditions is not yet hardened.
+provision provider runtimes. The previous browser-issued pairing path, local
+repository proof, job delivery and the human-gated message flow have been
+exercised against the live deployment. The `tlg connect` device-authorization
+replacement and `tlg disconnect` are implemented and locally tested, but still
+require migration deployment, npm publication and the signed-in two-machine
+acceptance run before they become a production claim.
 
 ---
 

@@ -94,18 +94,31 @@ export class ConnectorCredentialService {
     connectorInstanceId: string;
     expiresAt: string;
   }> {
+    const credential = randomBytes(32).toString("base64url");
+    const activated = await this.activateHash(
+      authenticatedUserId,
+      connectorInstanceId,
+      sha256Hex(credential),
+    );
+    return { credential, ...activated };
+  }
+
+  async activateHash(
+    authenticatedUserId: string,
+    connectorInstanceId: unknown,
+    tokenHashHex: unknown,
+  ): Promise<{ connectorInstanceId: string; expiresAt: string }> {
     const userId = z.string().uuid().parse(authenticatedUserId);
     const instanceId = connectorInstanceIdSchema.parse(connectorInstanceId);
-    const credential = randomBytes(32).toString("base64url");
+    const tokenHash = z.string().regex(/^[0-9a-f]{64}$/).parse(tokenHashHex);
     const created = await this.repository.create({
       authenticatedUserId: userId,
       connectorInstanceId: instanceId,
-      tokenHashHex: sha256Hex(credential),
+      tokenHashHex: tokenHash,
       ttlSeconds: this.ttlSeconds,
     });
     if (!created) throw authenticationFailed();
     return {
-      credential,
       connectorInstanceId: instanceId,
       expiresAt: new Date(this.now().getTime() + this.ttlSeconds * 1_000).toISOString(),
     };

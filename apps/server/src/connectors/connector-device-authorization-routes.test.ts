@@ -1,0 +1,235 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import { createApp } from "../app.js";
+import { loadConfig } from "../config.js";
+import type { ConnectorPrincipal } from "../repository-proof/contract.js";
+import {
+  ConnectorCredentialService,
+  createConnectorPrincipalResolver,
+  type ConnectorCredentialRepository,
+  type ConnectorSetupStatus,
+} from "./connector-credentials.js";
+import {
+  ConnectorDeviceAuthorizationService,
+  InMemoryConnectorDeviceAuthorizationRepository,
+} from "./connector-device-authorization.js";
+import { CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE } from "./connector-device-authorization-policy.js";
+import { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
+
+const userId = "10000000-0000-4000-8000-000000000001";
+
+class MemoryCredentials implements ConnectorCredentialRepository {
+  readonly principals = new Map<string, ConnectorPrincipal>();
+  async create(input: { authenticatedUserId: string; connectorInstanceId: string; tokenHashHex: string }) {
+    this.principals.set(input.tokenHashHex, {
+      authenticatedUserId: input.authenticatedUserId,
+      connectorInstanceId: input.connectorInstanceId,
+    });
+    return true;
+  }
+  async authenticate(hash: string) { return this.principals.get(hash) ?? null; }
+  async revoke(input: ConnectorPrincipal) {
+    for (const [hash, principal] of this.principals) {
+      if (principal.authenticatedUserId === input.authenticatedUserId && principal.connectorInstanceId === input.connectorInstanceId) {
+        this.principals.delete(hash);
+      }
+    }
+    return true;
+  }
+  async loadSetupStatus(): Promise<ConnectorSetupStatus | null> { return null; }
+}
+
+describe("connector device authorization HTTP flow", () => {
+  it("approves in the authenticated browser, returns the bearer only to the CLI, and disconnects by repository", async () => {
+    const credentialRepository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(credentialRepository, 3_600);
+    const deviceAuthorizations = new ConnectorDeviceAuthorizationService(
+      new InMemoryConnectorDeviceAuthorizationRepository(credentials),
+      "https://telaegent.live",
+      3_600,
+    );
+    const disconnectRepository = vi.fn(async (_principal: ConnectorPrincipal, githubRepositoryId: string) => ({
+      disconnect: {
+        projectId: "30000000-0000-4000-8000-000000000001",
+        githubRepositoryId,
+        repositoryAccessStatus: "revalidation_required",
+        membershipStatus: "suspended",
+        bindingStatus: "stopped",
+        disconnectedAt: "2026-09-07T10:00:00.000Z",
+        changed: true,
+      },
+    }));
+    const relay = new LongPollConnectorJobRelay();
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay,
+        credentials,
+        deviceAuthorizations,
+        authenticatedUserId: async () => userId,
+        resolveConnectorPrincipal: createConnectorPrincipalResolver(credentials),
+        disconnectRepository,
+      },
+    );
+
+    const credential = "c".repeat(43);
+    const issued = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations",
+      payload: {
+        connectorInstanceId: "connector_instance_0001",
+        credentialHash: createHash("sha256").update(credential).digest("hex"),
+      },
+    });
+    expect(issued.statusCode).toBe(201);
+    expect(issued.headers["cache-control"]).toBe("no-store, max-age=0");
+    const device = issued.json().deviceAuthorization;
+    expect(JSON.stringify(issued.json())).not.toContain("credential");
+
+    const pending = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations/token",
+      payload: { deviceCode: device.deviceCode },
+    });
+    expect(pending.statusCode).toBe(202);
+
+    const approved = await app.inject({
+      method: "POST",
+      url: `/api/connectors/device-authorizations/${device.userCode}/decision`,
+      payload: { decision: "approve" },
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().authorization.status).toBe("approved");
+    expect(JSON.stringify(approved.json())).not.toContain("credential");
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations/token",
+      payload: { deviceCode: device.deviceCode },
+    });
+    expect(token.statusCode).toBe(201);
+    expect(token.json().connector).not.toHaveProperty("credential");
+    expect(credentialRepository.principals.has(createHash("sha256").update(credential).digest("hex"))).toBe(true);
+
+    const retriedToken = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations/token",
+      payload: { deviceCode: device.deviceCode },
+    });
+    expect(retriedToken.statusCode).toBe(201);
+    expect(credentialRepository.principals.size).toBe(1);
+
+    const disconnected = await app.inject({
+      method: "POST",
+      url: "/api/connectors/repositories/123456789/disconnect",
+      headers: { authorization: `Bearer ${credential}` },
+      payload: {},
+    });
+    expect(disconnected.statusCode).toBe(200);
+    expect(disconnected.json().disconnect).toMatchObject({
+      githubRepositoryId: "123456789",
+      membershipStatus: "suspended",
+      bindingStatus: "stopped",
+    });
+    expect(disconnectRepository).toHaveBeenCalledWith(
+      { authenticatedUserId: userId, connectorInstanceId: "connector_instance_0001" },
+      "123456789",
+    );
+    await app.close();
+  });
+
+  it("rate limits unauthenticated authorization creation by request IP", async () => {
+    const credentialRepository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(credentialRepository, 3_600);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay: new LongPollConnectorJobRelay(),
+        credentials,
+        deviceAuthorizations: new ConnectorDeviceAuthorizationService(
+          new InMemoryConnectorDeviceAuthorizationRepository(credentials),
+          "https://telaegent.live",
+          3_600,
+        ),
+        authenticatedUserId: async () => userId,
+        resolveConnectorPrincipal: createConnectorPrincipalResolver(credentials),
+      },
+    );
+
+    for (let index = 0; index < 10; index += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/connectors/device-authorizations",
+        headers: { "x-forwarded-for": `203.0.113.${index + 1}` },
+        payload: {
+          connectorInstanceId: `connector_rate_limit_${index}`,
+          credentialHash: createHash("sha256").update(`credential-${index}`).digest("hex"),
+        },
+      });
+      expect(response.statusCode).toBe(201);
+    }
+    const limited = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations",
+      headers: { "x-forwarded-for": "203.0.113.250" },
+      payload: {
+        connectorInstanceId: "connector_rate_limit_10",
+        credentialHash: createHash("sha256").update("credential-10").digest("hex"),
+      },
+    });
+    expect(limited.statusCode).toBe(429);
+    await app.close();
+  });
+
+  it("rate limits random unauthenticated token exchanges by request IP", async () => {
+    const credentialRepository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(credentialRepository, 3_600);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay: new LongPollConnectorJobRelay(),
+        credentials,
+        deviceAuthorizations: new ConnectorDeviceAuthorizationService(
+          new InMemoryConnectorDeviceAuthorizationRepository(credentials),
+          "https://telaegent.live",
+          3_600,
+        ),
+        authenticatedUserId: async () => userId,
+        resolveConnectorPrincipal: createConnectorPrincipalResolver(credentials),
+      },
+    );
+
+    for (let index = 0; index < CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE; index += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/connectors/device-authorizations/token",
+        headers: { "x-forwarded-for": `203.0.113.${(index % 250) + 1}` },
+        payload: { deviceCode: index.toString(36).padStart(43, "a") },
+      });
+      expect(response.statusCode).toBe(410);
+    }
+    const limited = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations/token",
+      headers: { "x-forwarded-for": "198.51.100.10" },
+      payload: { deviceCode: "z".repeat(43) },
+    });
+    expect(limited.statusCode).toBe(429);
+    await app.close();
+  });
+});

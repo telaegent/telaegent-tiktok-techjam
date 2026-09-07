@@ -22,14 +22,21 @@ import type { AgentProvider } from "../runtime-contract.js";
 import { repositoryProofResultSchema } from "../repository-proof/contract.js";
 import { connectorPrincipalSchema } from "../repository-proof/contract.js";
 import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worker.js";
-import { parseConnectorCliOptions } from "./connector-cli-options.js";
+import {
+  connectorCliUsage,
+  parseConnectorCliOptions,
+} from "./connector-cli-options.js";
+import { CONNECTOR_VERSION } from "./connector-version.js";
 import {
   createConnectorResourceBudgetLedger,
   createConnectorGrantRevocationStore,
   createConnectorResourceRegistry,
 } from "./connector-local-state.js";
 import { acquireConnectorProcessLock } from "./connector-process-lock.js";
-import { connectorHttpResponseError } from "./connector-http-error.js";
+import {
+  ConnectorHttpResponseError,
+  connectorHttpResponseError,
+} from "./connector-http-error.js";
 import { refreshEstablishedReadiness } from "./connector-readiness.js";
 import { ConnectorRepositoryRevalidator } from "./connector-repository-revalidator.js";
 import { runConnectorProbePump } from "./connector-probe-pump.js";
@@ -38,6 +45,7 @@ import {
   probeFailureSource,
 } from "./connector-probe-failure.js";
 import {
+  confirmRepositoryDisconnection,
   confirmRepositorySelection,
   resolveExactRepositoryRoot,
 } from "./connector-repository-selection.js";
@@ -45,6 +53,12 @@ import {
   connectorProviderCandidates,
   selectConnectorProviders,
 } from "./connector-provider-selection.js";
+import { ConnectorCredentialStore } from "./connector-credential-store.js";
+import {
+  authorizeConnectorDevice,
+  createConnectorInstanceId,
+} from "./connector-device-client.js";
+import { projectDisconnectSchema } from "../projects/types.js";
 
 const execFileAsync = promisify(execFile);
 const githubUserSchema = z.strictObject({
@@ -84,14 +98,55 @@ const REPOSITORY_PROOF_COMMAND_TIMEOUT_MS = 20_000;
 
 async function main(): Promise<void> {
   const options = parseConnectorCliOptions(process.argv.slice(2));
+  if (options.command === "help") {
+    process.stdout.write(connectorCliUsage() + "\n");
+    return;
+  }
+  if (options.command === "version") {
+    process.stdout.write(CONNECTOR_VERSION + "\n");
+    return;
+  }
+  const serverOrigin = validateServerOrigin(
+    options.serverOrigin ?? process.env.TELAEGENT_URL?.trim() ?? "https://telaegent.live",
+  );
+  const credentialStore = new ConnectorCredentialStore();
+
+  if (options.command === "auth") {
+    await runAuthCommand(options.action, serverOrigin, credentialStore);
+    return;
+  }
+
+  if (options.command === "disconnect") {
+    const workspacePath = await resolveExactRepositoryRoot(options.workspaceCandidate);
+    const proof = await collectRepositoryProof(workspacePath);
+    await confirmRepositoryDisconnection(
+      `${proof.repository.owner}/${proof.repository.name}`,
+      workspacePath,
+      options.yes,
+    );
+    const bootstrap = await resolveBootstrap(serverOrigin, {}, credentialStore);
+    const response = await connectorRequest(
+      serverOrigin,
+      bootstrap.credential,
+      `/api/connectors/repositories/${proof.repository.id}/disconnect`,
+      {},
+      undefined,
+      CONTROL_REQUEST_TIMEOUT_MS,
+    );
+    const result = z.strictObject({ disconnect: projectDisconnectSchema }).parse(
+      await response.json(),
+    );
+    process.stdout.write(
+      `TELAEGENT REPOSITORY DISCONNECTED (${proof.repository.owner}/${proof.repository.name}, ${result.disconnect.bindingStatus})\n`,
+    );
+    return;
+  }
+
   const {
     workspaceCandidate,
     provider: providerSelection,
     probeOnly,
   } = options;
-  const serverOrigin = validateServerOrigin(
-    options.serverOrigin ?? requiredEnvironment("TELAEGENT_URL"),
-  );
   const workspacePath = await resolveExactRepositoryRoot(workspaceCandidate);
   const proof = await collectRepositoryProof(workspacePath);
   await confirmRepositorySelection(
@@ -130,15 +185,7 @@ async function main(): Promise<void> {
   // GitHub repository and selects an available local provider. A wrong folder,
   // origin, provider, or declined prompt therefore cannot consume the
   // single-use browser code or mint a connector bearer.
-  const bootstrap = options.pairingCode
-    ? await exchangePairing(serverOrigin, options.pairingCode)
-    : {
-        credential:
-          options.credential ?? requiredEnvironment("TELAEGENT_CONNECTOR_CREDENTIAL"),
-        connectorInstanceId:
-          options.connectorInstanceId ??
-          requiredEnvironment("TELAEGENT_CONNECTOR_INSTANCE_ID"),
-      };
+  const bootstrap = await resolveBootstrap(serverOrigin, options, credentialStore);
   const { credential, connectorInstanceId } = bootstrap;
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(connectorInstanceId)) {
     throw new Error("TELAEGENT_CONNECTOR_INSTANCE_ID is invalid");
@@ -396,6 +443,138 @@ async function exchangePairing(
   return pairingResponseSchema.parse(await response.json()).connector;
 }
 
+async function resolveBootstrap(
+  serverOrigin: string,
+  options: {
+    pairingCode?: string;
+    credential?: string;
+    connectorInstanceId?: string;
+  },
+  credentialStore: ConnectorCredentialStore,
+): Promise<{ credential: string; connectorInstanceId: string }> {
+  if (options.pairingCode) {
+    const paired = await exchangePairing(serverOrigin, options.pairingCode);
+    const persisted = await credentialStore.save(serverOrigin, paired);
+    if (!persisted) {
+      process.stderr.write(
+        "TELAEGENT CREDENTIAL NOT SAVED (OS credential vault unavailable; browser approval will be required next time)\n",
+      );
+    }
+    return paired;
+  }
+
+  const legacyCredential = options.credential ?? process.env.TELAEGENT_CONNECTOR_CREDENTIAL?.trim();
+  const legacyInstanceId = options.connectorInstanceId ?? process.env.TELAEGENT_CONNECTOR_INSTANCE_ID?.trim();
+  if ((legacyCredential && !legacyInstanceId) || (!legacyCredential && legacyInstanceId)) {
+    throw new Error("Both connector instance ID and credential are required");
+  }
+  if (legacyCredential && legacyInstanceId) {
+    return { credential: legacyCredential, connectorInstanceId: legacyInstanceId };
+  }
+
+  const stored = await credentialStore.load(serverOrigin);
+  if (stored) {
+    let response: Response | null = null;
+    try {
+      response = await connectorGet(
+        serverOrigin,
+        stored.credential,
+        "/api/connectors/session",
+        CONTROL_REQUEST_TIMEOUT_MS,
+      );
+    } catch (error) {
+      if (!credentialWasRejected(error)) throw error;
+      await credentialStore.clear(serverOrigin);
+      process.stderr.write("TELAEGENT MACHINE AUTHENTICATION EXPIRED\n");
+    }
+    if (response) {
+      const principal = z.strictObject({ connector: connectorPrincipalSchema }).parse(
+        await response.json(),
+      ).connector;
+      if (principal.connectorInstanceId !== stored.connectorInstanceId) {
+        await credentialStore.clear(serverOrigin);
+        throw new Error("Stored connector identity does not match its credential");
+      }
+      process.stdout.write("TELAEGENT MACHINE AUTHENTICATED\n");
+      return stored;
+    }
+  }
+
+  const connectorInstanceId =
+    (await credentialStore.connectorInstanceId(serverOrigin)) ?? createConnectorInstanceId();
+  const approved = await authorizeConnectorDevice(serverOrigin, connectorInstanceId);
+  const persisted = await credentialStore.save(serverOrigin, approved);
+  if (!persisted) {
+    process.stderr.write(
+      "TELAEGENT CREDENTIAL NOT SAVED (OS credential vault unavailable; browser approval will be required next time)\n",
+    );
+  }
+  return approved;
+}
+
+async function runAuthCommand(
+  action: "status" | "logout",
+  serverOrigin: string,
+  credentialStore: ConnectorCredentialStore,
+): Promise<void> {
+  const stored = await credentialStore.load(serverOrigin);
+  if (!stored) {
+    process.stdout.write("TELAEGENT MACHINE NOT AUTHENTICATED\n");
+    return;
+  }
+  if (action === "status") {
+    try {
+      const response = await connectorGet(
+        serverOrigin,
+        stored.credential,
+        "/api/connectors/session",
+        CONTROL_REQUEST_TIMEOUT_MS,
+      );
+      const principal = z.strictObject({ connector: connectorPrincipalSchema }).parse(
+        await response.json(),
+      ).connector;
+      if (principal.connectorInstanceId !== stored.connectorInstanceId) {
+        await credentialStore.clear(serverOrigin);
+        throw new Error("Stored connector identity does not match its credential");
+      }
+      process.stdout.write(
+        `TELAEGENT MACHINE AUTHENTICATED (${stored.connectorInstanceId})\n`,
+      );
+    } catch (error) {
+      if (!credentialWasRejected(error)) throw error;
+      await credentialStore.clear(serverOrigin);
+      process.stdout.write("TELAEGENT MACHINE AUTHENTICATION EXPIRED\n");
+    }
+    return;
+  }
+
+  try {
+    await connectorDelete(
+      serverOrigin,
+      stored.credential,
+      "/api/connectors/session",
+      CONTROL_REQUEST_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (!credentialWasRejected(error)) throw error;
+  }
+  // A successful deletion or an authoritative authentication rejection both
+  // mean this local vault entry no longer represents usable authority.
+  try {
+    await credentialStore.clear(serverOrigin);
+  } catch (error) {
+    throw new Error("Telaegent machine credential was revoked but could not be removed locally", {
+      cause: error,
+    });
+  }
+  process.stdout.write("TELAEGENT MACHINE LOGGED OUT\n");
+}
+
+function credentialWasRejected(error: unknown): boolean {
+  return error instanceof ConnectorHttpResponseError &&
+    (error.status === 401 || error.status === 403);
+}
+
 async function collectRepositoryProof(workspacePath: string) {
   const remote = (await run("git", [
     "-C",
@@ -520,6 +699,24 @@ async function connectorGet(
   return response;
 }
 
+async function connectorDelete(
+  serverOrigin: string,
+  credential: string,
+  pathname: string,
+  timeoutMs?: number,
+): Promise<void> {
+  const origin = new URL(serverOrigin);
+  const response = await fetchWithTimeout(origin.origin + pathname, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${credential}`, accept: "application/json" },
+    cache: "no-store",
+    credentials: "omit",
+    redirect: "error",
+  }, timeoutMs);
+  if (!response.ok) throw await connectorHttpResponseError(response, "DELETE request");
+  await response.body?.cancel();
+}
+
 async function fetchWithTimeout(
   input: string,
   init: RequestInit,
@@ -572,12 +769,6 @@ async function runAllowingExitOne(executable: string, args: string[]): Promise<s
     if (candidate.code === 1 && typeof candidate.stdout === "string") return candidate.stdout;
     throw error;
   }
-}
-
-function requiredEnvironment(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required`);
-  return value;
 }
 
 function validateServerOrigin(value: string): string {

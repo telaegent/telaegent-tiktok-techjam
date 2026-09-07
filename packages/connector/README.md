@@ -5,21 +5,28 @@ deliberately selected Git repository to Telaegent, verifies local GitHub CLI
 access, probes locally authenticated Claude Code and Codex CLIs, and maintains
 an outbound connection to the Telaegent control plane.
 
-From the repository you want to connect:
+Install the CLI once:
 
 ```bash
-npx --yes @telaegent/connector@0.1.18 connect . \
-  --url https://telaegent.live \
-  --pair ONE_TIME_PAIRING_CODE
+npm install --global @telaegent/connector
 ```
 
-The Telaegent website generates a short-lived, single-use pairing code. The
-connector exchanges it directly for its connector credential, so the durable
-bearer never appears in the browser, clipboard, shell history, or process
-arguments. The repository checkout, its local path, GitHub/provider
-credentials, and provider sessions remain on this machine.
+Then open a terminal at the exact root of the repository you want to connect:
 
-Run the command from the repository root. Before consuming the pairing code,
+```bash
+tlg connect
+```
+
+On first use, the CLI creates the future bearer locally, sends only its hash,
+and opens a short-lived Telaegent browser approval page. Once approved, the
+connector stores that credential in the operating-system credential vault.
+Retrying a lost approval response confirms the same hash without minting a new
+credential, including during a one-minute consumed-only recovery window at the
+authorization deadline. The raw bearer never appears in the browser, cloud,
+clipboard, shell history, or process arguments. The repository checkout, local
+path, GitHub/provider credentials, and provider sessions remain on this machine.
+
+Run the command from the repository root. Before connecting,
 the connector prints the canonical local root and exact GitHub `owner/name`;
 answer `y` only when both identify the repository you intended to connect.
 While it remains running, the connector refreshes its repository-access proof
@@ -39,3 +46,11 @@ if both are ready, it asks whether to connect Claude Code, Codex, or both.
 Use `--provider claude` or `--provider codex` to make the choice directly, or
 `--provider auto` to select every authenticated provider without a prompt.
 Use `--probe-only` to verify the live path and exit.
+
+Press Ctrl+C to stop the foreground connector without revoking the repository.
+Run `tlg disconnect` from the same repository root to revoke its active binding,
+cancel its local-runtime work and grants, and preserve project conversation
+history. Run `tlg auth status` to inspect the remembered machine authorization,
+or `tlg auth logout` to revoke it and remove it from the operating-system vault.
+
+`telaegent` remains an alias for `tlg` for compatibility.
