@@ -41,20 +41,20 @@ export function typewriterVisibleCount(
   );
 }
 
-export function usePrefersReducedMotion(): boolean {
+export function usePrefersReducedMotion(enabled = true): boolean {
   const [reducedMotion, setReducedMotion] = useState(() =>
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
   );
 
   useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
+    if (!enabled || typeof window === "undefined" || !window.matchMedia) return;
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => setReducedMotion(query.matches);
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
-  }, []);
+  }, [enabled]);
 
   return reducedMotion;
 }
@@ -71,7 +71,7 @@ export default function TypewriterText({
   scrollContainerRef?: RefObject<HTMLElement | null>;
 }) {
   const characters = useMemo(() => splitTypewriterText(text), [text]);
-  const reduceMotion = usePrefersReducedMotion();
+  const reduceMotion = usePrefersReducedMotion(animate);
   const shouldAnimate = animate && !reduceMotion && characters.length > 0;
   const [visibleCount, setVisibleCount] = useState(() =>
     shouldAnimate ? 0 : characters.length,

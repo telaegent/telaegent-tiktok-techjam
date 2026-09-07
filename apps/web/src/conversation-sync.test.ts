@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationMessage } from "./api";
 import {
+  completeMessageReveal,
+  enqueueMessageReveals,
   mergeConversationMessages,
   newlyArrivedIncomingMessageIds,
 } from "./conversation-sync";
@@ -63,5 +65,12 @@ describe("mergeConversationMessages", () => {
         new Set([optimistic.messageId]),
       ),
     ).toEqual([]);
+  });
+
+  it("queues simultaneous arrivals for one-at-a-time reveals", () => {
+    expect(enqueueMessageReveals(["message-1"], ["message-1", "message-2"]))
+      .toEqual(["message-1", "message-2"]);
+    expect(completeMessageReveal(["message-1", "message-2"], "message-1"))
+      .toEqual(["message-2"]);
   });
 });

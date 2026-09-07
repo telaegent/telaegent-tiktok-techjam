@@ -34,3 +34,22 @@ export function newlyArrivedIncomingMessageIds(
     )
     .map((message) => message.messageId);
 }
+
+export function enqueueMessageReveals(
+  current: readonly string[],
+  incoming: readonly string[],
+): string[] {
+  return [
+    ...current,
+    ...incoming.filter((messageId) => !current.includes(messageId)),
+  ];
+}
+
+export function completeMessageReveal(
+  current: readonly string[],
+  messageId: string,
+): string[] {
+  return current[0] === messageId
+    ? current.slice(1)
+    : current.filter((candidate) => candidate !== messageId);
+}

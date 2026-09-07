@@ -31,7 +31,7 @@ export function draftResponseReveal(
 
   return {
     draftId: next.draftId,
-    responseVersion: next.updatedAt,
+    responseVersion: next.turnId ?? next.updatedAt,
     firstNewTurnIndex: previous.privateTurns.length,
   };
 }

@@ -47,14 +47,21 @@ import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import { deviceAuthorizationUiOutcome } from "./device-authorization-ui";
 import { collectCursorPages, collectCursorSnapshot } from "./cursor-pagination";
-import { mergeConversationMessages } from "./conversation-sync";
+import {
+  completeMessageReveal,
+  enqueueMessageReveals,
+  mergeConversationMessages,
+  newlyArrivedIncomingMessageIds,
+} from "./conversation-sync";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
 import { selectAvailableProvider } from "./runtime-selection";
 import {
   draftResponseReveal,
   type DraftResponseReveal,
 } from "./draft-response-reveal";
-import TypewriterText from "./typewriter-text";
+import TypewriterText, {
+  usePrefersReducedMotion,
+} from "./typewriter-text";
 import ThemeSwitch from "./ThemeSwitch";
 import {
   ConnectorSetupPollTracker,
@@ -2468,7 +2475,7 @@ function RuntimeRoutePicker({
   );
 }
 
-function PrivateAgentRoom({
+export function PrivateAgentRoom({
   open,
   draft,
   answering,
@@ -2534,7 +2541,19 @@ function PrivateAgentRoom({
   const animateResponse =
     !!draft &&
     responseReveal?.draftId === draft.draftId &&
-    responseReveal.responseVersion === draft.updatedAt;
+    responseReveal.responseVersion === (draft.turnId ?? draft.updatedAt);
+  const reducedMotion = usePrefersReducedMotion();
+  const privateThreadRef = useRef<HTMLDivElement>(null);
+  const [completedCandidateReveal, setCompletedCandidateReveal] = useState<
+    string | null
+  >(null);
+  const activeRevealKey = animateResponse
+    ? `${responseReveal.draftId}:${responseReveal.responseVersion}`
+    : null;
+  const animateCandidate =
+    animateResponse && state === "ready" && !editingCandidate && !reducedMotion;
+  const candidateRevealed =
+    !animateCandidate || completedCandidateReveal === activeRevealKey;
 
   return (
     <aside
@@ -2571,7 +2590,11 @@ function PrivateAgentRoom({
         </span>
       </div>
 
-      <div className="workspace-private-thread" aria-live="polite">
+      <div
+        className="workspace-private-thread"
+        aria-live="polite"
+        ref={privateThreadRef}
+      >
         {answering && (
           <article className="private-bubble answering">
             <span>{recipient.name} · approved message</span>
@@ -2597,14 +2620,18 @@ function PrivateAgentRoom({
                 : formatProvider(draft.provider)}
             </span>
             <p>
-              <TypewriterText
-                text={turn.text}
-                animate={
-                  animateResponse &&
-                  turn.speaker === "agent" &&
-                  index >= responseReveal.firstNewTurnIndex
-                }
-              />
+              {animateResponse &&
+              state !== "ready" &&
+              turn.speaker === "agent" &&
+              index >= responseReveal.firstNewTurnIndex ? (
+                <TypewriterText
+                  text={turn.text}
+                  animate
+                  scrollContainerRef={privateThreadRef}
+                />
+              ) : (
+                turn.text
+              )}
             </p>
           </article>
         ))}
@@ -2613,10 +2640,15 @@ function PrivateAgentRoom({
           <article className="private-bubble agent">
             <span>{draft ? formatProvider(draft.provider) : "Agent"}</span>
             <p>
-              <TypewriterText
-                text={draft?.privateMessage ?? ""}
-                animate={animateResponse}
-              />
+              {animateResponse && state !== "ready" ? (
+                <TypewriterText
+                  text={draft?.privateMessage ?? ""}
+                  animate
+                  scrollContainerRef={privateThreadRef}
+                />
+              ) : (
+                draft?.privateMessage
+              )}
             </p>
           </article>
         )}
@@ -2697,10 +2729,20 @@ function PrivateAgentRoom({
               />
             ) : (
               <blockquote>
-                <TypewriterText
-                  text={approvedContent || draft?.sendCandidate || ""}
-                  animate={animateResponse}
-                />
+                {animateCandidate ? (
+                  <TypewriterText
+                    text={approvedContent || draft?.sendCandidate || ""}
+                    animate
+                    scrollContainerRef={privateThreadRef}
+                    onComplete={() => {
+                      if (activeRevealKey) {
+                        setCompletedCandidateReveal(activeRevealKey);
+                      }
+                    }}
+                  />
+                ) : (
+                  approvedContent || draft?.sendCandidate
+                )}
               </blockquote>
             )}
           </article>
@@ -2774,9 +2816,9 @@ function PrivateAgentRoom({
               className="send"
               type="button"
               onClick={onSend}
-              disabled={busy || !approvedContent.trim()}
+              disabled={busy || !approvedContent.trim() || !candidateRevealed}
             >
-              Send
+              {candidateRevealed ? "Send" : "Reviewing…"}
             </button>
           )}
           {(state === "runtime_failed" || (state === "created" && !!error)) &&
@@ -2839,6 +2881,7 @@ function ProjectChat({
   const [messageLoadState, setMessageLoadState] =
     useState<AsyncLoadState>("idle");
   const [messageError, setMessageError] = useState<ApiError | null>(null);
+  const [messageRevealQueue, setMessageRevealQueue] = useState<string[]>([]);
   const [scopeRequests, setScopeRequests] = useState<CapabilityScopeRequest[]>(
     [],
   );
@@ -2876,6 +2919,7 @@ function ProjectChat({
     new SingleFlightByKey<{ items: ConversationMessage[]; pollCursor: string | null }>(),
   );
   const rawConversationMessages = useRef<ConversationMessage[]>([]);
+  const sharedThreadRef = useRef<HTMLDivElement>(null);
   const messagePollCursor = useRef<string | null>(null);
   const scopeRequestsInFlight = useRef(
     new SingleFlightByKey<CapabilityScopeRequest[]>(),
@@ -3002,10 +3046,25 @@ function ProjectChat({
     items: ConversationMessage[];
     pollCursor: string | null;
   }, replace: boolean): number {
+    const newlyArrivedIds = replace
+      ? []
+      : newlyArrivedIncomingMessageIds(
+          rawConversationMessages.current,
+          snapshot.items,
+          currentUserId,
+          ownMessageIds.current,
+        );
     rawConversationMessages.current = replace
       ? snapshot.items
       : mergeConversationMessages(rawConversationMessages.current, snapshot.items);
     messagePollCursor.current = snapshot.pollCursor;
+    if (replace) {
+      setMessageRevealQueue([]);
+    } else if (newlyArrivedIds.length > 0) {
+      setMessageRevealQueue((current) =>
+        enqueueMessageReveals(current, newlyArrivedIds),
+      );
+    }
     setMessages(
       rawConversationMessages.current.map((message) =>
         mapConversationMessage(
@@ -3095,6 +3154,7 @@ function ProjectChat({
     }
     setMessageLoadState("loading");
     setMessageError(null);
+    setMessageRevealQueue([]);
     const scopeKey = messageScopeKey;
     const selectedConversationId = conversationId;
     const repositoryId = project.githubRepositoryId;
@@ -3634,7 +3694,7 @@ function ProjectChat({
         </small>
       </div>
 
-      <div className="shared-thread" aria-live="polite">
+      <div className="shared-thread" aria-live="polite" ref={sharedThreadRef}>
         {!privateRoomOpen && recoverableDrafts.length > 0 && (
           <section className="api-state" aria-label="Unfinished private drafts">
             <strong>
@@ -3899,7 +3959,22 @@ function ProjectChat({
             <span>
               {message.author} / {message.provider}
             </span>
-            <p>{message.body}</p>
+            <p>
+              {messageRevealQueue[0] === message.id ? (
+                <TypewriterText
+                  text={message.body}
+                  animate
+                  scrollContainerRef={sharedThreadRef}
+                  onComplete={() => {
+                    setMessageRevealQueue((current) =>
+                      completeMessageReveal(current, message.id),
+                    );
+                  }}
+                />
+              ) : (
+                message.body
+              )}
+            </p>
             <small>{message.meta}</small>
             {message.side === "incoming" && (
               <button
