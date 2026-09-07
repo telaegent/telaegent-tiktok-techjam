@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { timingSafeEqual } from "node:crypto";
@@ -89,6 +90,7 @@ export async function createApp(
   capabilityScopeApi?: CapabilityScopeRouteDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
+    trustProxy: config.trustedProxyCidrs.length > 0 ? config.trustedProxyCidrs : false,
     logger: {
       level: config.logLevel,
       redact: ["req.headers.authorization", "req.headers.cookie"],
@@ -112,6 +114,10 @@ export async function createApp(
       config.nodeEnv === "development"
         ? ["http://localhost:5173", "http://127.0.0.1:5173"]
         : false,
+  });
+  await app.register(rateLimit, {
+    global: false,
+    cache: 10_000,
   });
 
   app.addHook("onRequest", async (request, reply) => {

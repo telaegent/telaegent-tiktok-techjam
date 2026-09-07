@@ -75,6 +75,10 @@ verifies the real repository/provider/relay path:
 
    Keep the generated `TELAEGENT_COOKIE_SECRET`. Never use a publishable or
    browser key as `SUPABASE_SECRET_KEY`, and never commit `.env`.
+   If Caddy or another reverse proxy connects to Fastify, also set
+   `TELAEGENT_TRUSTED_PROXY_CIDRS` to only that proxy's exact IP/CIDR so the
+   public device-authorization limiter sees the verified client IP. Leave it
+   empty when Fastify is directly exposed.
 4. Install GitHub CLI and authenticate locally with `gh auth login`.
 5. Install and authenticate at least one local provider: Codex CLI or Claude
    Code CLI. Telaegent reuses that local login and never uploads it.
@@ -102,12 +106,14 @@ Open a terminal at the exact repository root and run:
 tlg connect
 ```
 
-On first use, the connector creates a high-entropy device code and opens a
-short-lived approval page in the signed-in Telaegent website. The code expires
-after five minutes and can be used only once. The browser never receives the
-longer-lived connector bearer. After approval, the CLI stores that bearer in
-the operating-system credential vault rather than a file, clipboard, shell
-history, or process argument.
+On first use, the connector creates a high-entropy device code and future
+connector bearer, sends only their hashes, and opens a short-lived approval page
+in the signed-in Telaegent website. The approval expires after five minutes and
+is terminal. Credential activation is atomic and retry-safe: repeating a poll
+after a lost response only confirms the same precommitted bearer hash. The
+browser and cloud never receive the raw bearer. After approval, the CLI stores
+it in the operating-system credential vault rather than a file, clipboard,
+shell history, or process argument.
 
 The same command syntax works on Windows, macOS, and Linux. The connector
 automatically uses the only authenticated Claude Code or Codex CLI it detects.
@@ -135,7 +141,12 @@ machine authorization; `tlg auth logout` revokes and removes it.
 The package is built with `npm run connector:package`. Publishing is gated by
 repository checks, package inspection, a two-machine signed-in acceptance run,
 the protected `connector-release` GitHub environment, and npm trusted
-publishing with provenance.
+publishing with provenance. Before enabling the workflow, an administrator must
+create `connector-release`, require reviewers, add a custom deployment-branch
+policy containing exactly `main`, and configure npm trusted publishing for
+`telaegent/telaegent-tiktok-techjam`, `publish-connector.yml`, and the
+`connector-release` environment. The workflow fails closed if the environment
+or either protection rule is missing, and it refuses every ref except `main`.
 
 ### Source-checkout development fallback
 

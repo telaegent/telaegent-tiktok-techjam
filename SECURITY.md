@@ -131,11 +131,16 @@ still validated for revocation, expiry, and account status on every request,
 while safe `last_seen_at` telemetry is written at most once per 30 seconds.
 
 The installed CLI bootstraps that bearer through a device-authorization flow.
-The unauthenticated terminal receives a high-entropy device secret and a short
-human-readable code. Only hashes are stored by the cloud. A signed-in browser
-must explicitly approve the short-lived request before the terminal can claim
-the bearer, and each device secret is single-use. Polling is throttled, issuance
-is bounded per installation and globally, and approved requests still expire.
+The CLI generates both a high-entropy device secret and the future connector
+bearer, sending only their hashes and a short human-readable code to the cloud.
+A signed-in browser must explicitly approve the short-lived request before one
+database transaction activates the precommitted bearer hash. Retrying a lost
+success response only confirms that same active hash; it cannot mint or rotate
+a credential. Polling is throttled, public creation is limited by verified
+request IP, and database issuance is bounded per installation, per rolling
+global window, and by an atomically serialized active-row cap. Expired rows are
+opportunistically deleted in bounded batches after a short terminal-response
+retention window when new authorizations are created.
 The CLI stores the bearer only in the operating-system credential vault; the
 adjacent file contains the non-secret connector installation ID only. There is
 no plaintext fallback when the credential vault is unavailable.
@@ -188,11 +193,13 @@ resolved.
 The current long-poll queue and binding-presence map are process-local. An
 authenticated connector can restore its durable ready binding after a cloud
 restart, but queued jobs are not durably redelivered across that restart.
-Connector publication now has a protected GitHub Actions and npm trusted-
-publishing path with provenance. The protected environment configuration,
-real npm publication, signed-in two-machine acceptance run, update policy, and
-production operational review remain release gates rather than completed
-claims.
+Connector publication has a fail-closed GitHub Actions path for npm trusted
+publishing with provenance. It accepts only `main` and verifies that the
+`connector-release` environment has required reviewers and a custom `main`
+deployment policy before reaching the publish step. Creating that environment,
+configuring the exact npm trusted publisher, real publication, the signed-in
+two-machine acceptance run, update policy, and production operational review
+remain release gates rather than completed claims.
 
 Repository registration accepts only a strict, fresh proof from an
 authenticated local connector. The connector obtains repository identity,

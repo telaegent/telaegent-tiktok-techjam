@@ -163,8 +163,8 @@ if (config.telaegentIdentityProvider === "github") {
         config.supabaseSecretKey,
         config.githubOAuthTimeoutMs,
       ),
-      credentialService,
       config.telaegentPublicOrigin,
+      config.connectorCredentialTtlSeconds,
     ),
     authenticatedUserId,
     disconnectRepository: (principal, githubRepositoryId) =>

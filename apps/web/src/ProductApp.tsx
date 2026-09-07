@@ -45,6 +45,7 @@ import {
 } from "./app-routing";
 import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
+import { deviceAuthorizationUiOutcome } from "./device-authorization-ui";
 import { collectCursorPages, collectCursorSnapshot } from "./cursor-pagination";
 import { mergeConversationMessages } from "./conversation-sync";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
@@ -127,6 +128,15 @@ function DeviceAuthorizationScreen({
       }
     : { kind: "loading" });
 
+  function applyAuthorizationState(authorization: ConnectorDeviceAuthorization) {
+    const outcome = deviceAuthorizationUiOutcome(authorization.status);
+    if (outcome === "expired") {
+      setState({ kind: "error", message: "This device authorization request has expired." });
+    } else {
+      setState({ kind: outcome, authorization });
+    }
+  }
+
   useEffect(() => {
     let active = true;
     if (preview) return () => { active = false; };
@@ -137,15 +147,7 @@ function DeviceAuthorizationScreen({
     void api.connectorDeviceAuthorization(userCode)
       .then(({ authorization }) => {
         if (!active) return;
-        if (authorization.status === "approved" || authorization.status === "consumed") {
-          setState({ kind: "approved", authorization });
-        } else if (authorization.status === "denied") {
-          setState({ kind: "denied", authorization });
-        } else if (authorization.status === "expired") {
-          setState({ kind: "error", message: "This device authorization request has expired." });
-        } else {
-          setState({ kind: "ready", authorization });
-        }
+        applyAuthorizationState(authorization);
       })
       .catch((error: unknown) => {
         if (active) setState({ kind: "error", message: normalizeApiError(error).message });
@@ -162,7 +164,7 @@ function DeviceAuthorizationScreen({
     }
     try {
       const { authorization } = await api.decideConnectorDeviceAuthorization(userCode, decision);
-      setState({ kind: decision === "approve" ? "approved" : "denied", authorization });
+      applyAuthorizationState(authorization);
     } catch (error) {
       setState({ kind: "error", message: normalizeApiError(error).message });
     }

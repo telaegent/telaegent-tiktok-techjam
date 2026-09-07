@@ -106,16 +106,15 @@ ready binding from durable authorization state. Revoked, suspended, stale, and
 unavailable bindings fail closed. This costs one bounded status lookup per
 binding recovery, not one database call per poll.
 
-The `@telaegent/connector` artifact and cross-platform `npx` command are
-implemented, but registry publication and a two-machine packaged live proof
-remain release work. Version 0.1 passes only a short-lived, single-use pairing
-code as a local command argument. The connector exchanges it directly for its
-longer-lived bearer, which never enters browser state, the clipboard, shell
-history, or process arguments. OS credential-vault integration,
-installer/update signing, and durable presence telemetry remain follow-up work.
-Credential issuance already rotates the server-side hash and unregisters the
-old process-local principal, but local replacement remains a deliberate user
-action.
+The `@telaegent/connector` artifact and cross-platform CLI are implemented, but
+the 0.2 registry publication and a two-machine packaged live proof remain
+release work. `tlg connect` creates the future bearer locally, sends only its
+hash, and uses a short-lived browser approval. One database transaction
+activates that precommitted hash, so a lost success response can be retried
+without minting another credential. The bearer never enters browser state, the
+cloud, clipboard, shell history, or process arguments and is persisted only in
+the operating-system credential vault. Installer/update signing and durable
+presence telemetry remain follow-up work.
 
 ## Resource requests (loop closed end to end)
 

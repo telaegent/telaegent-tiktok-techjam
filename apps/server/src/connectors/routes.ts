@@ -58,7 +58,10 @@ const credentialParamsSchema = credentialBodySchema;
 const pairingExchangeSchema = z.strictObject({
   pairingCode: z.string().length(43).regex(/^[A-Za-z0-9_-]+$/),
 });
-const deviceAuthorizationIssueSchema = credentialBodySchema;
+const deviceAuthorizationIssueSchema = z.strictObject({
+  connectorInstanceId: credentialBodySchema.shape.connectorInstanceId,
+  credentialHash: z.string().length(64).regex(/^[0-9a-f]+$/),
+});
 const deviceAuthorizationCodeParamsSchema = z.strictObject({
   userCode: z.string().min(9).max(9).regex(/^[A-Za-z0-9-]+$/),
 });
@@ -226,15 +229,28 @@ export function registerConnectorTransportRoutes(
   }
 
   if (dependencies.deviceAuthorizations && dependencies.authenticatedUserId) {
-    app.post("/api/connectors/device-authorizations", async (request, reply) => {
-      setPrivateNoStore(reply);
-      const { connectorInstanceId } = deviceAuthorizationIssueSchema.parse(request.body);
-      return reply.code(201).send({
-        deviceAuthorization: await dependencies.deviceAuthorizations!.issue(
-          connectorInstanceId,
-        ),
-      });
-    });
+    app.post(
+      "/api/connectors/device-authorizations",
+      {
+        config: {
+          rateLimit: {
+            max: 10,
+            timeWindow: "1 minute",
+          },
+        },
+      },
+      async (request, reply) => {
+        setPrivateNoStore(reply);
+        const { connectorInstanceId, credentialHash } =
+          deviceAuthorizationIssueSchema.parse(request.body);
+        return reply.code(201).send({
+          deviceAuthorization: await dependencies.deviceAuthorizations!.issue(
+            connectorInstanceId,
+            credentialHash,
+          ),
+        });
+      },
+    );
 
     app.get(
       "/api/connectors/device-authorizations/:userCode",

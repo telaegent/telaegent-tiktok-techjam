@@ -9,6 +9,24 @@ describe("agent memory rollout", () => {
   });
 });
 
+describe("trusted reverse proxy configuration", () => {
+  it("trusts no forwarded address by default and accepts explicit IP/CIDR peers", () => {
+    expect(loadConfig({}).trustedProxyCidrs).toEqual([]);
+    expect(loadConfig({
+      TELAEGENT_TRUSTED_PROXY_CIDRS: "127.0.0.1, 10.0.0.0/8, ::1",
+    }).trustedProxyCidrs).toEqual(["127.0.0.1", "10.0.0.0/8", "::1"]);
+  });
+
+  it.each(["any", "10.0.0.0/99", "127.0.0.1/8/2"])(
+    "rejects an unsafe proxy trust value: %s",
+    (value) => {
+      expect(() => loadConfig({ TELAEGENT_TRUSTED_PROXY_CIDRS: value })).toThrow(
+        "TELAEGENT_TRUSTED_PROXY_CIDRS is invalid",
+      );
+    },
+  );
+});
+
 describe("ModelArk configuration", () => {
   it("defaults local runs to the BytePlus Southeast Asia Responses API", () => {
     const config = loadConfig({});

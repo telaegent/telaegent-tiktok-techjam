@@ -10,17 +10,32 @@ on:
 
 permissions:
   contents: read
+  deployments: read
 
 jobs:
   publish:
     name: Verify and publish npm package
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: connector-release
     permissions:
       contents: read
+      deployments: read
       id-token: write
     steps:
+      - name: Require main and protected release environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          environment_json="$(gh api "repos/$GITHUB_REPOSITORY/environments/connector-release")"
+          jq -e '.protection_rules | any(.type == "required_reviewers")' <<<"$environment_json"
+          jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$environment_json"
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/environments/connector-release/deployment-branch-policies" \
+            --jq '.branch_policies[].name' | grep -Fx main
+
       - name: Require the live acceptance gate
         env:
           LIVE_ACCEPTANCE: ${{ inputs.live_acceptance }}

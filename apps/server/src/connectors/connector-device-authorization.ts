@@ -20,6 +20,7 @@ export type DeviceAuthorizationView = {
 type DeviceAuthorizationRecord = {
   deviceCodeHash: string;
   userCodeHash: string;
+  credentialTokenHash: string;
   connectorInstanceId: string;
   status: DeviceAuthorizationView["status"];
   authenticatedUserId: string | null;
@@ -27,6 +28,7 @@ type DeviceAuthorizationRecord = {
   expiresAt: string;
   intervalSeconds: number;
   lastPolledAt: string | null;
+  credentialExpiresAt: string | null;
 };
 
 export interface ConnectorDeviceAuthorizationRepository {
@@ -38,12 +40,13 @@ export interface ConnectorDeviceAuthorizationRepository {
     decision: DeviceAuthorizationDecision;
     now: string;
   }>): Promise<DeviceAuthorizationView | null>;
-  claim(input: Readonly<{
+  redeem(input: Readonly<{
     deviceCodeHash: string;
     now: string;
+    credentialTtlSeconds: number;
   }>): Promise<
     | { outcome: "pending" | "slow_down" | "denied" | "expired" | "consumed" }
-    | { outcome: "approved"; authenticatedUserId: string; connectorInstanceId: string }
+    | { outcome: "approved"; connectorInstanceId: string; expiresAt: string }
   >;
 }
 
@@ -52,10 +55,18 @@ export class InMemoryConnectorDeviceAuthorizationRepository
 {
   private readonly records = new Map<string, DeviceAuthorizationRecord>();
 
+  constructor(
+    private readonly credentials: Pick<ConnectorCredentialService, "activateHash">,
+  ) {}
+
   async create(record: Readonly<DeviceAuthorizationRecord>): Promise<boolean> {
     if (
       this.records.has(record.deviceCodeHash) ||
-      [...this.records.values()].some((candidate) => candidate.userCodeHash === record.userCodeHash)
+      [...this.records.values()].some(
+        (candidate) =>
+          candidate.userCodeHash === record.userCodeHash ||
+          candidate.credentialTokenHash === record.credentialTokenHash,
+      )
     ) return false;
     this.records.set(record.deviceCodeHash, { ...record });
     return true;
@@ -91,12 +102,13 @@ export class InMemoryConnectorDeviceAuthorizationRepository
     return view(record);
   }
 
-  async claim(input: Readonly<{
+  async redeem(input: Readonly<{
     deviceCodeHash: string;
     now: string;
+    credentialTtlSeconds: number;
   }>): Promise<
     | { outcome: "pending" | "slow_down" | "denied" | "expired" | "consumed" }
-    | { outcome: "approved"; authenticatedUserId: string; connectorInstanceId: string }
+    | { outcome: "approved"; connectorInstanceId: string; expiresAt: string }
   > {
     const record = this.records.get(input.deviceCodeHash);
     if (!record) return { outcome: "expired" };
@@ -110,16 +122,36 @@ export class InMemoryConnectorDeviceAuthorizationRepository
       record.lastPolledAt = input.now;
       return { outcome: "pending" };
     }
+    if (record.status === "consumed") {
+      if (
+        record.credentialExpiresAt &&
+        Date.parse(input.now) < Date.parse(record.expiresAt) &&
+        Date.parse(input.now) < Date.parse(record.credentialExpiresAt)
+      ) {
+        return {
+          outcome: "approved",
+          connectorInstanceId: record.connectorInstanceId,
+          expiresAt: record.credentialExpiresAt,
+        };
+      }
+      return { outcome: "consumed" };
+    }
     if (record.status !== "approved" || !record.authenticatedUserId) {
       return { outcome: record.status } as {
-        outcome: "denied" | "expired" | "consumed";
+        outcome: "denied" | "expired";
       };
     }
+    const activated = await this.credentials.activateHash(
+      record.authenticatedUserId,
+      record.connectorInstanceId,
+      record.credentialTokenHash,
+    );
     record.status = "consumed";
+    record.credentialExpiresAt = activated.expiresAt;
     return {
       outcome: "approved",
-      authenticatedUserId: record.authenticatedUserId,
       connectorInstanceId: record.connectorInstanceId,
+      expiresAt: activated.expiresAt,
     };
   }
 }
@@ -127,8 +159,8 @@ export class InMemoryConnectorDeviceAuthorizationRepository
 export class ConnectorDeviceAuthorizationService {
   constructor(
     private readonly repository: ConnectorDeviceAuthorizationRepository,
-    private readonly credentials: ConnectorCredentialService,
     private readonly publicOrigin: string,
+    private readonly credentialTtlSeconds = 1_209_600,
     private readonly ttlMs = 5 * 60_000,
     private readonly intervalSeconds = 3,
     private readonly now: () => Date = () => new Date(),
@@ -141,8 +173,9 @@ export class ConnectorDeviceAuthorizationService {
     }
   }
 
-  async issue(rawConnectorInstanceId: unknown) {
+  async issue(rawConnectorInstanceId: unknown, rawCredentialTokenHash: unknown) {
     const connectorInstanceId = connectorInstanceIdSchema.parse(rawConnectorInstanceId);
+    const credentialTokenHash = z.string().regex(/^[0-9a-f]{64}$/).parse(rawCredentialTokenHash);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const deviceCode = randomBytes(32).toString("base64url");
       const userCode = createUserCode();
@@ -151,6 +184,7 @@ export class ConnectorDeviceAuthorizationService {
       const created = await this.repository.create({
         deviceCodeHash: sha256Hex(deviceCode),
         userCodeHash: sha256Hex(userCode),
+        credentialTokenHash,
         connectorInstanceId,
         status: "pending",
         authenticatedUserId: null,
@@ -158,6 +192,7 @@ export class ConnectorDeviceAuthorizationService {
         expiresAt,
         intervalSeconds: this.intervalSeconds,
         lastPolledAt: null,
+        credentialExpiresAt: null,
       });
       if (!created) continue;
       const verificationUri = `${new URL(this.publicOrigin).origin}/app/connect-device`;
@@ -195,17 +230,18 @@ export class ConnectorDeviceAuthorizationService {
     if (typeof rawDeviceCode !== "string" || !deviceCodePattern.test(rawDeviceCode)) {
       return { outcome: "expired" as const };
     }
-    const result = await this.repository.claim({
+    const result = await this.repository.redeem({
       deviceCodeHash: sha256Hex(rawDeviceCode),
       now: this.now().toISOString(),
+      credentialTtlSeconds: this.credentialTtlSeconds,
     });
     if (result.outcome !== "approved") return result;
     return {
       outcome: "approved" as const,
-      connector: await this.credentials.issue(
-        result.authenticatedUserId,
-        result.connectorInstanceId,
-      ),
+      connector: {
+        connectorInstanceId: result.connectorInstanceId,
+        expiresAt: result.expiresAt,
+      },
     };
   }
 }

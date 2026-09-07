@@ -43,9 +43,9 @@ describe("connector device authorization HTTP flow", () => {
     const credentialRepository = new MemoryCredentials();
     const credentials = new ConnectorCredentialService(credentialRepository, 3_600);
     const deviceAuthorizations = new ConnectorDeviceAuthorizationService(
-      new InMemoryConnectorDeviceAuthorizationRepository(),
-      credentials,
+      new InMemoryConnectorDeviceAuthorizationRepository(credentials),
       "https://telaegent.live",
+      3_600,
     );
     const disconnectRepository = vi.fn(async (_principal: ConnectorPrincipal, githubRepositoryId: string) => ({
       disconnect: {
@@ -76,10 +76,14 @@ describe("connector device authorization HTTP flow", () => {
       },
     );
 
+    const credential = "c".repeat(43);
     const issued = await app.inject({
       method: "POST",
       url: "/api/connectors/device-authorizations",
-      payload: { connectorInstanceId: "connector_instance_0001" },
+      payload: {
+        connectorInstanceId: "connector_instance_0001",
+        credentialHash: createHash("sha256").update(credential).digest("hex"),
+      },
     });
     expect(issued.statusCode).toBe(201);
     expect(issued.headers["cache-control"]).toBe("no-store, max-age=0");
@@ -108,9 +112,16 @@ describe("connector device authorization HTTP flow", () => {
       payload: { deviceCode: device.deviceCode },
     });
     expect(token.statusCode).toBe(201);
-    const credential = token.json().connector.credential as string;
-    expect(credential).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(token.json().connector).not.toHaveProperty("credential");
     expect(credentialRepository.principals.has(createHash("sha256").update(credential).digest("hex"))).toBe(true);
+
+    const retriedToken = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations/token",
+      payload: { deviceCode: device.deviceCode },
+    });
+    expect(retriedToken.statusCode).toBe(201);
+    expect(credentialRepository.principals.size).toBe(1);
 
     const disconnected = await app.inject({
       method: "POST",
@@ -128,6 +139,54 @@ describe("connector device authorization HTTP flow", () => {
       { authenticatedUserId: userId, connectorInstanceId: "connector_instance_0001" },
       "123456789",
     );
+    await app.close();
+  });
+
+  it("rate limits unauthenticated authorization creation by request IP", async () => {
+    const credentialRepository = new MemoryCredentials();
+    const credentials = new ConnectorCredentialService(credentialRepository, 3_600);
+    const app = await createApp(
+      loadConfig({ NODE_ENV: "test" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        relay: new LongPollConnectorJobRelay(),
+        credentials,
+        deviceAuthorizations: new ConnectorDeviceAuthorizationService(
+          new InMemoryConnectorDeviceAuthorizationRepository(credentials),
+          "https://telaegent.live",
+          3_600,
+        ),
+        authenticatedUserId: async () => userId,
+        resolveConnectorPrincipal: createConnectorPrincipalResolver(credentials),
+      },
+    );
+
+    for (let index = 0; index < 10; index += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/connectors/device-authorizations",
+        headers: { "x-forwarded-for": `203.0.113.${index + 1}` },
+        payload: {
+          connectorInstanceId: `connector_rate_limit_${index}`,
+          credentialHash: createHash("sha256").update(`credential-${index}`).digest("hex"),
+        },
+      });
+      expect(response.statusCode).toBe(201);
+    }
+    const limited = await app.inject({
+      method: "POST",
+      url: "/api/connectors/device-authorizations",
+      headers: { "x-forwarded-for": "203.0.113.250" },
+      payload: {
+        connectorInstanceId: "connector_rate_limit_10",
+        credentialHash: createHash("sha256").update("credential-10").digest("hex"),
+      },
+    });
+    expect(limited.statusCode).toBe(429);
     await app.close();
   });
 });

@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { z } from "zod";
 import { DEFAULT_RUNTIME_MODEL } from "./runtime-models.js";
@@ -8,6 +9,7 @@ const envSchema = z.object({
   HOST: z.string().default("0.0.0.0"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.string().default("info"),
+  TELAEGENT_TRUSTED_PROXY_CIDRS: z.string().max(512).optional(),
   ENABLE_LEGACY_LOCAL_PLAYGROUND: z
     .enum(["0", "1"])
     .default("0")
@@ -114,6 +116,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     host: env.HOST,
     port: env.PORT,
     logLevel: env.LOG_LEVEL,
+    trustedProxyCidrs: parseTrustedProxyCidrs(env.TELAEGENT_TRUSTED_PROXY_CIDRS),
     enableLegacyLocalPlayground: env.ENABLE_LEGACY_LOCAL_PLAYGROUND,
     agentMemoryV2: env.AGENT_MEMORY_V2,
     dataDirectory: path.resolve(env.APP_DATA_DIR),
@@ -184,6 +187,26 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     configurable: false,
   });
   return config;
+}
+
+function parseTrustedProxyCidrs(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  const entries = raw.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (entries.length > 16) throw new Error("TELAEGENT_TRUSTED_PROXY_CIDRS is invalid");
+  for (const entry of entries) {
+    const [address, prefix, ...extra] = entry.split("/");
+    const family = isIP(address ?? "");
+    const maximumPrefix = family === 4 ? 32 : family === 6 ? 128 : -1;
+    if (
+      extra.length > 0 ||
+      maximumPrefix < 0 ||
+      (prefix !== undefined &&
+        (!/^\d{1,3}$/.test(prefix) || Number(prefix) > maximumPrefix))
+    ) {
+      throw new Error("TELAEGENT_TRUSTED_PROXY_CIDRS is invalid");
+    }
+  }
+  return entries;
 }
 
 function loadGitHubIdentityConfig(

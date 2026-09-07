@@ -1,11 +1,12 @@
 -- CLI-initiated, browser-approved connector authorization.
--- Only SHA-256 hashes of the device and user codes are durable. The device
--- secret and the resulting connector bearer are returned only to the CLI.
+-- Only SHA-256 hashes of the device code, user code, and CLI-generated bearer
+-- are durable. The raw device secret and connector bearer stay in CLI memory.
 
 create table public.connector_device_authorizations (
   device_authorization_id uuid primary key default gen_random_uuid(),
   device_code_hash bytea not null unique check (octet_length(device_code_hash) = 32),
   user_code_hash bytea not null unique check (octet_length(user_code_hash) = 32),
+  credential_token_hash bytea not null unique check (octet_length(credential_token_hash) = 32),
   connector_instance_id text not null check (
     connector_instance_id ~ '^[A-Za-z0-9_-]{16,128}$'
   ),
@@ -34,6 +35,7 @@ grant select, insert, update, delete on table public.connector_device_authorizat
 create or replace function public.create_connector_device_authorization(
   p_device_code_hash_hex text,
   p_user_code_hash_hex text,
+  p_credential_token_hash_hex text,
   p_connector_instance_id text,
   p_created_at timestamptz,
   p_expires_at timestamptz,
@@ -45,34 +47,61 @@ volatile
 security invoker
 set search_path = ''
 as $$
+declare
+  v_now timestamptz := statement_timestamp();
 begin
   if p_device_code_hash_hex !~ '^[0-9a-f]{64}$'
      or p_user_code_hash_hex !~ '^[0-9a-f]{64}$'
+     or p_credential_token_hash_hex !~ '^[0-9a-f]{64}$'
      or p_connector_instance_id !~ '^[A-Za-z0-9_-]{16,128}$'
      or p_interval_seconds not between 1 and 30
      or p_expires_at <= p_created_at
      or p_expires_at > p_created_at + interval '15 minutes'
-     or p_created_at < statement_timestamp() - interval '1 minute'
-     or p_created_at > statement_timestamp() + interval '1 minute' then
+     or p_created_at < v_now - interval '1 minute'
+     or p_created_at > v_now + interval '1 minute' then
     return false;
   end if;
 
   -- The endpoint is intentionally available before browser authentication, so
-  -- bound durable limits protect the table even when callers rotate instance
-  -- IDs. Expired rows are retained briefly for deterministic terminal replies.
+  -- serialize cleanup, rolling-rate checks, the active bound, and insertion.
+  -- This makes the durable limits exact even under concurrent transactions.
+  perform pg_advisory_xact_lock(
+    hashtextextended('connector-device-authorization:create', 0)
+  );
+
+  -- Retain terminal replies briefly, then delete in bounded batches. Every
+  -- authorization expires within fifteen minutes, so this also bounds rows
+  -- that were denied or consumed before their expiry timestamp.
+  delete from public.connector_device_authorizations stale
+  where stale.device_authorization_id in (
+    select candidate.device_authorization_id
+    from public.connector_device_authorizations candidate
+    where candidate.expires_at < v_now - interval '10 minutes'
+    order by candidate.expires_at
+    limit 1000
+  );
+
+  -- A caller can rotate connector instance IDs, so enforce a global rolling
+  -- issuance rate in addition to the network/IP limiter and per-instance cap.
   if (select count(*) from public.connector_device_authorizations
-      where expires_at > p_created_at) >= 10000 then
+      where created_at > v_now - interval '1 minute') >= 300 then
+    return false;
+  end if;
+  if (select count(*) from public.connector_device_authorizations
+      where status in ('pending', 'approved')
+        and expires_at > v_now) >= 10000 then
     return false;
   end if;
   if (select count(*) from public.connector_device_authorizations
       where connector_instance_id = p_connector_instance_id
-        and created_at > p_created_at - interval '1 minute') >= 5 then
+        and created_at > v_now - interval '1 minute') >= 5 then
     return false;
   end if;
 
   insert into public.connector_device_authorizations (
     device_code_hash,
     user_code_hash,
+    credential_token_hash,
     connector_instance_id,
     interval_seconds,
     created_at,
@@ -80,6 +109,7 @@ begin
   ) values (
     decode(p_device_code_hash_hex, 'hex'),
     decode(p_user_code_hash_hex, 'hex'),
+    decode(p_credential_token_hash_hex, 'hex'),
     p_connector_instance_id,
     p_interval_seconds,
     p_created_at,
@@ -178,9 +208,10 @@ begin
 end;
 $$;
 
-create or replace function public.claim_connector_device_authorization(
+create or replace function public.redeem_connector_device_authorization(
   p_device_code_hash_hex text,
-  p_now timestamptz
+  p_now timestamptz,
+  p_credential_ttl_seconds integer
 )
 returns jsonb
 language plpgsql
@@ -190,8 +221,10 @@ set search_path = ''
 as $$
 declare
   v_authorization public.connector_device_authorizations%rowtype;
+  v_credential_expires_at timestamptz;
 begin
-  if p_device_code_hash_hex !~ '^[0-9a-f]{64}$' then
+  if p_device_code_hash_hex !~ '^[0-9a-f]{64}$'
+     or p_credential_ttl_seconds not between 3600 and 2592000 then
     return jsonb_build_object('outcome', 'expired');
   end if;
   select device_auth.* into v_authorization
@@ -218,14 +251,50 @@ begin
     return jsonb_build_object('outcome', 'pending');
   end if;
 
+  -- The CLI generated this bearer before authorization and retained it only in
+  -- memory. On a response retry, confirm the exact already-active hash without
+  -- rotating credentials or returning any bearer from the database.
+  if v_authorization.status = 'consumed' and v_authorization.user_id is not null then
+    select credential.expires_at into v_credential_expires_at
+    from public.connector_credentials credential
+    where credential.user_id = v_authorization.user_id
+      and credential.connector_instance_id = v_authorization.connector_instance_id
+      and credential.token_hash = v_authorization.credential_token_hash
+      and credential.revoked_at is null
+      and credential.expires_at > p_now
+      and v_authorization.expires_at > p_now;
+    if found then
+      return jsonb_build_object(
+        'outcome', 'approved',
+        'connectorInstanceId', v_authorization.connector_instance_id,
+        'expiresAt', to_char(v_credential_expires_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+    end if;
+    return jsonb_build_object('outcome', 'consumed');
+  end if;
+
   if v_authorization.status = 'approved' and v_authorization.user_id is not null then
+    if not public.create_connector_credential(
+      v_authorization.user_id,
+      v_authorization.connector_instance_id,
+      encode(v_authorization.credential_token_hash, 'hex'),
+      p_credential_ttl_seconds
+    ) then
+      raise exception 'connector credential activation failed';
+    end if;
+    select credential.expires_at into strict v_credential_expires_at
+    from public.connector_credentials credential
+    where credential.user_id = v_authorization.user_id
+      and credential.connector_instance_id = v_authorization.connector_instance_id
+      and credential.token_hash = v_authorization.credential_token_hash
+      and credential.revoked_at is null;
     update public.connector_device_authorizations
     set status = 'consumed', consumed_at = p_now
     where device_authorization_id = v_authorization.device_authorization_id;
     return jsonb_build_object(
       'outcome', 'approved',
-      'authenticatedUserId', v_authorization.user_id::text,
-      'connectorInstanceId', v_authorization.connector_instance_id
+      'connectorInstanceId', v_authorization.connector_instance_id,
+      'expiresAt', to_char(v_credential_expires_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
     );
   end if;
 
@@ -233,14 +302,14 @@ begin
 end;
 $$;
 
-revoke all on function public.create_connector_device_authorization(text, text, text, timestamptz, timestamptz, integer) from public, anon, authenticated;
+revoke all on function public.create_connector_device_authorization(text, text, text, text, timestamptz, timestamptz, integer) from public, anon, authenticated;
 revoke all on function public.load_connector_device_authorization(text, timestamptz) from public, anon, authenticated;
 revoke all on function public.decide_connector_device_authorization(text, uuid, text, timestamptz) from public, anon, authenticated;
-revoke all on function public.claim_connector_device_authorization(text, timestamptz) from public, anon, authenticated;
-grant execute on function public.create_connector_device_authorization(text, text, text, timestamptz, timestamptz, integer) to service_role;
+revoke all on function public.redeem_connector_device_authorization(text, timestamptz, integer) from public, anon, authenticated;
+grant execute on function public.create_connector_device_authorization(text, text, text, text, timestamptz, timestamptz, integer) to service_role;
 grant execute on function public.load_connector_device_authorization(text, timestamptz) to service_role;
 grant execute on function public.decide_connector_device_authorization(text, uuid, text, timestamptz) to service_role;
-grant execute on function public.claim_connector_device_authorization(text, timestamptz) to service_role;
+grant execute on function public.redeem_connector_device_authorization(text, timestamptz, integer) to service_role;
 
 -- Connector-authenticated equivalent of the browser project-id disconnect.
 -- The control plane supplies both values from authenticated/safely collected

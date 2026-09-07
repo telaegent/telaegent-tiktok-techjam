@@ -11,12 +11,12 @@ const viewSchema = z.strictObject({
   status: z.enum(["pending", "approved", "denied", "expired", "consumed"]),
   expiresAt: z.string().datetime({ offset: true }),
 });
-const claimSchema = z.discriminatedUnion("outcome", [
+const redemptionSchema = z.discriminatedUnion("outcome", [
   z.strictObject({ outcome: z.enum(["pending", "slow_down", "denied", "expired", "consumed"]) }),
   z.strictObject({
     outcome: z.literal("approved"),
-    authenticatedUserId: z.string().uuid(),
     connectorInstanceId: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/),
+    expiresAt: z.string().datetime({ offset: true }),
   }),
 ]);
 
@@ -42,6 +42,7 @@ export class SupabaseConnectorDeviceAuthorizationRepository
   async create(record: Readonly<{
     deviceCodeHash: string;
     userCodeHash: string;
+    credentialTokenHash: string;
     connectorInstanceId: string;
     status: DeviceAuthorizationView["status"];
     authenticatedUserId: string | null;
@@ -53,6 +54,7 @@ export class SupabaseConnectorDeviceAuthorizationRepository
     return z.boolean().parse(await this.call("create_connector_device_authorization", {
       p_device_code_hash_hex: record.deviceCodeHash,
       p_user_code_hash_hex: record.userCodeHash,
+      p_credential_token_hash_hex: record.credentialTokenHash,
       p_connector_instance_id: record.connectorInstanceId,
       p_created_at: record.createdAt,
       p_expires_at: record.expiresAt,
@@ -83,10 +85,15 @@ export class SupabaseConnectorDeviceAuthorizationRepository
     return value === null ? null : viewSchema.parse(value);
   }
 
-  async claim(input: Readonly<{ deviceCodeHash: string; now: string }>) {
-    return claimSchema.parse(await this.call("claim_connector_device_authorization", {
+  async redeem(input: Readonly<{
+    deviceCodeHash: string;
+    now: string;
+    credentialTtlSeconds: number;
+  }>) {
+    return redemptionSchema.parse(await this.call("redeem_connector_device_authorization", {
       p_device_code_hash_hex: input.deviceCodeHash,
       p_now: input.now,
+      p_credential_ttl_seconds: input.credentialTtlSeconds,
     }));
   }
 

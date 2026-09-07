@@ -1,13 +1,13 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
 const issuedSchema = z.strictObject({
   deviceAuthorization: z.strictObject({
-    deviceCode: z.string().length(43),
-    userCode: z.string().length(9),
+    deviceCode: z.string().length(43).regex(/^[A-Za-z0-9_-]+$/),
+    userCode: z.string().regex(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/),
     verificationUri: z.string().url(),
     verificationUriComplete: z.string().url(),
     expiresAt: z.string().datetime({ offset: true }),
@@ -17,7 +17,6 @@ const issuedSchema = z.strictObject({
 const approvedSchema = z.strictObject({
   outcome: z.literal("approved"),
   connector: z.strictObject({
-    credential: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
     connectorInstanceId: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/),
     expiresAt: z.string().datetime({ offset: true }),
   }),
@@ -42,12 +41,16 @@ export async function authorizeConnectorDevice(
   const now = dependencies.now ?? Date.now;
   const sleep = dependencies.sleep ?? delay;
   const launchBrowser = dependencies.openBrowser ?? openBrowser;
+  const credential = randomBytes(32).toString("base64url");
   const issuedResponse = await fetchImplementation(
     new URL("/api/connectors/device-authorizations", serverOrigin),
     {
       method: "POST",
       headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify({ connectorInstanceId }),
+      body: JSON.stringify({
+        connectorInstanceId,
+        credentialHash: createHash("sha256").update(credential, "utf8").digest("hex"),
+      }),
       cache: "no-store",
       credentials: "omit",
       redirect: "error",
@@ -56,16 +59,19 @@ export async function authorizeConnectorDevice(
   );
   if (!issuedResponse.ok) throw new Error("Telaegent device authorization could not start");
   const issued = issuedSchema.parse(await issuedResponse.json()).deviceAuthorization;
+  const approvalUrl = new URL("/app/connect-device", serverOrigin);
+  approvalUrl.searchParams.set("code", issued.userCode);
+  const verificationUriComplete = approvalUrl.toString();
   process.stdout.write(
     [
       "TELAEGENT AUTHORIZATION REQUIRED",
-      `Open: ${issued.verificationUriComplete}`,
+      `Open: ${verificationUriComplete}`,
       `Code: ${issued.userCode}`,
       "Waiting for approval in your browser...",
       "",
     ].join("\n"),
   );
-  void launchBrowser(issued.verificationUriComplete).catch(() => {
+  void launchBrowser(verificationUriComplete).catch(() => {
     process.stderr.write("Could not open a browser automatically; use the URL above.\n");
   });
 
@@ -74,31 +80,39 @@ export async function authorizeConnectorDevice(
   for (;;) {
     if (now() >= expiresAtMs) throw new Error("Telaegent device authorization expired");
     await sleep(intervalMs);
-    const response = await fetchImplementation(
-      new URL("/api/connectors/device-authorizations/token", serverOrigin),
-      {
-        method: "POST",
-        headers: { accept: "application/json", "content-type": "application/json" },
-        body: JSON.stringify({ deviceCode: issued.deviceCode }),
-        cache: "no-store",
-        credentials: "omit",
-        redirect: "error",
-        signal: AbortSignal.timeout(15_000),
-      },
-    );
+    let response: Response;
+    try {
+      response = await fetchImplementation(
+        new URL("/api/connectors/device-authorizations/token", serverOrigin),
+        {
+          method: "POST",
+          headers: { accept: "application/json", "content-type": "application/json" },
+          body: JSON.stringify({ deviceCode: issued.deviceCode }),
+          cache: "no-store",
+          credentials: "omit",
+          redirect: "error",
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+    } catch {
+      continue;
+    }
     const body = await response.json().catch(() => ({}));
     if (response.status === 201) {
-      const approved = approvedSchema.parse(body).connector;
+      const parsed = approvedSchema.safeParse(body);
+      if (!parsed.success) continue;
+      const approved = parsed.data.connector;
       if (approved.connectorInstanceId !== connectorInstanceId) {
         throw new Error("Telaegent approved another connector installation");
       }
-      return approved;
+      return { credential, connectorInstanceId: approved.connectorInstanceId };
     }
     if (response.status === 202) continue;
     if (response.status === 429) {
       intervalMs = Math.min(30_000, intervalMs + 2_000);
       continue;
     }
+    if (response.status >= 500) continue;
     if (response.status === 403) throw new Error("Telaegent device authorization was denied");
     if (response.status === 410) throw new Error("Telaegent device authorization expired");
     throw new Error("Telaegent device authorization failed");
