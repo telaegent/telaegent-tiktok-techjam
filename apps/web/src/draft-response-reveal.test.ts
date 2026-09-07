@@ -47,6 +47,19 @@ describe("draft response reveal", () => {
     });
   });
 
+  it("reveals a real state transition even when timestamps share a millisecond", () => {
+    const timestamp = "2026-09-08T00:00:02.000Z";
+    expect(
+      draftResponseReveal(
+        draft("agent_working", timestamp),
+        draft("ready", timestamp),
+      ),
+    ).toMatchObject({
+      draftId: "draft-1",
+      responseVersion: timestamp,
+    });
+  });
+
   it("does not replay recovered or unchanged responses", () => {
     const ready = draft("ready", "2026-09-08T00:00:02.000Z");
     expect(draftResponseReveal(null, ready)).toBeNull();

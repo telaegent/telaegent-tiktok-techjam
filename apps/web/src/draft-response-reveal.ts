@@ -23,7 +23,6 @@ export function draftResponseReveal(
   if (
     !previous ||
     previous.draftId !== next.draftId ||
-    previous.updatedAt === next.updatedAt ||
     (previous.state !== "created" && previous.state !== "agent_working") ||
     !REVEALABLE_STATES.has(next.state)
   ) {
