@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 
 const MIN_DURATION_MS = 360;
 const MAX_DURATION_MS = 2_400;
@@ -35,33 +41,63 @@ export function typewriterVisibleCount(
   );
 }
 
+export function usePrefersReducedMotion(): boolean {
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return reducedMotion;
+}
+
 export default function TypewriterText({
   text,
   animate,
+  onComplete,
+  scrollContainerRef,
 }: {
   text: string;
   animate: boolean;
+  onComplete?: () => void;
+  scrollContainerRef?: RefObject<HTMLElement | null>;
 }) {
   const characters = useMemo(() => splitTypewriterText(text), [text]);
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = usePrefersReducedMotion();
   const shouldAnimate = animate && !reduceMotion && characters.length > 0;
   const [visibleCount, setVisibleCount] = useState(() =>
     shouldAnimate ? 0 : characters.length,
   );
   const frame = useRef<number | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     if (frame.current !== null) window.cancelAnimationFrame(frame.current);
     if (!shouldAnimate) {
       setVisibleCount(characters.length);
+      onCompleteRef.current?.();
       return;
     }
 
     setVisibleCount(0);
     const duration = typewriterDurationMs(characters.length);
     const startedAt = window.performance.now();
+    const scrollContainer = scrollContainerRef?.current ?? null;
+    let followOutput =
+      !!scrollContainer &&
+      scrollContainer.scrollHeight -
+        scrollContainer.scrollTop -
+        scrollContainer.clientHeight <=
+        120;
     const reveal = (now: number) => {
       const nextCount = typewriterVisibleCount(
         now - startedAt,
@@ -69,10 +105,22 @@ export default function TypewriterText({
         characters.length,
       );
       setVisibleCount(nextCount);
+      if (scrollContainer && followOutput) {
+        const distanceFromBottom =
+          scrollContainer.scrollHeight -
+          scrollContainer.scrollTop -
+          scrollContainer.clientHeight;
+        if (distanceFromBottom <= 120) {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        } else {
+          followOutput = false;
+        }
+      }
       if (nextCount < characters.length) {
         frame.current = window.requestAnimationFrame(reveal);
       } else {
         frame.current = null;
+        onCompleteRef.current?.();
       }
     };
     frame.current = window.requestAnimationFrame(reveal);
@@ -81,7 +129,7 @@ export default function TypewriterText({
       if (frame.current !== null) window.cancelAnimationFrame(frame.current);
       frame.current = null;
     };
-  }, [characters, shouldAnimate]);
+  }, [characters, scrollContainerRef, shouldAnimate]);
 
   if (!shouldAnimate) return <>{text}</>;
 
