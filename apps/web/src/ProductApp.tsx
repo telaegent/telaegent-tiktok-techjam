@@ -50,6 +50,11 @@ import { collectCursorPages, collectCursorSnapshot } from "./cursor-pagination";
 import { mergeConversationMessages } from "./conversation-sync";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
 import { selectAvailableProvider } from "./runtime-selection";
+import {
+  draftResponseReveal,
+  type DraftResponseReveal,
+} from "./draft-response-reveal";
+import TypewriterText from "./typewriter-text";
 import ThemeSwitch from "./ThemeSwitch";
 import {
   ConnectorSetupPollTracker,
@@ -2477,6 +2482,7 @@ function PrivateAgentRoom({
   editingCandidate,
   busy,
   error,
+  responseReveal,
   onClarificationChange,
   onApprovedContentChange,
   onClarify,
@@ -2502,6 +2508,7 @@ function PrivateAgentRoom({
   editingCandidate: boolean;
   busy: boolean;
   error: ApiError | null;
+  responseReveal: DraftResponseReveal | null;
   onClarificationChange: (value: string) => void;
   onApprovedContentChange: (value: string) => void;
   onClarify: (event: FormEvent<HTMLFormElement>) => void;
@@ -2524,6 +2531,10 @@ function PrivateAgentRoom({
   const showPrivateMessage =
     !!draft?.privateMessage &&
     !(lastTurn?.speaker === "agent" && lastTurn.text === draft.privateMessage);
+  const animateResponse =
+    !!draft &&
+    responseReveal?.draftId === draft.draftId &&
+    responseReveal.responseVersion === draft.updatedAt;
 
   return (
     <aside
@@ -2585,14 +2596,28 @@ function PrivateAgentRoom({
                 ? "You"
                 : formatProvider(draft.provider)}
             </span>
-            <p>{turn.text}</p>
+            <p>
+              <TypewriterText
+                text={turn.text}
+                animate={
+                  animateResponse &&
+                  turn.speaker === "agent" &&
+                  index >= responseReveal.firstNewTurnIndex
+                }
+              />
+            </p>
           </article>
         ))}
 
         {showPrivateMessage && (
           <article className="private-bubble agent">
             <span>{draft ? formatProvider(draft.provider) : "Agent"}</span>
-            <p>{draft?.privateMessage}</p>
+            <p>
+              <TypewriterText
+                text={draft?.privateMessage ?? ""}
+                animate={animateResponse}
+              />
+            </p>
           </article>
         )}
 
@@ -2671,7 +2696,12 @@ function PrivateAgentRoom({
                 }
               />
             ) : (
-              <blockquote>{approvedContent || draft?.sendCandidate}</blockquote>
+              <blockquote>
+                <TypewriterText
+                  text={approvedContent || draft?.sendCandidate || ""}
+                  animate={animateResponse}
+                />
+              </blockquote>
             )}
           </article>
         )}
@@ -2833,6 +2863,8 @@ function ProjectChat({
   const [editingCandidate, setEditingCandidate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [responseReveal, setResponseReveal] =
+    useState<DraftResponseReveal | null>(null);
   const ownMessageIds = useRef(new Set<string>());
   // A network retry or double click reuses the same backend creation key. A
   // deliberate runtime retry clears it and opens a new private attempt.
@@ -2987,6 +3019,7 @@ function ProjectChat({
   }
 
   function openRecoveredDraft(nextDraft: PrivateDraftView) {
+    setResponseReveal(null);
     setDraft(nextDraft);
     setRoughMessage(nextDraft.roughMessage ?? "");
     setClarification("");
@@ -3116,6 +3149,7 @@ function ProjectChat({
     setRoughMessage("");
     setPrivateRoomOpen(false);
     setDraft(null);
+    setResponseReveal(null);
     setRecoverableDrafts([]);
     setDraftRecoveryError(null);
     setAnswering(null);
@@ -3259,6 +3293,8 @@ function ProjectChat({
         .conversationDraft(draft.draftId)
         .then(({ draft: nextDraft }) => {
           if (!active) return;
+          const reveal = draftResponseReveal(draft, nextDraft);
+          if (reveal) setResponseReveal(reveal);
           setDraft(nextDraft);
           setRecoverableDrafts((current) =>
             current.map((candidate) =>
@@ -3290,7 +3326,11 @@ function ProjectChat({
     return catalogue?.defaultModel;
   }
 
-  async function runDraft(draftId: string, draftProvider: AgentProvider) {
+  async function runDraft(
+    draftId: string,
+    draftProvider: AgentProvider,
+    previousDraft: PrivateDraftView | null = draft,
+  ) {
     try {
       const model = selectedModelFor(draftProvider);
       const effort = selectedEffort ?? undefined;
@@ -3301,6 +3341,8 @@ function ProjectChat({
           ...(effort ? { effort } : {}),
         },
       );
+      const reveal = draftResponseReveal(previousDraft, result.draft);
+      if (reveal) setResponseReveal(reveal);
       setDraft(result.draft);
       setRecoverableDrafts((current) => [
         result.draft,
@@ -3316,6 +3358,7 @@ function ProjectChat({
     if (!conversationId || !runtimeSelectionReady) return;
     setBusy(true);
     setDraft(null);
+    setResponseReveal(null);
     setActionError(null);
     try {
       const created = await api.createConversationDraft(conversationId, {
@@ -3329,7 +3372,7 @@ function ProjectChat({
         ...current.filter((candidate) => candidate.draftId !== created.draft.draftId),
       ]);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId, created.draft.provider);
+      await runDraft(created.draft.draftId, created.draft.provider, created.draft);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -3349,6 +3392,7 @@ function ProjectChat({
     if (!conversationId || !runtimeSelectionReady) return;
     setBusy(true);
     setDraft(null);
+    setResponseReveal(null);
     setActionError(null);
     setAnswering(message);
     setRoughMessage("");
@@ -3374,7 +3418,7 @@ function ProjectChat({
         ...current.filter((candidate) => candidate.draftId !== created.draft.draftId),
       ]);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId, created.draft.provider);
+      await runDraft(created.draft.draftId, created.draft.provider, created.draft);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -3425,6 +3469,7 @@ function ProjectChat({
     if (!draft || !clarification.trim()) return;
     setBusy(true);
     setActionError(null);
+    setResponseReveal(null);
     try {
       const clarified = await api.clarifyConversationDraft(
         draft.draftId,
@@ -3436,7 +3481,11 @@ function ProjectChat({
         ...current.filter((candidate) => candidate.draftId !== clarified.draft.draftId),
       ]);
       setClarification("");
-      await runDraft(clarified.draft.draftId, clarified.draft.provider);
+      await runDraft(
+        clarified.draft.draftId,
+        clarified.draft.provider,
+        clarified.draft,
+      );
     } catch (error) {
       setActionError(normalizeApiError(error));
     } finally {
@@ -3460,6 +3509,7 @@ function ProjectChat({
       if (answering) replyCreationKeys.current.delete(answering.id);
       setPrivateRoomOpen(false);
       setDraft(null);
+      setResponseReveal(null);
       setAnswering(null);
       setComposer("");
     } catch (error) {
@@ -3520,6 +3570,7 @@ function ProjectChat({
           if (answering) replyCreationKeys.current.delete(answering.id);
           setPrivateRoomOpen(false);
           setDraft(null);
+          setResponseReveal(null);
           setAnswering(null);
           setComposer("");
           await loadMessages(true);
@@ -3537,6 +3588,7 @@ function ProjectChat({
 
   async function retryDraft() {
     if (!runtimeSelectionReady) return;
+    setResponseReveal(null);
     if (draft?.state === "created") {
       setBusy(true);
       await runDraft(draft.draftId, draft.provider);
@@ -3954,6 +4006,7 @@ function ProjectChat({
           editingCandidate={editingCandidate}
           busy={busy}
           error={actionError}
+          responseReveal={responseReveal}
           onClarificationChange={setClarification}
           onApprovedContentChange={setApprovedContent}
           onClarify={clarifyDraft}
