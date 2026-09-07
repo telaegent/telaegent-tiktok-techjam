@@ -129,9 +129,10 @@ The connector transport is outbound long-polling. The control plane does not
 provision provider runtimes. The previous browser-issued pairing path, local
 repository proof, job delivery and the human-gated message flow have been
 exercised against the live deployment. The `tlg connect` device-authorization
-replacement and `tlg disconnect` are implemented and locally tested, but still
-require migration deployment, npm publication and the signed-in two-machine
-acceptance run before they become a production claim.
+replacement and `tlg disconnect` are merged on `main` and validated by the
+cross-platform, fresh-PostgreSQL, package and container CI checks. They still
+require production migration deployment, npm publication and the signed-in
+two-machine acceptance run before they become a production claim.
 
 ---
 

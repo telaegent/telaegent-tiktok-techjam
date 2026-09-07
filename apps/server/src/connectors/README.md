@@ -38,24 +38,33 @@ legacy shared API token is not connector authentication.
 
 ## Current proof workflow
 
-1. Sign in through the website.
-2. `POST /api/connectors/pairings` from the authenticated browser. It returns a
-   high-entropy, five-minute, single-use pairing code, never a connector bearer.
-3. Open a terminal in the deliberately selected repository.
-4. Run the cross-platform command rendered by the browser:
+1. Open a terminal at the exact root of the deliberately selected repository
+   and run the cross-platform connector:
 
    ```text
-   npm install --global @telaegent/connector
    tlg connect
    ```
 
+2. Confirm the canonical local root and exact GitHub `owner/name`, then select
+   an authenticated local Claude Code and/or Codex provider.
+3. On first use, the CLI creates a high-entropy device code and future machine
+   bearer locally, sends only their hashes, and opens the configured Telaegent
+   browser approval page. The user signs in and explicitly approves that
+   installation.
+4. One database transaction activates the precommitted bearer hash and consumes
+   the authorization. The CLI persists the raw bearer only in the operating
+   system credential vault, registers safe repository metadata, runs the real
+   provider/relay probe, and starts outbound long polling.
+
 The npm artifact is built from the canonical compiled connector with
-`npm run connector:package`; it does not contain a second implementation. A
-source-checkout developer may continue to put the three values in the ignored
-`connector.env` and run `npm run connector:connect -- connect .`.
+`npm run connector:package`; it does not contain a second implementation.
+Until `0.2.0` is published, source-checkout developers run
+`npm run connector:connect -- connect . --url http://localhost:3000`. The
+ignored `connector.env` and browser-issued `--pair` path remain compatibility
+and recovery mechanisms, not normal onboarding.
 
 By default, the connector detects locally authenticated providers before it
-consumes the pairing code. It automatically selects the only available
+begins browser authorization. It automatically selects the only available
 provider, or asks the local operator to choose Claude Code, Codex, or both when
 both are ready. Use `--provider codex` or `--provider claude` to make the choice
 directly. `--provider auto` allows every locally authenticated provider without
@@ -69,8 +78,8 @@ The connector requires the selected directory to be the canonical Git root;
 it never silently climbs from a misleading nested folder into an ancestor
 checkout. It collects an allowlisted `gh`/`git` repository proof and prints the
 canonical local root plus exact GitHub `owner/name`. Only an explicit `y`
-continues, and pairing exchange happens after that confirmation so rejection
-does not consume the single-use code. It then receives an opaque binding,
+continues, and browser authorization begins after that confirmation so a wrong
+repository cannot mint a connector bearer. It then receives an opaque binding,
 detects locally authenticated Claude Code and Codex CLIs, and runs one fixed
 read-only relay probe for each available provider. Claude-only, Codex-only, and
 dual-provider installations are valid. It prints `TELAEGENT IS CONNECTED` only

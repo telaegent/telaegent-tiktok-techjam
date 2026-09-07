@@ -14,6 +14,7 @@
   <a href="#the-idea">The idea</a> ·
   <a href="#how-a-message-crosses">Message flow</a> ·
   <a href="#cloud-coordination-local-execution">Architecture</a> ·
+  <a href="#connect-a-repository">Connector</a> ·
   <a href="#read-the-source-documents">Product docs</a> ·
   <a href="#working-in-this-repository">Contributing</a>
 </p>
@@ -25,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> The product runs end to end. A connector on each developer's machine pairs with <https://telaegent.live>, proves repository access through that developer's own GitHub CLI, and holds an outbound job connection; approved messages cross between two people through the shared project conversation while each agent runs locally.
+> Telaegent has an end-to-end connector proof: each developer's machine proves repository access through that developer's own GitHub CLI and holds an outbound job connection while approved messages cross through the shared project conversation. The new short-lived browser authorization flow is merged and CI-validated, but is not a production claim until its migration, connector `0.2.0` package, and two-machine acceptance run are complete.
 
 A deployed control plane runs at **<https://telaegent.live>**. It serves the browser product and the API from one origin; agents still run on each developer's own machine through the connector below.
 
@@ -116,9 +117,46 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 
 The cloud host runs only the control plane and connector relay. A publishable
 connector package, outbound transport, local binding enforcement, and provider
-probes exist in the source tree. Secure one-time pairing is implemented;
-registry publication, secure update delivery, and the two-machine live proof
-remain release gates.
+probes exist in the source tree. Browser-authorized machine credentials are
+implemented and merged; production migration, registry publication, secure
+update delivery, and the signed-in two-machine acceptance run remain release
+gates.
+
+## Connect a repository
+
+Open a terminal at the exact root of the GitHub repository you intend to use.
+Until connector `0.2.0` is published, run the merged implementation from this
+source checkout:
+
+```text
+npm run connector:connect -- connect . --url http://localhost:3000
+```
+
+After the release owner publishes `@telaegent/connector@0.2.0`, normal users
+install it once and use the shorter command from any repository root:
+
+```text
+npm install --global @telaegent/connector@0.2.0
+tlg connect
+```
+
+The connector first confirms the canonical local root and exact GitHub
+`owner/name`, then verifies the selected local Claude Code and/or Codex CLI. On
+the first connection it generates the machine bearer locally, sends only its
+hash, and opens a short-lived approval page on the configured Telaegent origin.
+The raw bearer never enters browser state, cloud storage, the clipboard, shell
+history, or process arguments; after approval it is stored in the operating
+system credential vault.
+
+Credential activation and authorization consumption occur in one database
+transaction. A lost success response can only reconfirm the same precommitted
+credential, including during a one-minute consumed-only recovery window. Public
+authorization creation and token polling have separate verified-IP limits.
+
+Keep `tlg connect` running while using Telaegent. Press Ctrl+C to stop the local
+process temporarily. Run `tlg disconnect` from the same repository root to
+revoke that repository binding while preserving its shared project history, or
+use `tlg auth logout` to revoke the remembered machine authorization itself.
 
 ## What Telaegent remembers - and what it does not
 
@@ -174,11 +212,11 @@ npm run setup
 ```
 
 To set up and start the local browser plus API in one command, run
-`npm run up`. To register a repository and its local coding agent with a running
-Telaegent instance, run the connector from inside that repository:
+`npm run up`. To register a repository and its local coding agent against that
+local instance, open another terminal at the repository root and run:
 
 ```text
-npx @telaegent/connector connect
+npm run connector:connect -- connect . --url http://localhost:3000
 ```
 
 The connector uses the GitHub CLI identity, repository checkout, and Claude Code
@@ -186,8 +224,10 @@ or Codex login already present on that machine, and makes only outbound
 connections. The setup creates safe local defaults, installs locked
 dependencies, builds the application, and reports every missing external
 static prerequisite. It never hides provider, GitHub, or Supabase sign-in, and
-never mistakes installed/configured for live-ready. The browser-generated
-one-command connector performs the real repository/provider/relay probe.
+never mistakes installed/configured for live-ready. The connector command
+performs the real repository/provider/relay probe.
+Do not use the registry's older `latest` package for this flow until version
+`0.2.0` has been published.
 
 See [the cross-platform setup guide](docs/setup.md) for full two-user connector
 setup, exact environment values, diagnostics, and the boundary between

@@ -112,9 +112,14 @@ in the signed-in Telaegent website. The approval expires after five minutes and
 is terminal. Credential activation is atomic and retry-safe: repeating a poll
 after a lost response only confirms the same precommitted bearer hash, including
 during a one-minute consumed-only recovery window at the authorization deadline.
-The browser and cloud never receive the raw bearer. After approval, the CLI stores
-it in the operating-system credential vault rather than a file, clipboard,
-shell history, or process argument.
+The browser and cloud never receive the raw bearer. After approval, the CLI
+stores it in the operating-system credential vault rather than a file,
+clipboard, shell history, or process argument.
+
+The public authorization-creation route permits 10 requests per verified IP per
+minute. The token route permits 120 because a legitimate connector polls every
+three seconds. Random valid device codes are subject to that route limit before
+they can create unbounded database traffic.
 
 The same command syntax works on Windows, macOS, and Linux. The connector
 automatically uses the only authenticated Claude Code or Codex CLI it detects.
