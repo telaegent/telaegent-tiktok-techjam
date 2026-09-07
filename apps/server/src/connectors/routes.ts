@@ -410,6 +410,19 @@ export function registerConnectorTransportRoutes(
   }
 
   app.post(
+    "/api/connectors/bindings/:connectorBindingId/probing",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const principal = await dependencies.resolveConnectorPrincipal(request);
+      const { connectorBindingId } = bindingParamsSchema.parse(request.params);
+      emptyBody.parse(request.body);
+      await ensureRegisteredRepository(dependencies, principal, connectorBindingId);
+      dependencies.relay.markBindingProbing(principal, connectorBindingId);
+      return reply.code(204).send();
+    },
+  );
+
+  app.post(
     "/api/connectors/bindings/:connectorBindingId/probe",
     async (request, reply) => {
       setPrivateNoStore(reply);

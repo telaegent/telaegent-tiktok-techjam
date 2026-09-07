@@ -3613,6 +3613,42 @@ html[data-theme="dark"] .app-rail button > img {
   }
 }
 
+.provider-setup {
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.provider-setup summary {
+  cursor: pointer;
+  width: fit-content;
+  font-weight: 600;
+}
+
+.provider-setup-content {
+  padding: 12px 0;
+  max-width: 680px;
+  max-height: min(45vh, 360px);
+  overflow-y: auto;
+}
+
+.provider-setup-content ul,
+.provider-setup-content ol {
+  padding-left: 22px;
+}
+
+.provider-setup-content li {
+  margin: 8px 0;
+}
+
+.provider-setup-content li span {
+  display: block;
+}
+
+.provider-setup-content code {
+  overflow-wrap: anywhere;
+}
+
 @keyframes app-reduced-opacity-pulse {
   0%,
   100% {

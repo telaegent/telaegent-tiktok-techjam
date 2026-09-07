@@ -258,6 +258,25 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
   }
 
   /**
+   * Starts a new, connector-owned probe generation.
+   *
+   * Repository proof refresh deliberately preserves a ready provider inventory,
+   * so it cannot also mark a reconnect as probing. The connector calls this only
+   * after it owns the local binding lock. Clearing here prevents a previous run's
+   * providers from looking live while the replacement is probing or after every
+   * replacement probe fails.
+   */
+  markBindingProbing(
+    principal: Readonly<ConnectorPrincipal>,
+    connectorBindingId: string,
+  ): void {
+    this.assertBindingOwner(principal, connectorBindingId);
+    const registration = this.bindings.get(connectorBindingId)!;
+    registration.providers = [];
+    registration.lastSeenAt = this.now();
+  }
+
+  /**
    * Finalizes the provider inventory. When providers are omitted, preserve the
    * successful probes already recorded for the broken published 0.1.17 client.
    */

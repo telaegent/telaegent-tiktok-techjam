@@ -142,6 +142,15 @@ describe("connector pairing HTTP flow", () => {
     });
 
     relay.registerBinding(session.json().connector, bindingId, repositoryId);
+    relay.markBindingReady(session.json().connector, bindingId, ["codex"]);
+    const probing = await app.inject({
+      method: "POST",
+      url: `/api/connectors/bindings/${bindingId}/probing`,
+      headers: { authorization: `Bearer ${connector.credential}` },
+      payload: {},
+    });
+    expect(probing.statusCode).toBe(204);
+    expect(relay.availableProviders(userId, repositoryId)).toEqual([]);
     const ready = await app.inject({
       method: "POST",
       url: `/api/connectors/bindings/${bindingId}/ready`,

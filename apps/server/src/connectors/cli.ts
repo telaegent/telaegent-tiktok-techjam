@@ -18,7 +18,6 @@ import {
   FileOutputSchemaResolver,
   RuntimeProviderRegistry,
 } from "../runtime-provider-registry.js";
-import type { AgentProvider } from "../runtime-contract.js";
 import { repositoryProofResultSchema } from "../repository-proof/contract.js";
 import { connectorPrincipalSchema } from "../repository-proof/contract.js";
 import { ConnectorWorker, HttpConnectorWorkerTransport } from "./connector-worker.js";
@@ -27,6 +26,7 @@ import {
   parseConnectorCliOptions,
 } from "./connector-cli-options.js";
 import { CONNECTOR_VERSION } from "./connector-version.js";
+import { assertAllSelectedProvidersConnected, probeConnectorProviders } from "./connector-provider-probes.js";
 import {
   createConnectorResourceBudgetLedger,
   createConnectorGrantRevocationStore,
@@ -171,7 +171,7 @@ async function main(): Promise<void> {
   const providerDetector = new RuntimeProviderRegistry(candidateRunners, schemas);
   const selectedProviders = await selectConnectorProviders(
     providerSelection,
-    await providerDetector.capabilities(),
+    () => providerDetector.capabilities(),
   );
   process.stdout.write(
     `TELAEGENT PROVIDER SELECTED (${selectedProviders.join(", ")})\n`,
@@ -215,6 +215,28 @@ async function main(): Promise<void> {
 
   const processLock = await acquireConnectorProcessLock(registered.connectorBindingId);
   try {
+    // Repository-proof replay preserves readiness for harmless periodic
+    // revalidation. Now that this process owns the binding lock, start a new
+    // probe generation so providers from the previous run cannot remain visible
+    // while replacement probes run or when all of them fail.
+    try {
+      await connectorRequest(
+        serverOrigin,
+        credential,
+        `/api/connectors/bindings/${registered.connectorBindingId}/probing`,
+        {},
+        undefined,
+        CONTROL_REQUEST_TIMEOUT_MS,
+      );
+    } catch (error) {
+      // Connector packages can be published shortly before a rolling control-
+      // plane deploy. An older server has no probing route; continue with its
+      // previous readiness semantics so the release order cannot break startup.
+      // Every other response and transport failure remains fatal.
+      if (!(error instanceof ConnectorHttpResponseError && error.status === 404)) {
+        throw error;
+      }
+    }
     const sessions = new ProviderSessionManager(
       providers,
       new InMemoryProviderSessionStore(),
@@ -281,16 +303,20 @@ async function main(): Promise<void> {
       void providers
         .cancelAll()
         .catch(() => undefined)
-        .finally(() => {
+        .finally(async () => {
+          // process.exit bypasses the outer finally. Release only after owned
+          // provider cancellation settles so a normal restart need not wait
+          // for the stale-lock timeout.
+          await processLock.release().catch(() => undefined);
           process.exit(0);
         });
     };
     process.once("SIGINT", () => stopLocalProviders("SIGINT"));
     process.once("SIGTERM", () => stopLocalProviders("SIGTERM"));
 
-    const connectedProviders: AgentProvider[] = [];
-    for (const provider of selectedProviders) {
-      try {
+    const connectedProviders = await probeConnectorProviders(
+      selectedProviders,
+      async (provider) => {
         // Cancellations and resource requests have priority over jobs in the
         // relay, so keep polling until this provider's bounded cloud probe
         // actually settles. The pump joins both sides on error.
@@ -308,11 +334,11 @@ async function main(): Promise<void> {
         if (probeResult.provider !== provider) {
           throw new Error("Connector provider probe returned the wrong provider");
         }
-        connectedProviders.push(provider);
         process.stdout.write(
           `TELAEGENT IS CONNECTED (${probeResult.provider}, ${probeResult.durationMs}ms)\n`,
         );
-      } catch (error) {
+      },
+      (provider, error) => {
         // Name the side that actually failed. A stopped long poll says nothing
         // about the provider, and reporting it as the provider's verdict sent
         // developers to debug a CLI that had never been asked to run.
@@ -322,13 +348,18 @@ async function main(): Promise<void> {
         process.stderr.write(
           `${label} (${provider}): ${probeFailureReason(error)}\n`,
         );
-      }
-    }
-    if (connectedProviders.length === 0) {
-      throw new Error("No local coding provider passed the Telaegent live probe");
+      },
+    );
+
+    const unavailableProviders = selectedProviders.filter((provider) => !connectedProviders.includes(provider));
+    if (unavailableProviders.length > 0) {
+      process.stderr.write(
+        `TELAEGENT PARTIALLY CONNECTED (connected: ${connectedProviders.join(", ")}; not connected: ${unavailableProviders.join(", ")})\n`,
+      );
     }
 
     if (probeOnly) {
+      assertAllSelectedProvidersConnected(selectedProviders, connectedProviders);
       process.stdout.write("TELAEGENT LIVE READINESS VERIFIED\n");
       return;
     }
@@ -380,6 +411,9 @@ async function main(): Promise<void> {
       CONTROL_REQUEST_TIMEOUT_MS,
     );
     await announceReady();
+    process.stdout.write(
+      "To add or change providers: finish/cancel active work, press Ctrl+C, then run tlg connect --provider choose from this repository.\n",
+    );
     repositoryRevalidator.start();
     let readinessRefresh: Promise<boolean> | undefined;
     const refreshReadiness = (): Promise<boolean> => {
