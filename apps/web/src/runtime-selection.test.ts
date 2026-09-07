@@ -9,10 +9,18 @@ const catalogue = (providers: RuntimeModelCatalogue["providers"]): RuntimeModelC
 });
 
 describe("runtime provider selection", () => {
-  it("falls back to the first provider the connected machine can actually run", () => {
+  it("selects the first available provider only before the owner has a choice", () => {
     expect(selectAvailableProvider(catalogue([
       { provider: "codex", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol" },
-    ]), "claude")).toBe("codex");
+    ]), null)).toBe("codex");
+  });
+
+  it("requires a visible choice when the selected provider goes offline", () => {
+    const codexOnly = catalogue([
+      { provider: "codex", models: ["gpt-5.6-sol"], defaultModel: "gpt-5.6-sol" },
+    ]);
+    expect(selectAvailableProvider(codexOnly, "claude")).toBeNull();
+    expect(selectAvailableProvider(codexOnly, "codex")).toBe("codex");
   });
 
   it("preserves a still-available owner choice and refuses an empty catalogue", () => {

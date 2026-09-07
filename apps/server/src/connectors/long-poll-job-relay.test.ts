@@ -246,6 +246,36 @@ describe("LongPollConnectorJobRelay", () => {
       .toEqual([]);
   });
 
+  it("replaces provider inventory across Codex, both, and Claude-only reconnects", () => {
+    const relay = new LongPollConnectorJobRelay();
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    relay.markBindingReady(principal, bindingId, ["codex"]);
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    relay.markProviderProbeSucceeded(principal, bindingId, "claude");
+    relay.markBindingReady(principal, bindingId, ["claude", "codex"]);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId)).toEqual(["claude", "codex"]);
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    relay.markBindingReady(principal, bindingId, ["claude"]);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId)).toEqual(["claude"]);
+    // Periodic proof refresh must preserve the finalized inventory.
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId)).toEqual(["claude"]);
+    expect(relay.availableProviders(principal.authenticatedUserId, "999")).toEqual([]);
+  });
+
+  it("clears the previous run's providers when a lock-owning connector starts probing", () => {
+    const relay = new LongPollConnectorJobRelay();
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    relay.markBindingReady(principal, bindingId, ["codex"]);
+    relay.registerBinding(principal, bindingId, job.githubRepositoryId);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId)).toEqual(["codex"]);
+
+    relay.markBindingProbing(principal, bindingId);
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId)).toEqual([]);
+    relay.markProviderProbeSucceeded(principal, bindingId, "claude");
+    expect(relay.availableProviders(principal.authenticatedUserId, job.githubRepositoryId)).toEqual(["claude"]);
+  });
+
   it("removes proven bindings when the connector credential is rotated or revoked", async () => {
     const relay = new LongPollConnectorJobRelay();
     relay.registerBinding(principal, bindingId, job.githubRepositoryId);

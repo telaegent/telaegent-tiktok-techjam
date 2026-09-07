@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the target architecture from the [canonical product plan](../product/high-level-plan.md). The local connector, outbound relay, browser device authorization, repository proof, provider probes, and human-gated message path are implemented and covered by CI. Production deployment of the revised migration, connector `0.2.0` publication, and the signed-in two-machine acceptance run remain release gates. The inherited Starter Kit and earlier prototypes remain in the tree as legacy scaffold.
+This document describes the target architecture from the [canonical product plan](../product/high-level-plan.md). The local connector, outbound relay, browser device authorization, repository proof, provider probes, and human-gated message path are implemented and covered by CI. Production deployment of the revised migration, connector `0.2.1` publication, and the signed-in two-machine acceptance run remain release gates. The inherited Starter Kit and earlier prototypes remain in the tree as legacy scaffold.
 
 ## Product topology
 

@@ -62,6 +62,7 @@ import {
 import TypewriterText, {
   usePrefersReducedMotion,
 } from "./typewriter-text";
+import { ProviderSetup } from "./ProviderSetup";
 import ThemeSwitch from "./ThemeSwitch";
 import {
   ConnectorSetupPollTracker,
@@ -2871,7 +2872,7 @@ function ProjectChat({
 }) {
   const selected = peer ? collaboratorView(peer) : null;
   const [composer, setComposer] = useState("");
-  const [provider, setProvider] = useState<AgentProvider>("claude");
+  const [provider, setProvider] = useState<AgentProvider | null>(null);
   const [modelsByProvider, setModelsByProvider] = useState<
     Partial<Record<AgentProvider, string>>
   >({});
@@ -2930,9 +2931,15 @@ function ProjectChat({
     project.githubRepositoryId,
   );
   const conversationId = conversation?.conversationId ?? null;
-  const selectedProvider = selectAvailableProvider(runtimeModels, provider) ?? provider;
+  const availableProvider = selectAvailableProvider(runtimeModels, provider);
+  const selectedProvider = provider ?? availableProvider ?? "claude";
+  useEffect(() => {
+    if (runtimeModelsState === "ready" && availableProvider !== null) {
+      setProvider((current) => current ?? availableProvider);
+    }
+  }, [runtimeModelsState, availableProvider]);
   const runtimeSelectionReady =
-    runtimeModelsState === "ready" && (runtimeModels?.providers.length ?? 0) > 0;
+    runtimeModelsState === "ready" && availableProvider !== null;
   const providerModels = runtimeModels?.providers.find(
     (candidate) => candidate.provider === selectedProvider,
   );
@@ -3991,6 +3998,12 @@ function ProjectChat({
       </div>
 
       <form className="shared-composer" onSubmit={submitRoughMessage}>
+        <ProviderSetup catalogue={runtimeModels} availabilityKnown={runtimeModelsState === "ready"} onRefresh={onRetryRuntimeModels} />
+        {runtimeModelsState === "ready" && provider !== null && availableProvider === null && (runtimeModels?.providers.length ?? 0) > 0 && (
+          <small className="composer-model-status" role="status">
+            {formatProvider(provider)} is unavailable. Reconnect it or choose another connected provider below to prepare a new draft.
+          </small>
+        )}
         {runtimeModelsState === "error" && (
           <small className="composer-model-status" id="composer-model-status">
             <span>Local provider availability is unavailable.</span>
@@ -4037,7 +4050,7 @@ function ProjectChat({
                     ? "composer-model-status"
                     : undefined
                 }
-                disabled={busy || !runtimeSelectionReady}
+                disabled={busy || runtimeModelsState !== "ready"}
                 onChange={(nextProvider, model) => {
                   setProvider(nextProvider);
                   setModelsByProvider((current) => ({
@@ -4181,7 +4194,12 @@ function ProjectPeople({
   );
 }
 
-function ProjectSettings({ project }: { project: ProjectSummary }) {
+function ProjectSettings({ project, runtimeModels, runtimeModelsState, onRetryRuntimeModels }: {
+  project: ProjectSummary;
+  runtimeModels: RuntimeModelCatalogue | null;
+  runtimeModelsState: AsyncLoadState;
+  onRetryRuntimeModels: () => void;
+}) {
   return (
     <div className="workspace-page">
       <header className="workspace-page-heading">
@@ -4194,9 +4212,9 @@ function ProjectSettings({ project }: { project: ProjectSummary }) {
           <h2>Project agent</h2>
         </header>
         <p className="empty-line">
-          Choose a provider when preparing a message. Persistent project
-          defaults need a backend-owned provider preference contract.
+          Connect coding agents locally, then choose a provider when preparing a new message.
         </p>
+        <ProviderSetup catalogue={runtimeModels} availabilityKnown={runtimeModelsState === "ready"} onRefresh={onRetryRuntimeModels} />
       </section>
       <section className="settings-section">
         <header>
@@ -4493,7 +4511,7 @@ function Workspace({
           onRetry={() => void loadCollaborators()}
         />
       )}
-      {tab === "settings" && <ProjectSettings project={project} />}
+      {tab === "settings" && <ProjectSettings project={project} runtimeModels={runtimeModels} runtimeModelsState={runtimeModelsState} onRetryRuntimeModels={() => setRuntimeModelsAttempt((current) => current + 1)} />}
     </div>
   );
 }

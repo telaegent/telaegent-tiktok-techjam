@@ -122,9 +122,11 @@ three seconds. Random valid device codes are subject to that route limit before
 they can create unbounded database traffic.
 
 The same command syntax works on Windows, macOS, and Linux. The connector
-automatically uses the only authenticated Claude Code or Codex CLI it detects.
-If both are ready, it asks which provider to connect; pass `--provider claude`,
-`--provider codex`, or `--provider auto` to make that choice non-interactively.
+shows both Claude Code and Codex with their local setup status, even if only
+one is available. Choose one, both, or **Check again** after fixing local setup.
+Pass `--provider claude`, `--provider codex`, `--provider both`, or
+`--provider auto` to make that choice non-interactively. `both` requires both
+CLIs to pass detection; `auto` selects whatever authenticated CLIs are available.
 Run it from the actual Git repository root: the connector rejects a nested
 folder that would silently resolve to an ancestor checkout. It prints the
 canonical local root
@@ -133,6 +135,34 @@ repository. After confirmation it verifies local GitHub access, registers safe
 repository metadata, runs a real provider probe, and begins outbound long
 polling. No local path, credential, repository checkout, or provider session is
 uploaded.
+
+To add Claude to an existing Codex connection, finish or cancel active agent
+work, press Ctrl+C in the connector terminal, and rerun
+`tlg connect --provider choose` from the same repository root. Choose **Both
+providers**. Do not use `tlg disconnect` for this change; it revokes the binding
+and active grants. The browser's **Manage coding agents** control is available
+beside the composer and in project settings. It explains setup and refreshes
+provider availability. New drafts can use either connected provider; existing
+drafts remain attached to their original provider. A provider becoming
+unavailable pauses new work until the owner reconnects it or chooses another.
+
+If one live probe fails, the connector clearly reports partial connection and
+keeps the successful provider available. `--probe-only` returns failure if any
+selected provider fails, so a demo readiness check cannot hide partial success.
+
+For a source-checkout demo before publishing the connector package, run from
+this Telaegent checkout (replace the example path with the intended repo root):
+
+```powershell
+npm run connector:connect -- connect D:\secret --provider both
+```
+
+Release this fix as connector **0.2.1** and publish that package before deploying
+the browser that pins it. Update existing installations to that release. Before
+calling the deployment verified, run the Windows acceptance flow: Codex only →
+both → Claude only on the same repository, a failed Claude probe while Codex
+remains usable, and a new Claude private draft followed by human Send. Confirm
+the shared history remains intact and no second connector process is required.
 
 The Projects page separates repositories whose connectors are present in the
 live relay from previous offline, stopped, or unverified connections. Durable

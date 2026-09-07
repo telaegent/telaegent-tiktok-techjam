@@ -11,7 +11,7 @@ describe("connector CLI options", () => {
     });
   });
 
-  it.each(["choose", "auto", "codex", "claude"] as const)(
+  it.each(["choose", "auto", "both", "codex", "claude"] as const)(
     "allows the local operator to select %s explicitly",
     (provider) => {
       expect(parseConnectorCliOptions([

@@ -1,12 +1,13 @@
 import type { AgentProvider, RuntimeModelCatalogue } from "./api";
 
-/** Returns a usable current choice, falling back to the connector's first live provider. */
+/** Pick an initial provider once; never replace an existing choice when it goes offline. */
 export function selectAvailableProvider(
   catalogue: RuntimeModelCatalogue | null,
-  current: AgentProvider,
+  current: AgentProvider | null,
 ): AgentProvider | null {
   if (!catalogue || catalogue.providers.length === 0) return null;
+  if (current === null) return catalogue.providers[0]!.provider;
   return catalogue.providers.some((candidate) => candidate.provider === current)
     ? current
-    : catalogue.providers[0]!.provider;
+    : null;
 }

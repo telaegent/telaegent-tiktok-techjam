@@ -58,21 +58,29 @@ legacy shared API token is not connector authentication.
 
 The npm artifact is built from the canonical compiled connector with
 `npm run connector:package`; it does not contain a second implementation.
-Until `0.2.0` is published, source-checkout developers run
+Until `0.2.1` is published, source-checkout developers run
 `npm run connector:connect -- connect . --url http://localhost:3000`. The
 ignored `connector.env` and browser-issued `--pair` path remain compatibility
 and recovery mechanisms, not normal onboarding.
 
 By default, the connector detects locally authenticated providers before it
-begins browser authorization. It automatically selects the only available
-provider, or asks the local operator to choose Claude Code, Codex, or both when
-both are ready. Use `--provider codex` or `--provider claude` to make the choice
-directly. `--provider auto` allows every locally authenticated provider without
-an interactive choice. A cloud job still names its provider explicitly and the
-connector never silently substitutes another one.
+begins browser authorization. It always shows both CLIs with their local setup
+status and asks the operator to choose Claude Code, Codex, or both. Check again
+after fixing local setup in another terminal, or cancel without authorizing the
+machine. Use `--provider codex` or `--provider claude` to choose directly,
+`--provider both` to require both CLIs, or `--provider auto` to select whichever
+authenticated CLIs are available without an interactive choice. A cloud job
+still names its provider explicitly and the connector never silently
+substitutes another one. To add a provider later, finish/cancel active work,
+press Ctrl+C, and reconnect the same repository with `--provider choose`.
 Add `--probe-only` to exercise the real repository/provider/relay path and exit
 after `TELAEGENT LIVE READINESS VERIFIED`; unlike the static `npm run doctor`,
-this may spend a provider call.
+this may spend a provider call. This check fails if any selected provider fails
+its live probe. A normal connection reports partial success and keeps the
+successful provider usable when another provider fails.
+Once a connector owns the local binding lock it explicitly starts a new probe
+generation, clearing the previous process's provider inventory so a failed
+replacement cannot remain falsely available during the presence window.
 
 The connector requires the selected directory to be the canonical Git root;
 it never silently climbs from a misleading nested folder into an ancestor
