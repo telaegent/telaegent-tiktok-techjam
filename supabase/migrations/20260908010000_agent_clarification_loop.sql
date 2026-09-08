@@ -17,9 +17,19 @@ create table public.agent_dialogue_origin_grants (
     model is null or model ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
   ),
   granted_at timestamptz not null,
+  -- Consent expires on its own. Without this the grant written by `Send`
+  -- outlived everything it was scoped to: the collaboration task it feeds dies
+  -- after 60 minutes, but the grant sat unrevoked forever, so a recipient's
+  -- agent could open an exchange against a message its author consented to on
+  -- a different day. 'revoked_at' did not cover that window -- the only writers
+  -- of it need a clarification task that does not exist yet.
+  expires_at timestamptz not null,
   revoked_at timestamptz,
   constraint agent_dialogue_origin_grant_time check (
     revoked_at is null or revoked_at >= granted_at
+  ),
+  constraint agent_dialogue_origin_grant_lifetime check (
+    expires_at > granted_at
   )
 );
 
@@ -142,10 +152,12 @@ grant delete on table public.agent_clarification_payloads to service_role;
 -- the plan section 6 budget promises.
 --
 -- Deliberately global rather than per-task, and deliberately its own function.
--- `activate_agent_clarification` calls it so the sweep runs without any
--- scheduling infrastructure, and a scheduled job can call the same function
--- directly once one exists. `agent_clarification_payloads_expiry` is the index
--- that makes it cheap; until now nothing read it.
+-- Two callers, on purpose. `activate_agent_clarification` calls it so opening
+-- an exchange pays for the last one, and the backend calls it directly on a
+-- timer from startup, which is what actually makes the documented retention a
+-- promise: an abandoned pair leaves nobody to open anything, and on a quiet
+-- deployment nothing opens at all. `agent_clarification_payloads_expiry` is the
+-- index that makes it cheap enough to run on that timer.
 create or replace function public.sweep_expired_agent_clarification_payloads()
 returns integer
 language plpgsql
@@ -254,6 +266,10 @@ as $$
       on grant_row.origin_shared_message_id = c.origin_shared_message_id
      and grant_row.grantor_user_id = c.requester_user_id
      and grant_row.revoked_at is null
+     -- Re-checked on every read, not trusted from activation time. An exchange
+     -- that outlives its consent stops being able to see the shared history
+     -- that consent was about, which is the only thing this function hands out.
+     and grant_row.expires_at > now()
     where c.task_id = p_task_id
       and p_actor_user_id in (c.requester_user_id, c.responder_user_id)
       and c.status = 'active'
@@ -313,6 +329,8 @@ as $$
 declare
   v_message public.shared_messages;
   v_existing public.agent_dialogue_origin_grants;
+  v_now timestamptz := now();
+  v_expires timestamptz;
 begin
   -- Every argument gate in this file spells out `is null` before testing the
   -- value, and the reason is worth stating once here. These gates are written
@@ -333,15 +351,29 @@ begin
   if not found or v_message.sender_user_id <> p_actor_user_id then
     return jsonb_build_object('outcome', 'unavailable');
   end if;
+  -- 60 minutes, the same lifetime a collaboration task gets, because that is
+  -- the longest the exchange this consent authorizes is allowed to live. A
+  -- grant outliving it would authorize nothing while still reading as live.
+  v_expires := v_now + interval '60 minutes';
   insert into public.agent_dialogue_origin_grants (
-    origin_shared_message_id, grantor_user_id, provider, model, granted_at, revoked_at
+    origin_shared_message_id, grantor_user_id, provider, model, granted_at,
+    expires_at, revoked_at
   ) values (
-    p_origin_shared_message_id, p_actor_user_id, p_provider, p_model, now(), null
+    p_origin_shared_message_id, p_actor_user_id, p_provider, p_model, v_now,
+    v_expires, null
   ) on conflict (origin_shared_message_id) do nothing;
   select * into v_existing from public.agent_dialogue_origin_grants
    where origin_shared_message_id = p_origin_shared_message_id;
   if v_existing.grantor_user_id <> p_actor_user_id or v_existing.revoked_at is not null then
     return jsonb_build_object('outcome', 'unavailable');
+  end if;
+  -- Re-arm rather than leave the first stamp standing. Consenting again is the
+  -- same person saying the same thing now, and 'greatest' keeps the clock
+  -- moving one way so a retry with a trailing clock cannot shorten it.
+  if v_existing.expires_at < v_expires then
+    update public.agent_dialogue_origin_grants
+       set expires_at = greatest(v_expires, expires_at)
+     where origin_shared_message_id = p_origin_shared_message_id;
   end if;
   return jsonb_build_object('outcome', 'granted');
 end;
@@ -384,6 +416,12 @@ begin
      and revoked_at is null;
   if not found then
     return jsonb_build_object('outcome', 'consent_missing');
+  end if;
+  -- Distinct from 'consent_missing' on purpose. "Never agreed" and "agreed an
+  -- hour ago" want different things said to the recipient and different things
+  -- done by an operator reading logs; collapsing them hides the expiry working.
+  if v_grant.expires_at <= v_now then
+    return jsonb_build_object('outcome', 'consent_expired');
   end if;
   select * into v_existing from public.agent_clarification_tasks
    where task_id = p_task_id;
@@ -867,9 +905,160 @@ begin
 end;
 $$;
 
+-- Taking the originator's consent back, before or after anything uses it.
+--
+-- 'stop_agent_clarification' revokes too, and it is not enough on its own: it
+-- needs a clarification task to stop, and the window this covers is the one
+-- before any task exists. Consent is written by `Send`, and the recipient's
+-- agent may pick it up minutes or an hour later; between those two moments the
+-- originator could see the grant and had no way to withdraw it.
+--
+-- Cancels whatever the grant is already feeding, so that revoking is a single
+-- act rather than two the caller has to remember to sequence. The same three
+-- guarantees a stop gives -- no live consent, no unread text, and a structural
+-- audit trail that survives both -- because a half-revoked exchange whose
+-- context loads keep failing is a worse state than a cancelled one.
+create or replace function public.revoke_agent_dialogue_originator(
+  p_origin_shared_message_id uuid,
+  p_actor_user_id uuid
+)
+returns jsonb
+language plpgsql
+volatile
+security invoker
+set search_path = ''
+as $$
+declare
+  v_grant public.agent_dialogue_origin_grants;
+  v_now timestamptz := now();
+  v_task_ids uuid[];
+begin
+  select * into v_grant from public.agent_dialogue_origin_grants
+   where origin_shared_message_id = p_origin_shared_message_id
+   for update;
+  -- Grantor only. Not the recipient: the recipient already ends an exchange
+  -- with 'stop_agent_clarification', and letting them clear the originator's
+  -- consent record would let one person edit the other's authorization.
+  if not found or p_actor_user_id is null
+     or v_grant.grantor_user_id <> p_actor_user_id then
+    return jsonb_build_object('outcome', 'unavailable');
+  end if;
+  if v_grant.revoked_at is not null then
+    -- Idempotent. A second revoke is a person clicking twice, not an error.
+    return jsonb_build_object('outcome', 'revoked', 'cancelledTaskIds', '[]'::jsonb);
+  end if;
+
+  update public.agent_dialogue_origin_grants
+     set revoked_at = greatest(v_now, granted_at)
+   where origin_shared_message_id = p_origin_shared_message_id;
+
+  select coalesce(array_agg(s.task_id), '{}'::uuid[]) into v_task_ids
+    from public.agent_clarification_tasks s
+    join public.collaboration_tasks c on c.task_id = s.task_id
+   where c.origin_shared_message_id = p_origin_shared_message_id
+     and s.state not in ('completed', 'cancelled', 'expired');
+
+  if cardinality(v_task_ids) > 0 then
+    update public.agent_clarification_tasks set
+      state = 'cancelled', expected_user_id = null, expected_lane = null,
+      current_step_id = null, version = version + 1, updated_at = v_now
+    where task_id = any(v_task_ids);
+    delete from public.agent_clarification_payloads
+     where task_id = any(v_task_ids);
+  end if;
+
+  -- The ids, not a count. A cancelled exchange may have a loop parked on it in
+  -- the calling process, and the caller can only wake what it can name.
+  return jsonb_build_object(
+    'outcome', 'revoked',
+    'cancelledTaskIds', to_jsonb(v_task_ids)
+  );
+end;
+$$;
+
+-- Recovering exchanges that a restart left mid-flight.
+--
+-- Task rows are durable and the loop that advances them is not. The
+-- coordinator holds an active exchange in process memory between rounds, and a
+-- person's answer reaches it by waking that in-memory wait, so a backend
+-- restart loses every driver while every 'dialogue_running' and
+-- 'human_required' row survives.
+--
+-- Such an exchange is unreachable. Nothing will dispatch its next dialogue
+-- turn, and an answer to a parked 'human_required' step transitions the row and
+-- then reaches no one, because the loop that would have consumed it is gone.
+-- Without this the owner is shown a question to answer for as long as the task
+-- lives, and answering it does nothing.
+--
+-- Cancelling is the honest end and not a resume: this runs beside
+-- 'reconcile_running_private_drafts', which has already failed the private
+-- draft the exchange hangs off, so there is nothing left to resume into. The
+-- origin grant is revoked and the question/answer text deleted, exactly as
+-- 'stop_agent_clarification' does, because a cancelled exchange must not leave
+-- live consent or unread text behind it.
+--
+-- SINGLE WRITER. This cancels every non-terminal exchange, not only the ones
+-- this process was driving, because a restarted process cannot tell them apart
+-- -- the in-memory waits it would need died with the previous process. Correct
+-- for the single control-plane container this deployment runs, and WRONG the
+-- moment a second replica starts, where it would cancel exchanges another live
+-- instance is mid-round on. The fix is the same one
+-- 'reconcile_running_private_drafts' names: an owning-instance column, scoped
+-- to the instance that is starting.
+--
+-- UNCONDITIONAL. No age floor, so a crash-looping process cancels exchanges
+-- seconds old. Acceptable while a restart genuinely means every driver is gone.
+create or replace function public.reconcile_running_agent_clarifications(
+  p_updated_at timestamptz
+)
+returns integer
+language plpgsql
+volatile
+security invoker
+set search_path = ''
+as $$
+declare
+  v_task_ids uuid[];
+begin
+  -- Deliberately unlocked. This runs before the process serves its first
+  -- request, so there is no concurrent writer to lose a race against; taking
+  -- row locks here would only be theatre, and 'for update' cannot be combined
+  -- with the aggregate anyway.
+  select coalesce(array_agg(task_id), '{}'::uuid[]) into v_task_ids
+    from public.agent_clarification_tasks
+   where state not in ('completed', 'cancelled', 'expired');
+
+  if cardinality(v_task_ids) = 0 then
+    return 0;
+  end if;
+
+  update public.agent_clarification_tasks set
+    state = 'cancelled', expected_user_id = null, expected_lane = null,
+    current_step_id = null, version = version + 1, updated_at = p_updated_at
+  where task_id = any(v_task_ids);
+
+  -- 'greatest' rather than the argument alone: a caller whose clock trails the
+  -- database would otherwise trip the grant's own time-order check and take
+  -- startup down, which is a worse failure than a revocation stamped late.
+  update public.agent_dialogue_origin_grants as g
+     set revoked_at = greatest(p_updated_at, g.granted_at)
+    from public.collaboration_tasks as c
+   where c.task_id = any(v_task_ids)
+     and g.origin_shared_message_id = c.origin_shared_message_id
+     and g.revoked_at is null;
+
+  delete from public.agent_clarification_payloads
+   where task_id = any(v_task_ids);
+
+  return cardinality(v_task_ids);
+end;
+$$;
+
 -- Browser roles cannot call service orchestration directly. Every function is
 -- reached through an authenticated server route which derives the actor.
 revoke all on function public.grant_agent_dialogue_originator(uuid, uuid, text, text)
+from public, anon, authenticated;
+revoke all on function public.revoke_agent_dialogue_originator(uuid, uuid)
 from public, anon, authenticated;
 revoke all on function public.activate_agent_clarification(uuid, uuid, text, text)
 from public, anon, authenticated;
@@ -885,8 +1074,11 @@ revoke all on function public.continue_agent_clarification(uuid, uuid, uuid, tex
 from public, anon, authenticated;
 revoke all on function public.stop_agent_clarification(uuid, uuid, boolean)
 from public, anon, authenticated;
+revoke all on function public.reconcile_running_agent_clarifications(timestamptz)
+from public, anon, authenticated;
 
 grant execute on function public.grant_agent_dialogue_originator(uuid, uuid, text, text) to service_role;
+grant execute on function public.revoke_agent_dialogue_originator(uuid, uuid) to service_role;
 grant execute on function public.activate_agent_clarification(uuid, uuid, text, text) to service_role;
 grant execute on function public.load_agent_clarification(uuid, uuid) to service_role;
 grant execute on function public.list_agent_clarifications(uuid, bigint, uuid) to service_role;
@@ -894,3 +1086,4 @@ grant execute on function public.begin_agent_clarification_question(uuid, uuid, 
 grant execute on function public.record_agent_clarification_dialogue_result(uuid, uuid, uuid, uuid, integer, text, text, text, text, uuid[], text, text) to service_role;
 grant execute on function public.continue_agent_clarification(uuid, uuid, uuid, text, text, integer) to service_role;
 grant execute on function public.stop_agent_clarification(uuid, uuid, boolean) to service_role;
+grant execute on function public.reconcile_running_agent_clarifications(timestamptz) to service_role;

@@ -230,6 +230,31 @@ export class ConversationService {
     });
   }
 
+  /**
+   * The clarification half of the same restart recovery. Call once, before
+   * serving, beside {@link reconcileRunningDrafts}.
+   *
+   * A draft that reconciler just failed may have had a bilateral exchange
+   * hanging off it, and the loop driving that exchange died with the same
+   * process. Left alone the task row stays in `human_required`, so the owner
+   * is still shown a question to answer while nothing is left to read the
+   * answer. Zero when the clarification loop is not composed at all.
+   */
+  async reconcileAgentClarifications(): Promise<number> {
+    return (await this.agentClarification?.reconcileAbandoned()) ?? 0;
+  }
+
+  /**
+   * Deletes clarification text past its task lifetime. Safe to call on a timer.
+   *
+   * The 60-minute retention this feature promises is a promise about deletion,
+   * and deletion needs something that runs whether or not anyone is using the
+   * product. Zero when the clarification loop is not composed at all.
+   */
+  async sweepExpiredClarificationPayloads(): Promise<number> {
+    return (await this.agentClarification?.sweepExpiredPayloads()) ?? 0;
+  }
+
   async createDraft(input: Readonly<{
     authenticatedUserId: string;
     githubRepositoryId: string;
@@ -758,6 +783,30 @@ export class ConversationService {
     );
     if (!(await this.agentClarification.stop(taskId, authenticatedUserId))) {
       throw new HttpError(409, "Agent clarification cannot be stopped");
+    }
+  }
+
+  /**
+   * Takes back the agent-dialogue consent attached to one sent message.
+   *
+   * Authorized by authorship alone, and deliberately not by the repository
+   * membership check the other clarification routes use: the grant records
+   * what one specific person agreed to, so only that person may withdraw it,
+   * and a collaborator with `cancel` on the conversation is not that person.
+   * The check lives in the RPC, which is the only writer.
+   */
+  async revokeAgentClarificationConsent(
+    authenticatedUserId: string,
+    originSharedMessageId: string,
+  ): Promise<void> {
+    if (!this.agentClarification) return;
+    if (
+      !(await this.agentClarification.revokeOriginator({
+        originSharedMessageId,
+        actorUserId: authenticatedUserId,
+      }))
+    ) {
+      throw new HttpError(409, "Agent dialogue consent cannot be revoked");
     }
   }
 

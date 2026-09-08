@@ -599,10 +599,12 @@ async function runDialogueTurn(
     runtime,
     { lane: "clarification_dialogue", pass: "dialogue" },
     {
-      // A different workspace from the work lane, and an empty one. The other
-      // participant does not own this repository, and `toolMode` "none" means
-      // nothing here is readable anyway -- but a probe that pointed both lanes
-      // at the same checkout would be quietly testing something easier.
+      // A different workspace from the work lane, and an empty one, because a
+      // probe that pointed both lanes at the same checkout would be quietly
+      // testing something easier. It is not what keeps this lane from reading:
+      // `toolMode` "none" is enforced by killing the turn on the first tool
+      // event, and the Codex runner swaps in an empty workspace of its own no
+      // matter what is passed here. A read-only sandbox does not stop reads.
       workspacePath,
       purpose: "clarification_dialogue",
       runtimePrompt: prompt,

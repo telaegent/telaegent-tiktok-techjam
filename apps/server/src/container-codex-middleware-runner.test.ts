@@ -52,4 +52,47 @@ describe("Container Codex middleware invocation", () => {
     expect(args).not.toContain("Summarize approved sources");
     expect(args).not.toContain("danger-full-access");
   });
+
+  it("mounts the directory the caller names, not the one on the request", () => {
+    // A turn that declared no tools is pointed at an empty directory instead
+    // of the repository. Inside the container a shell still reaches the image
+    // and /codex-home, so this is not the enforcement -- the event-stream
+    // refusal is. It removes the thing worth reaching for and keeps the
+    // repository path out of argv the model could read back.
+    const config = loadConfig({
+      NODE_ENV: "test",
+      ARK_API_KEY: "k",
+      ARK_MODEL: "ep-test",
+      CODEX_HOME: "C:\\runtime\\codex-home",
+      RUNTIME_PROVIDER: "container",
+      CONTAINER_RUNTIME_IMAGE: "runtime:test",
+      RUNTIME_INSTANCE_ID: "test-instance",
+    });
+    const request: MiddlewareRunRequest = {
+      agentId: "bob",
+      provider: "codex",
+      purpose: "sender_draft",
+      workspacePath: "C:\\approved\\workspace",
+      runtimePrompt: "Draft from the note",
+      persistedSummary: "Approved context",
+      sessionMode: "ephemeral",
+      sandboxMode: "read-only",
+      networkMode: "none",
+      outputSchemaName: "sender-turn.schema.json",
+      correlationId: "corr-no-tools",
+      maxTurns: 1,
+      toolMode: "none",
+    };
+    const args = buildContainerMiddlewareRunArgs(
+      request,
+      config,
+      "C:\\temp\\schema.json",
+      "C:\\temp\\telagent-notools-abc",
+    );
+
+    expect(args).toContain(
+      "type=bind,src=C:\\temp\\telagent-notools-abc,dst=/workspace,readonly",
+    );
+    expect(args.join(" ")).not.toContain("C:\\approved\\workspace");
+  });
 });

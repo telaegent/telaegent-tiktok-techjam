@@ -42,7 +42,15 @@ export type AgentClarificationExchangeOutcome =
 
 export interface AgentClarificationCoordinatorOptions {
   createId?: () => string;
-  pollIntervalMs?: number;
+  /**
+   * How long a wait for a person may sit before the task is re-read anyway.
+   *
+   * Not a poll interval. The answer arrives over HTTP into this same process
+   * and wakes the parked exchange directly, so this only bounds a wake that
+   * never comes. It used to be a 750ms poll, which spends roughly 4,800 reads
+   * on someone who takes the full hour a collaboration task is allowed to live.
+   */
+  humanWaitBackstopMs?: number;
   now?: () => number;
   /**
    * Plan section 7.1. True only when that participant has a live connector
@@ -62,8 +70,10 @@ export interface AgentClarificationCoordinatorOptions {
  */
 export class AgentClarificationCoordinator {
   readonly #createId: () => string;
-  readonly #pollIntervalMs: number;
+  readonly #humanWaitBackstopMs: number;
   readonly #now: () => number;
+  /** Parked `#drive` loops, keyed by task, woken by the answer they wait on. */
+  readonly #humanWaits = new Map<string, Set<() => void>>();
 
   constructor(
     private readonly tasks: CollaborationTaskRepository,
@@ -73,7 +83,10 @@ export class AgentClarificationCoordinator {
     private readonly options: AgentClarificationCoordinatorOptions,
   ) {
     this.#createId = options.createId ?? randomUUID;
-    this.#pollIntervalMs = Math.max(100, options.pollIntervalMs ?? 750);
+    this.#humanWaitBackstopMs = Math.max(
+      100,
+      options.humanWaitBackstopMs ?? 30_000,
+    );
     this.#now = options.now ?? Date.now;
   }
 
@@ -89,6 +102,24 @@ export class AgentClarificationCoordinator {
       model: input.choice.model ?? null,
     });
     return result.outcome === "granted";
+  }
+
+  /**
+   * Withdraws the originator's consent for one shared message.
+   *
+   * Waking the cancelled exchanges is the point of doing this here rather than
+   * leaving the RPC to the caller: an exchange parked on a person's answer is
+   * parked in this process, and revocation has just made that question
+   * unanswerable. Without the wake it would sit there until the backstop.
+   */
+  async revokeOriginator(input: Readonly<{
+    originSharedMessageId: string;
+    actorUserId: string;
+  }>): Promise<boolean> {
+    const result = await this.repository.revokeOriginator(input);
+    if (result.outcome !== "revoked") return false;
+    for (const taskId of result.cancelledTaskIds) this.#wake(taskId);
+    return true;
   }
 
   /** Opens the canonical message task and records the responder's second grant. */
@@ -177,6 +208,10 @@ export class AgentClarificationCoordinator {
       answerHash: hashClarificationText(input.answer),
     });
     if (result.outcome === "route_dialogue" || result.outcome === "resume_recipient") {
+      // The exchange this answer unblocks is parked in this process waiting on
+      // exactly this call. Waking it here is what replaced re-reading the task
+      // on a timer until the answer happened to show up.
+      this.#wake(input.taskId);
       return "continued";
     }
     return result.outcome === "human_required" ? "unavailable" : result.outcome;
@@ -197,11 +232,49 @@ export class AgentClarificationCoordinator {
 
   async stop(taskId: string, actorUserId: string): Promise<boolean> {
     const result = await this.repository.stop({ taskId, actorUserId });
+    // Unconditional, including the outcomes that changed nothing: a wake costs
+    // one read and the loop re-decides from the row, while a missed wake leaves
+    // an exchange parked on a question its task no longer has.
+    this.#wake(taskId);
     return result.outcome === "stopped" || result.outcome === "already_terminal";
   }
 
   async complete(taskId: string, actorUserId: string): Promise<void> {
     await this.repository.complete({ taskId, actorUserId });
+  }
+
+  /**
+   * Cancels every exchange a restart left mid-flight. Call once, before serving.
+   *
+   * What advances an exchange lives in this process: `#drive` holds the task
+   * between rounds, and a person's answer reaches it through `#humanWaits`.
+   * A restart loses all of that while the rows survive, so a task left in
+   * `dialogue_running` or `human_required` is one nothing will ever advance.
+   * `human_required` is the visible one -- the owner is still offered an answer
+   * box for a question no answer can now reach.
+   *
+   * Cancelling is the honest end rather than a resume, because the draft the
+   * exchange hangs off has already been failed by the private-draft reconciler
+   * that runs beside this: there is nothing left to resume into. Both people
+   * can start again, which is a thing they can actually do.
+   */
+  async reconcileAbandoned(): Promise<number> {
+    return this.repository.reconcileDriving({
+      updatedAt: new Date(this.#now()).toISOString(),
+    });
+  }
+
+  /**
+   * Deletes clarification text whose task lifetime has run out.
+   *
+   * Opening a new exchange already sweeps, which covers a busy deployment and
+   * nothing else: the exchange both people abandon is never touched again, and
+   * on a quiet day nothing opens. Its text is the only cross-user question and
+   * answer this feature persists, so its deletion cannot be left to depend on
+   * somebody else starting a conversation.
+   */
+  async sweepExpiredPayloads(): Promise<number> {
+    return this.repository.sweepExpiredPayloads();
   }
 
   /**
@@ -229,6 +302,46 @@ export class AgentClarificationCoordinator {
     );
   }
 
+  /** Wakes every `#drive` loop parked on this task's human step. */
+  #wake(taskId: string): void {
+    const parked = this.#humanWaits.get(taskId);
+    if (!parked) return;
+    this.#humanWaits.delete(taskId);
+    for (const resume of parked) resume();
+  }
+
+  /**
+   * Parks until the person answers, the backstop elapses, or the caller aborts.
+   *
+   * The backstop's timer keeps running when the answer wins the race. Nothing
+   * awaits it by then, so a later abort would reject it into no one; that
+   * rejection is claimed here rather than left to surface as an unhandled one.
+   */
+  async #awaitHuman(
+    taskId: string,
+    backstopMs: number,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    // Built before the waiter is registered: an already-aborted signal throws
+    // out of here synchronously, and must not leave an entry in the map.
+    const backstop = delay(backstopMs, signal);
+    backstop.catch(() => undefined);
+    let resume!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const parked = this.#humanWaits.get(taskId) ?? new Set<() => void>();
+    parked.add(resume);
+    this.#humanWaits.set(taskId, parked);
+    try {
+      await Promise.race([answered, backstop]);
+    } finally {
+      const waiting = this.#humanWaits.get(taskId);
+      waiting?.delete(resume);
+      if (waiting?.size === 0) this.#humanWaits.delete(taskId);
+    }
+  }
+
   async #drive(
     initial: AgentClarificationTask,
     signal?: AbortSignal,
@@ -244,8 +357,15 @@ export class AgentClarificationCoordinator {
         return { outcome: "cancelled" };
       }
       if (task.state === "human_required") {
-        await delay(
-          Math.min(this.#pollIntervalMs, Math.max(0, Date.parse(task.expiresAt) - this.#now())),
+        // Parked on a person, not on a timer. The answer arrives over HTTP into
+        // this same process and wakes this loop directly, so the wait costs one
+        // read when it ends instead of one read for every poll while it lasts.
+        await this.#awaitHuman(
+          task.taskId,
+          Math.min(
+            this.#humanWaitBackstopMs,
+            Math.max(0, Date.parse(task.expiresAt) - this.#now()),
+          ),
           signal,
         );
         const loaded = await this.repository.load({

@@ -451,6 +451,29 @@ export class SupabaseAuthorizationRpcClient
     );
   }
 
+  async revokeAgentDialogueOriginator(
+    request: Parameters<AgentClarificationRepository["revokeOriginator"]>[0],
+  ): Promise<unknown> {
+    // No provider or model to check, so the shared choice validator does not
+    // fit; the two ids are still worth refusing here rather than shipping a
+    // malformed argument to a function whose whole job is authorization.
+    if (
+      !uuidPattern.test(request.originSharedMessageId) ||
+      !uuidPattern.test(request.actorUserId)
+    ) {
+      throw new Error("Supabase agent clarification revocation is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("revoke_agent_dialogue_originator"),
+      {
+        p_origin_shared_message_id: request.originSharedMessageId,
+        p_actor_user_id: request.actorUserId,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
   async activateAgentClarification(
     request: Parameters<AgentClarificationRepository["activate"]>[0],
   ): Promise<unknown> {
@@ -624,6 +647,31 @@ export class SupabaseAuthorizationRpcClient
         p_actor_user_id: request.actorUserId,
         p_completed: request.completed,
       },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async reconcileRunningAgentClarifications(
+    request: Parameters<
+      AgentClarificationRpcClient["reconcileRunningAgentClarifications"]
+    >[0],
+  ): Promise<unknown> {
+    if (Number.isNaN(Date.parse(request.updatedAt))) {
+      throw new Error("Supabase agent clarification reconciliation is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("reconcile_running_agent_clarifications"),
+      { p_updated_at: request.updatedAt },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async sweepExpiredAgentClarificationPayloads(): Promise<unknown> {
+    return this.#call(
+      this.#scopeEndpoint("sweep_expired_agent_clarification_payloads"),
+      {},
       undefined,
       maximumScopeResponseBytes,
     );

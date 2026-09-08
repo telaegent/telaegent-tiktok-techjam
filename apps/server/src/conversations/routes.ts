@@ -14,6 +14,7 @@ const uuid = z.string().uuid();
 const conversationParams = z.object({ conversationId: uuid });
 const draftParams = z.object({ draftId: uuid });
 const clarificationTaskParams = z.object({ taskId: uuid });
+const sharedMessageParams = z.object({ messageId: uuid });
 const repositoryId = z.string().refine(isGitHubRepositoryId, "Invalid GitHub repository ID");
 const createDraftBody = z.strictObject({
   githubRepositoryId: repositoryId,
@@ -276,6 +277,23 @@ export function registerConversationRoutes(
       await dependencies.service.stopAgentClarificationTask(
         await user(request),
         taskId,
+      );
+      return reply.code(204).send();
+    },
+  );
+
+  // Keyed by the message rather than by a task, because the whole point is the
+  // window before a task exists: consent is written by `Send`, and the
+  // recipient's agent may not pick it up for another hour.
+  app.post(
+    "/api/shared-messages/:messageId/agent-clarification-consent/revoke",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const { messageId } = sharedMessageParams.parse(request.params);
+      emptyBody.parse(request.body);
+      await dependencies.service.revokeAgentClarificationConsent(
+        await user(request),
+        messageId,
       );
       return reply.code(204).send();
     },

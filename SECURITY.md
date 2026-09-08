@@ -89,7 +89,9 @@ The only automatic cross-user text allowed in P0 is a task-control
 clarification dialogue with active consent from both humans for the exact
 task. It is limited to two questions, no tools, no new authority, and context
 already approved for that task. Its payload is task-private and deleted when
-the task completes, is cancelled, or expires after 60 minutes. A need for a
+the task completes or is cancelled, and otherwise by a backend sweep that runs
+every five minutes against the 60-minute task expiry -- so an exchange both
+people abandon still loses its text without either of them returning. A need for a
 new file, permission, secret, cross-project path, or another user's private
 state pauses for a human. Human-supplied context resumes the same bounded task
 only after an explicit **Continue** action. The final reply always remains
@@ -107,7 +109,7 @@ The browser-first product still uses local execution. Telaegent cloud may hold:
 - project identity, permissions, connector presence, and safe audit events
 - bounded private draft/job payloads while they are being routed
 - bounded task-private clarification payloads until task completion,
-  cancellation, or the existing 60-minute expiry
+  cancellation, or the 60-minute expiry, swept on a five-minute backend timer
 
 Telaegent cloud must not hold repository checkouts, GitHub/provider credentials,
 provider home directories, provider sessions, raw local tool output, or hidden

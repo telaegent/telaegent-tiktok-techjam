@@ -87,6 +87,22 @@ function codexActivity(itemType: unknown): RuntimeActivity | null {
   }
 }
 
+/**
+ * Whether an event is the model reaching for a tool.
+ *
+ * `codexActivity` already names every tool surface the CLI reports, so this
+ * asks the same question the progress feed asks and cannot drift from it: a
+ * new tool type that earns an activity label is a new tool type this refuses.
+ */
+function isToolUseEvent(event: Record<string, unknown>): boolean {
+  if (event.type !== "item.started" && event.type !== "item.completed") {
+    return false;
+  }
+  const item = event.item;
+  if (!item || typeof item !== "object") return false;
+  return codexActivity((item as Record<string, unknown>).type) !== null;
+}
+
 interface ActiveCodexProcess {
   child: ChildProcess;
   cancelled: boolean;
@@ -102,6 +118,7 @@ interface CodexProcessRequest {
   workspacePath: string;
   threadId: string | null;
   args: string[];
+  noTools?: boolean;
 }
 
 interface CodexProcessResult extends RunnerResult {
@@ -199,6 +216,13 @@ export function closedToolSurface(
 ): string[] {
   return [
     "--ignore-user-config",
+    // The warning above says `-c` accepts an unknown key silently, so a key a
+    // Codex release renames or drops becomes a policy that stopped applying
+    // without ever saying so. `--strict-config` makes that a startup error
+    // instead. Measured against 0.153.4: every key below is recognised, and
+    // `-c tools.shell=false` -- a key that sounds real and is not -- exits
+    // before any API call rather than being accepted and ignored.
+    "--strict-config",
     ...(platform === "win32" ? ["-c", "windows.sandbox=unelevated"] : []),
     "-c",
     "mcp_servers={}",
@@ -276,10 +300,52 @@ export function buildCodexMiddlewareArgs(
   return args;
 }
 
+/**
+ * What an empty workspace tells a model that arrives expecting a repository.
+ *
+ * Codex reads `AGENTS.md` from its `-C` root, so this is the one channel that
+ * reaches the model without touching prompt construction on the cloud side.
+ * It is a courtesy, not the control: the refusal in `parseCodexEventLine` is
+ * what enforces the policy, and this only lowers how often it has to fire.
+ *
+ * Measured against 0.153.4 on an empty workspace. Ordinary drafting prompts
+ * never reached for a tool either way. A prompt that explicitly asked for an
+ * absolute path outside the workspace spawned PowerShell without this file,
+ * and returned a structured "I was not given that" with it.
+ */
+export const NO_TOOLS_WORKSPACE_NOTICE = [
+  "# Turn policy",
+  "",
+  "This turn has no tools. Do not run commands, read files, or search the web.",
+  "There is no repository here and nothing on this machine is readable.",
+  "Answer only from the prompt you were given. If it does not contain what you",
+  "need, say so in the structured output instead of trying to find it.",
+  "",
+].join("\n");
+
+/**
+ * @param noTools Enforce `toolMode: "none"` for this turn.
+ *
+ * The Claude runner spells a toolless turn in argv (`--tools ""`) and the CLI
+ * honours it. Codex has no equivalent and cannot be given one: its only file
+ * access is spawning a shell, and the `tools` config table holds exactly one
+ * key (`web_search`) -- probed under `--strict-config`, which rejects every
+ * plausible alternative (`tools.shell`, `tools.local_shell`, `features.shell`)
+ * as unknown. `--sandbox read-only` governs writes, not reads: measured on
+ * 0.153.4, a run pinned to an empty `-C` workspace still read an absolute path
+ * outside it. So a workspace pin is not containment and never was.
+ *
+ * What is left is to refuse rather than to prevent. The first tool event kills
+ * the process through the same path a malformed line takes, before the tool's
+ * output is ever parsed back into the model's context, and the turn fails
+ * instead of returning an answer built from something it was told not to read.
+ * A caller who declared no tools gets a turn with no tools or no turn.
+ */
 export function parseCodexEventLine(
   line: string,
   parsed: ParsedEvents,
   onProgress?: RuntimeProgressSink,
+  noTools = false,
 ): void {
   let event: Record<string, unknown>;
   try {
@@ -288,6 +354,14 @@ export function parseCodexEventLine(
     throw new RuntimeProviderError(
       "INVALID_AGENT_OUTPUT",
       "Codex returned an invalid event stream",
+    );
+  }
+
+  if (noTools && isToolUseEvent(event)) {
+    throw new RuntimeProviderError(
+      "UNSUPPORTED_RUNTIME_POLICY",
+      "Codex used a tool in a turn that declared none",
+      { phase: "event_stream" },
     );
   }
 
@@ -534,8 +608,26 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       path.join(tmpdir(), "telagent-schema-"),
     );
     const schemaPath = path.join(schemaDirectory, "output.schema.json");
+    // A toolless turn is not pointed at the repository at all. On its own this
+    // is not containment -- a read-only Codex run reads absolute paths outside
+    // its `-C` root, measured -- so `noTools` below is what actually enforces
+    // the policy. This removes the thing worth reaching for and the paths that
+    // would name it, so the refusal stays the rare case rather than the way
+    // every Codex clarification turn ends.
+    const noTools = request.toolMode === "none";
+    const emptyWorkspace = noTools
+      ? await this.dependencies.mkdtemp(path.join(tmpdir(), "telagent-notools-"))
+      : null;
+    const workspacePath = emptyWorkspace ?? request.workspacePath;
     try {
       throwIfRuntimeCancelled(signal);
+      if (emptyWorkspace) {
+        await this.dependencies.writeFile(
+          path.join(emptyWorkspace, "AGENTS.md"),
+          NO_TOOLS_WORKSPACE_NOTICE,
+          { encoding: "utf8", mode: 0o600 },
+        );
+      }
       await this.dependencies.writeFile(
         schemaPath,
         JSON.stringify(providerCompatibleSchema("codex", outputSchema)),
@@ -548,13 +640,14 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       const result = await this.runProcess(
         {
           agentId: request.agentId,
-          workspacePath: request.workspacePath,
+          workspacePath,
           threadId:
             request.sessionMode === "continue" ? request.sessionId ?? null : null,
+          noTools,
           args: buildCodexMiddlewareArgs(
             request,
             schemaPath,
-            request.workspacePath,
+            workspacePath,
             // The owner's choice for this turn, falling back to the
             // deployment-wide default. `closedToolSurface()` passes
             // `--ignore-user-config`, so whatever ends up here is the only
@@ -588,6 +681,9 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       };
     } finally {
       await this.dependencies.rm(schemaDirectory, { recursive: true, force: true });
+      if (emptyWorkspace) {
+        await this.dependencies.rm(emptyWorkspace, { recursive: true, force: true });
+      }
     }
   }
 
@@ -674,7 +770,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         stdout = lines.pop() ?? "";
         for (const line of lines) {
           try {
-            parseCodexEventLine(line, parsed, onProgress);
+            parseCodexEventLine(line, parsed, onProgress, request.noTools);
           } catch (error) {
             parseFailure = error as RuntimeProviderError;
             this.terminate(active);
@@ -704,7 +800,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         throw classifyProviderFailure("codex", error, { phase: "spawn" });
       }
       if (stdout.trim() && !parseFailure) {
-        parseCodexEventLine(stdout.trim(), parsed, onProgress);
+        parseCodexEventLine(stdout.trim(), parsed, onProgress, request.noTools);
       }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {

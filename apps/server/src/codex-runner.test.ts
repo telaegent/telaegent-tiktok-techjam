@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import {
   CodexRunner,
@@ -12,6 +14,70 @@ import {
 import { loadConfig } from "./config.js";
 import { RunCancelledError } from "./errors.js";
 import type { RuntimeProgressEvent } from "./runtime-contract.js";
+
+/** A middleware request shaped like the drafting pass, which declares no tools. */
+function noToolsRequest() {
+  return {
+    agentId: "binding-a",
+    provider: "codex" as const,
+    purpose: "sender_draft" as const,
+    workspacePath: "D:\\workspace\\repo",
+    runtimePrompt: "Draft from the note",
+    persistedSummary: "Approved context",
+    sessionMode: "ephemeral" as const,
+    sandboxMode: "read-only" as const,
+    networkMode: "none" as const,
+    outputSchemaName: "sender-turn.schema.json",
+    correlationId: "draft-no-tools",
+    maxTurns: 1,
+    toolMode: "none" as const,
+  };
+}
+
+/**
+ * A Codex child that emits the given JSONL and then closes.
+ *
+ * `pid` is absent on purpose: process-tree termination cannot reach a child
+ * that never had one, so it falls back to `kill`, which this closes on. That
+ * is the same ordering a real killed CLI produces -- exit before termination
+ * verification settles -- without signalling anything on the host.
+ */
+function fakeCodexProcess(events: unknown[]) {
+  const listeners = new Map<string, ((...values: unknown[]) => void)[]>();
+  const on = (name: string, listener: (...values: unknown[]) => void) => {
+    listeners.set(name, [...(listeners.get(name) ?? []), listener]);
+  };
+  const emit = (name: string, ...values: unknown[]) => {
+    for (const listener of listeners.get(name) ?? []) listener(...values);
+  };
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    emit("close", 0);
+  };
+  const child = {
+    pid: undefined,
+    exitCode: null,
+    signalCode: null,
+    stdin: { on: () => undefined, end: () => undefined },
+    stdout: { on: (name: string, listener: (...values: unknown[]) => void) => on("stdout:" + name, listener) },
+    stderr: { on: () => undefined },
+    once: on,
+    on,
+    kill: () => {
+      close();
+      return true;
+    },
+  };
+  queueMicrotask(() => {
+    for (const event of events) {
+      emit("stdout:data", Buffer.from(JSON.stringify(event) + "\n", "utf8"));
+    }
+    close();
+  });
+  return child;
+}
 
 describe("Codex runner protocol", () => {
   it("builds a new-session invocation", () => {
@@ -28,6 +94,7 @@ describe("Codex runner protocol", () => {
       "exec",
       "--json",
       "--ignore-user-config",
+      "--strict-config",
       ...(process.platform === "win32"
         ? ["-c", "windows.sandbox=unelevated"]
         : []),
@@ -137,6 +204,77 @@ describe("Codex runner protocol", () => {
       { type: "text_delta", provider: "codex", text: "Done." },
       { type: "turn_completed", provider: "codex" },
     ]);
+  });
+
+  it("refuses every tool surface Codex reports in a turn that declared none", () => {
+    // The refusal is defined by `codexActivity`, so this list is the same one
+    // the progress feed labels. A Codex release that adds a tool type earns an
+    // activity label first, and inherits the refusal with it.
+    for (const itemType of [
+      "command_execution",
+      "file_change",
+      "mcp_tool_call",
+      "web_search",
+    ]) {
+      for (const eventType of ["item.started", "item.completed"]) {
+        const parsed = {
+          messages: [] as string[],
+          threadId: null as string | null,
+          usage: null,
+          errors: [] as string[],
+        };
+        expect(() =>
+          parseCodexEventLine(
+            JSON.stringify({ type: eventType, item: { type: itemType } }),
+            parsed,
+            undefined,
+            true,
+          ),
+        ).toThrow("used a tool in a turn that declared none");
+      }
+    }
+  });
+
+  it("still reads session, message and usage events in a turn that declared none", () => {
+    // A refusal that fired on ordinary events would end every toolless turn,
+    // which is the failure mode this guard has to avoid to be shippable.
+    const parsed = {
+      messages: [] as string[],
+      threadId: null as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    for (const event of [
+      { type: "thread.started", thread_id: "thread-quiet" },
+      { type: "turn.started" },
+      { type: "item.completed", item: { type: "agent_message", text: "{}" } },
+      { type: "item.completed", item: { type: "reasoning" } },
+      { type: "turn.completed", usage: { input_tokens: 3, output_tokens: 1 } },
+    ]) {
+      expect(() =>
+        parseCodexEventLine(JSON.stringify(event), parsed, undefined, true),
+      ).not.toThrow();
+    }
+    expect(parsed.threadId).toBe("thread-quiet");
+    expect(parsed.messages).toEqual(["{}"]);
+  });
+
+  it("leaves a tool-using turn alone when the caller allowed tools", () => {
+    const parsed = {
+      messages: [] as string[],
+      threadId: null as string | null,
+      usage: null,
+      errors: [] as string[],
+    };
+    expect(() =>
+      parseCodexEventLine(
+        JSON.stringify({
+          type: "item.started",
+          item: { type: "command_execution" },
+        }),
+        parsed,
+      ),
+    ).not.toThrow();
   });
 
   it("rejects non-JSON stdout in JSONL mode", () => {
@@ -358,10 +496,94 @@ describe("Codex runner protocol", () => {
     // workspace. Reading their config must not import their tools.
     expect(args).toContain("mcp_servers={}");
     expect(args).toContain("notify=[]");
+    // A `-c` key Codex no longer knows is accepted in silence, which turns a
+    // dropped policy into a policy that looks applied. This makes it a startup
+    // error instead; every key above is recognised by the pinned CLI.
+    expect(args).toContain("--strict-config");
     // Containment still comes from the sandbox, not from ignoring the config.
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
     expect(args).toContain('approval_policy="never"');
+  });
+
+  it("points a turn that declared no tools away from the repository", async () => {
+    const spawnCodex = vi.fn(() =>
+      fakeCodexProcess([
+        { type: "item.completed", item: { type: "agent_message", text: "{}" } },
+      ]),
+    );
+    const removed: string[] = [];
+    const written = vi.fn(async () => undefined);
+    const runner = new CodexRunner(loadConfig({ NODE_ENV: "test" }), {
+      mkdtemp: (async (prefix: string) => prefix + "made") as CodexRunnerDependencies["mkdtemp"],
+      writeFile: written as unknown as CodexRunnerDependencies["writeFile"],
+      rm: (async (target: string) => {
+        removed.push(target);
+      }) as CodexRunnerDependencies["rm"],
+      spawn: spawnCodex as unknown as CodexRunnerDependencies["spawn"],
+    });
+
+    await runner.runStructured(noToolsRequest(), { type: "object" });
+
+    const [, args, options] = spawnCodex.mock.calls[0] as [
+      string,
+      string[],
+      { cwd: string },
+    ];
+    // The repository is not the working directory, is not the `-C` root, and
+    // is not spelled anywhere in argv the model could read back.
+    expect(options.cwd).not.toBe("D:\\workspace\\repo");
+    expect(args).not.toContain("D:\\workspace\\repo");
+    expect(args[args.indexOf("-C") + 1]).toContain("telagent-notools-");
+    // And it is removed, like the schema directory beside it.
+    expect(removed.some((target) => target.includes("telagent-notools-"))).toBe(true);
+    // The empty directory carries a turn policy, because a model that arrives
+    // expecting a repository and finds none goes looking for one. Measured:
+    // this is the difference between a declined answer and a spawned shell.
+    const notice = written.mock.calls.find(([target]) =>
+      String(target).endsWith("AGENTS.md"),
+    );
+    expect(notice?.[0]).toContain("telagent-notools-");
+    expect(String(notice?.[1])).toContain("This turn has no tools.");
+  });
+
+  it("kills a turn that declared no tools rather than answering from one", async () => {
+    // A real child, because the refusal has to survive the runner's own
+    // cleanup: an unverified process-tree termination replaces the thrown
+    // error, so a stub that cannot be killed would pass for the wrong reason.
+    // This one keeps running until it is killed, which is also the point --
+    // the model is stopped mid-turn, not asked to finish politely.
+    const emitted = [
+      { type: "thread.started", thread_id: "thread-x" },
+      { type: "item.started", item: { type: "command_execution" } },
+      {
+        type: "item.completed",
+        item: { type: "agent_message", text: '{"answered":true}' },
+      },
+    ];
+    const script =
+      "for (const event of " +
+      JSON.stringify(emitted) +
+      ') process.stdout.write(JSON.stringify(event) + "\\n");' +
+      "setInterval(() => {}, 1000);";
+    const runner = new CodexRunner(loadConfig({ NODE_ENV: "test" }), {
+      mkdtemp,
+      writeFile,
+      rm,
+      spawn: ((_bin: string, _args: string[], options: object) =>
+        spawn(process.execPath, ["-e", script], options)) as unknown as
+        CodexRunnerDependencies["spawn"],
+    });
+
+    // The message after the tool call is the whole point: it never becomes a
+    // result. The turn fails instead of returning an answer assembled from
+    // something the caller said it could not read.
+    await expect(
+      runner.runStructured(noToolsRequest(), { type: "object" }),
+    ).rejects.toMatchObject({
+      code: "UNSUPPORTED_RUNTIME_POLICY",
+      localDiagnostic: { phase: "event_stream" },
+    });
   });
 
   it("does not spawn Codex when cancellation arrives during schema preflight", async () => {

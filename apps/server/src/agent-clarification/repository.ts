@@ -81,9 +81,25 @@ const grantOutcomeSchema = z.discriminatedUnion("outcome", [
   z.strictObject({ outcome: z.literal("granted") }),
   z.strictObject({ outcome: z.literal("unavailable") }),
 ]);
+const revokeOutcomeSchema = z.discriminatedUnion("outcome", [
+  z.strictObject({
+    outcome: z.literal("revoked"),
+    /**
+     * The exchanges the revocation cancelled, so the caller can wake the loops
+     * it has parked on them. Empty is the ordinary case: consent is usually
+     * withdrawn before any recipient picked it up.
+     */
+    cancelledTaskIds: z.array(z.string().uuid()),
+  }),
+  z.strictObject({ outcome: z.literal("unavailable") }),
+]);
 const activationOutcomeSchema = z.discriminatedUnion("outcome", [
   z.strictObject({ outcome: z.literal("active"), task: agentClarificationTaskSchema }),
   z.strictObject({ outcome: z.literal("consent_missing") }),
+  // Separate from `consent_missing`: the originator did agree, and the hour
+  // that agreement was good for has run out. Nothing here treats them
+  // differently yet; an operator reading logs has to be able to.
+  z.strictObject({ outcome: z.literal("consent_expired") }),
   z.strictObject({ outcome: z.literal("unavailable") }),
 ]);
 const loadOutcomeSchema = z.discriminatedUnion("outcome", [
@@ -116,6 +132,17 @@ export interface AgentClarificationRepository {
     provider: AgentProvider;
     model: string | null;
   }>): Promise<z.infer<typeof grantOutcomeSchema>>;
+  /**
+   * Withdraws the originator's consent, and cancels whatever it is feeding.
+   *
+   * The one path that reaches consent before any exchange exists. `stop` also
+   * revokes, and needs a clarification task to stop; the window this covers is
+   * the one between `Send` and the recipient's agent picking the grant up.
+   */
+  revokeOriginator(input: Readonly<{
+    originSharedMessageId: string;
+    actorUserId: string;
+  }>): Promise<z.infer<typeof revokeOutcomeSchema>>;
   activate(input: Readonly<{
     taskId: string;
     responderUserId: string;
@@ -166,10 +193,26 @@ export interface AgentClarificationRepository {
     taskId: string;
     actorUserId: string;
   }>): Promise<z.infer<typeof stopOutcomeSchema>>;
+  /**
+   * Cancels every exchange left mid-flight, for restart recovery.
+   *
+   * Deliberately not scoped to an actor or a task: the process that could name
+   * the exchanges it was driving is the one that died.
+   */
+  reconcileDriving(input: Readonly<{ updatedAt: string }>): Promise<number>;
+  /**
+   * Deletes question and answer text whose task lifetime has run out.
+   *
+   * Retention, not access control -- every RPC already refuses an expired
+   * task. This is what covers the exchange both people simply walk away from,
+   * which no other call ever touches again.
+   */
+  sweepExpiredPayloads(): Promise<number>;
 }
 
 export interface AgentClarificationRpcClient {
   grantAgentDialogueOriginator(input: Parameters<AgentClarificationRepository["grantOriginator"]>[0]): Promise<unknown>;
+  revokeAgentDialogueOriginator(input: Parameters<AgentClarificationRepository["revokeOriginator"]>[0]): Promise<unknown>;
   activateAgentClarification(input: Parameters<AgentClarificationRepository["activate"]>[0]): Promise<unknown>;
   loadAgentClarification(input: Parameters<AgentClarificationRepository["load"]>[0]): Promise<unknown>;
   listAgentClarifications(input: Parameters<AgentClarificationRepository["list"]>[0]): Promise<unknown>;
@@ -177,6 +220,8 @@ export interface AgentClarificationRpcClient {
   recordAgentClarificationDialogueResult(input: Parameters<AgentClarificationRepository["recordDialogueResult"]>[0]): Promise<unknown>;
   continueAgentClarification(input: Parameters<AgentClarificationRepository["continueWithHumanAnswer"]>[0]): Promise<unknown>;
   stopAgentClarification(input: Parameters<AgentClarificationRepository["stop"]>[0] & { completed: boolean }): Promise<unknown>;
+  reconcileRunningAgentClarifications(input: Parameters<AgentClarificationRepository["reconcileDriving"]>[0]): Promise<unknown>;
+  sweepExpiredAgentClarificationPayloads(): Promise<unknown>;
 }
 
 /** Strict mapper around service-role RPCs; malformed persistence fails closed. */
@@ -187,6 +232,10 @@ export class SupabaseAgentClarificationRepository
 
   async grantOriginator(input: Parameters<AgentClarificationRepository["grantOriginator"]>[0]) {
     return grantOutcomeSchema.parse(await this.client.grantAgentDialogueOriginator(input));
+  }
+
+  async revokeOriginator(input: Parameters<AgentClarificationRepository["revokeOriginator"]>[0]) {
+    return revokeOutcomeSchema.parse(await this.client.revokeAgentDialogueOriginator(input));
   }
 
   async activate(input: Parameters<AgentClarificationRepository["activate"]>[0]) {
@@ -235,5 +284,23 @@ export class SupabaseAgentClarificationRepository
     return stopOutcomeSchema.parse(
       await this.client.stopAgentClarification({ ...input, completed: true }),
     );
+  }
+
+  async reconcileDriving(
+    input: Parameters<AgentClarificationRepository["reconcileDriving"]>[0],
+  ) {
+    return z
+      .number()
+      .int()
+      .min(0)
+      .parse(await this.client.reconcileRunningAgentClarifications(input));
+  }
+
+  async sweepExpiredPayloads() {
+    return z
+      .number()
+      .int()
+      .min(0)
+      .parse(await this.client.sweepExpiredAgentClarificationPayloads());
   }
 }

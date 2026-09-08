@@ -9,7 +9,7 @@
  * enforced it and not because the fake refused to misbehave.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   CollaborationTaskRepository,
@@ -170,6 +170,10 @@ interface Harness {
   dispatched: DialogueTurnInput[];
   stopped: string[];
   contextLoads: string[];
+  /** Every read of the task row, which is what a wait for a person must not spend. */
+  loads: string[];
+  reconciled: { updatedAt: string }[];
+  sweepCount: () => number;
 }
 
 function harness(
@@ -182,6 +186,14 @@ function harness(
     context?: AgentClarificationContext | null;
     finalOutput?: unknown;
     initialTask?: AgentClarificationTask;
+    /** What the person's answer does to the row the parked loop re-reads. */
+    humanAnswerOutcome?: AgentClarificationTransition;
+    humanWaitBackstopMs?: number;
+    reconcileCount?: number;
+    sweptCount?: number;
+    revokeOutcome?:
+      | { outcome: "revoked"; cancelledTaskIds: string[] }
+      | { outcome: "unavailable" };
   }> = {},
 ): Harness {
   const opened: OpenCollaborationTaskInput[] = [];
@@ -190,7 +202,13 @@ function harness(
   const dispatched: DialogueTurnInput[] = [];
   const stopped: string[] = [];
   const contextLoads: string[] = [];
-  const current = setup.initialTask ?? task();
+  const loads: string[] = [];
+  const reconciled: { updatedAt: string }[] = [];
+  let sweeps = 0;
+  // Mutable, because the row a parked loop re-reads is the one the person's
+  // answer just moved. A fake that could not move it could only test a loop
+  // that never finishes waiting.
+  let current = setup.initialTask ?? task();
 
   const tasks: CollaborationTaskRepository = {
     async openTask(input) {
@@ -220,7 +238,8 @@ function harness(
         ? { outcome: "consent_missing" as const }
         : { outcome: "active" as const, task: current };
     },
-    async load() {
+    async load(input: { taskId: string; actorUserId: string }) {
+      loads.push(input.taskId);
       return { outcome: "available" as const, task: current };
     },
     async list() {
@@ -247,14 +266,48 @@ function harness(
       );
     },
     async continueWithHumanAnswer() {
-      return { outcome: "stale" as const };
+      const outcome = setup.humanAnswerOutcome ?? { outcome: "stale" as const };
+      if ("task" in outcome) current = outcome.task;
+      return outcome;
     },
     async stop(input: { taskId: string; actorUserId: string }) {
       stopped.push(input.taskId);
+      // The real one clears the routing state as it goes terminal, which is
+      // what a loop parked on this task re-reads once the stop wakes it.
+      current = {
+        ...current,
+        state: "cancelled",
+        expectedLane: null,
+        expectedUserId: null,
+        currentStepId: null,
+      };
       return { outcome: "stopped" as const };
     },
     async complete() {
       return { outcome: "stopped" as const };
+    },
+    async reconcileDriving(input: { updatedAt: string }) {
+      reconciled.push({ ...input });
+      return setup.reconcileCount ?? 0;
+    },
+    async sweepExpiredPayloads() {
+      sweeps += 1;
+      return setup.sweptCount ?? 0;
+    },
+    async revokeOriginator() {
+      const outcome = setup.revokeOutcome ?? { outcome: "unavailable" as const };
+      // The real RPC cancels whatever the withdrawn consent was feeding, and
+      // the loop parked on that task re-reads the row the moment it is woken.
+      if (outcome.outcome === "revoked" && outcome.cancelledTaskIds.length > 0) {
+        current = {
+          ...current,
+          state: "cancelled",
+          expectedLane: null,
+          expectedUserId: null,
+          currentStepId: null,
+        };
+      }
+      return outcome;
     },
   } satisfies AgentClarificationRepository;
 
@@ -298,11 +351,22 @@ function harness(
     {
       supportsCapabilities: (userId) => setup.capable?.(userId) ?? true,
       createId: () => ids[nextId++] ?? `generated-${nextId}`,
-      pollIntervalMs: 100,
+      humanWaitBackstopMs: setup.humanWaitBackstopMs ?? 100,
     },
   );
 
-  return { coordinator, opened, begun, recorded, dispatched, stopped, contextLoads };
+  return {
+    coordinator,
+    opened,
+    begun,
+    recorded,
+    dispatched,
+    stopped,
+    contextLoads,
+    loads,
+    reconciled,
+    sweepCount: () => sweeps,
+  };
 }
 
 describe("plan section 7.1 capability gate", () => {
@@ -590,5 +654,152 @@ describe("dialogue results the model got wrong", () => {
       outcome: "cancelled",
     });
     expect(dispatched).toEqual([]);
+  });
+});
+
+describe("waiting on a person", () => {
+  const question: PeerClarification = {
+    question: "Which staging database?",
+    reasonCode: "ambiguity",
+    sharedBasisMessageIds: [SHARED_MESSAGE_ID],
+  };
+  const parked = task({
+    state: "human_required",
+    expectedLane: "human",
+    expectedUserId: REQUESTER_ID,
+    currentStepId: STEP_ID,
+  });
+  const resumed = task({
+    state: "recipient_running",
+    expectedLane: "private_work",
+    expectedUserId: RESPONDER_ID,
+    currentStepId: null,
+    version: 4,
+  });
+
+  it("parks until the answer arrives rather than re-reading the task on a timer", async () => {
+    const { coordinator, recorded, loads } = harness({
+      recordOutcome: () => ({ outcome: "human_required", task: parked }),
+      humanAnswerOutcome: { outcome: "resume_recipient", task: resumed },
+      // Ten minutes. Anything that finishes inside this test finished because
+      // the answer woke it, not because the backstop fired.
+      humanWaitBackstopMs: 600_000,
+    });
+
+    const running = coordinator.exchange(task(), question);
+    // A timer tick, so every microtask the drive loop still owed has run and
+    // the wait is registered. An answer delivered before that wakes nobody.
+    await vi.waitFor(() => expect(recorded).toHaveLength(1));
+    const readsBeforeTheAnswer = loads.length;
+
+    expect(
+      await coordinator.continueWithHumanAnswer({
+        taskId: TASK_ID,
+        actorUserId: REQUESTER_ID,
+        currentStepId: STEP_ID,
+        answer: "The replica-backed one.",
+        expectedVersion: parked.version,
+      }),
+    ).toBe("continued");
+
+    expect(await running).toEqual({ outcome: "resolved", task: resumed });
+    // One read, at the end of the wait. The 750ms poll this replaced spent one
+    // every 750ms for as long as the person took to answer, which the task
+    // lifetime allows to be a full hour.
+    expect(loads.length - readsBeforeTheAnswer).toBe(1);
+  });
+
+  it("lets go of the wait when the task is stopped underneath it", async () => {
+    const { coordinator, recorded } = harness({
+      recordOutcome: () => ({ outcome: "human_required", task: parked }),
+      humanWaitBackstopMs: 600_000,
+    });
+
+    const running = coordinator.exchange(task(), question);
+    await vi.waitFor(() => expect(recorded).toHaveLength(1));
+
+    // Either participant may end the exchange while the other is still being
+    // asked. Without the wake here the loop would sit on a question its task
+    // no longer has until the backstop noticed.
+    expect(await coordinator.stop(TASK_ID, RESPONDER_ID)).toBe(true);
+    expect(await running).toEqual({ outcome: "cancelled" });
+  });
+});
+
+describe("restart recovery", () => {
+  it("cancels the exchanges whose driver died, stamped with this process's clock", async () => {
+    const { coordinator, reconciled } = harness({ reconcileCount: 3 });
+
+    expect(await coordinator.reconcileAbandoned()).toBe(3);
+    // Deliberately unscoped: the process that could name the exchanges it was
+    // driving is the one that died, so there is nothing to name them by.
+    expect(reconciled).toHaveLength(1);
+    expect(Date.parse(reconciled[0]?.updatedAt ?? "")).not.toBeNaN();
+  });
+
+  it("reports nothing to recover as nothing, not as an error", async () => {
+    const { coordinator } = harness();
+
+    expect(await coordinator.reconcileAbandoned()).toBe(0);
+  });
+});
+
+describe("withdrawing consent", () => {
+  const question: PeerClarification = {
+    question: "Which staging database?",
+    reasonCode: "ambiguity",
+    sharedBasisMessageIds: [SHARED_MESSAGE_ID],
+  };
+  const parked = task({
+    state: "human_required",
+    expectedLane: "human",
+    expectedUserId: REQUESTER_ID,
+    currentStepId: STEP_ID,
+  });
+
+  it("releases the exchange the withdrawn consent was feeding", async () => {
+    // The window this covers is the one before any task exists, but consent can
+    // also be taken back mid-exchange -- and then the question a person is
+    // being shown has become unanswerable. Waking the parked loop is what turns
+    // that from a 30-second backstop wait into an immediate end.
+    const { coordinator, recorded } = harness({
+      recordOutcome: () => ({ outcome: "human_required", task: parked }),
+      revokeOutcome: { outcome: "revoked", cancelledTaskIds: [TASK_ID] },
+      humanWaitBackstopMs: 600_000,
+    });
+
+    const running = coordinator.exchange(task(), question);
+    await vi.waitFor(() => expect(recorded).toHaveLength(1));
+
+    expect(
+      await coordinator.revokeOriginator({
+        originSharedMessageId: SHARED_MESSAGE_ID,
+        actorUserId: REQUESTER_ID,
+      }),
+    ).toBe(true);
+    expect(await running).toEqual({ outcome: "cancelled" });
+  });
+
+  it("refuses a withdrawal that is not the grantor's to make", async () => {
+    const { coordinator } = harness({ revokeOutcome: { outcome: "unavailable" } });
+
+    expect(
+      await coordinator.revokeOriginator({
+        originSharedMessageId: SHARED_MESSAGE_ID,
+        actorUserId: RESPONDER_ID,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("retention", () => {
+  it("deletes clarification text past its task lifetime on demand", async () => {
+    // The caller is a timer, not a request. Opening a new exchange sweeps too,
+    // but an exchange both people abandoned is never touched again -- so the
+    // documented 60-minute deletion cannot depend on anyone opening anything.
+    const { coordinator, sweepCount } = harness({ sweptCount: 4 });
+
+    expect(await coordinator.sweepExpiredPayloads()).toBe(4);
+    expect(sweepCount()).toBe(1);
   });
 });

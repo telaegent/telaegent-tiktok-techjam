@@ -59,11 +59,18 @@ export interface MiddlewareRunRequest {
    * failed turn, because it spends its whole turn budget reading and never
    * returns structured output. `none` removes the temptation structurally.
    *
-   * Honoured by the Claude runner. Codex has no equivalent: its built-in tool
-   * surface cannot be closed without `--disable`, which `closedToolSurface`
-   * documents as unsafe across releases. Like `maxTurns`, this is a bound the
-   * two runners do not share -- safe, because the sandbox is read-only and the
-   * workspace is pinned either way, but do not read it as symmetry.
+   * Both runners honour it; they cannot honour it the same way. Claude spells
+   * it in argv (`--tools ""`) and the CLI obeys. Codex has no such switch: its
+   * only file access is spawning a shell, and its `tools` config table holds
+   * one key, `web_search`.
+   *
+   * Do not read the sandbox as the backstop. `--sandbox read-only` governs
+   * writes, not reads, and a Codex run pinned to an empty `-C` workspace was
+   * measured reading an absolute path outside it. A pinned workspace is
+   * obscurity, not containment. What makes `none` mean none on Codex is the
+   * runner refusing the turn at the first tool event, before the tool's output
+   * re-enters the model's context -- so a caller who sets this gets a turn with
+   * no tools or no turn, never a quiet third thing.
    */
   toolMode?: "none" | "read" | undefined;
 

@@ -91,7 +91,17 @@ insert into public.shared_messages (
    'a3000000-0000-4000-8000-000000000001', 1345851099,
    'a1000000-0000-4000-8000-000000000001',
    'Origin message for the fifth task.',
-   'agent', 'codex', now() - interval '4 minutes');
+   'agent', 'codex', now() - interval '4 minutes'),
+  ('a4000000-0000-4000-8000-000000000008',
+   'a3000000-0000-4000-8000-000000000001', 1345851099,
+   'a1000000-0000-4000-8000-000000000001',
+   'Origin message for the sixth task.',
+   'agent', 'codex', now() - interval '3 minutes'),
+  ('a4000000-0000-4000-8000-000000000009',
+   'a3000000-0000-4000-8000-000000000001', 1345851099,
+   'a1000000-0000-4000-8000-000000000001',
+   'Origin message for the seventh task.',
+   'agent', 'codex', now() - interval '2 minutes');
 
 insert into public.collaboration_tasks (
   task_id, project_id, conversation_id, github_repository_id,
@@ -132,7 +142,21 @@ insert into public.collaboration_tasks (
    'a1000000-0000-4000-8000-000000000001',
    'a1000000-0000-4000-8000-000000000002',
    'a4000000-0000-4000-8000-000000000007',
-   'active', now() - interval '4 minutes', now() + interval '1 hour', null);
+   'active', now() - interval '4 minutes', now() + interval '1 hour', null),
+  ('a5000000-0000-4000-8000-000000000006',
+   'a2000000-0000-4000-8000-000000000001',
+   'a3000000-0000-4000-8000-000000000001', 1345851099,
+   'a1000000-0000-4000-8000-000000000001',
+   'a1000000-0000-4000-8000-000000000002',
+   'a4000000-0000-4000-8000-000000000008',
+   'active', now() - interval '3 minutes', now() + interval '1 hour', null),
+  ('a5000000-0000-4000-8000-000000000007',
+   'a2000000-0000-4000-8000-000000000001',
+   'a3000000-0000-4000-8000-000000000001', 1345851099,
+   'a1000000-0000-4000-8000-000000000001',
+   'a1000000-0000-4000-8000-000000000002',
+   'a4000000-0000-4000-8000-000000000009',
+   'active', now() - interval '2 minutes', now() + interval '1 hour', null);
 
 do $$
 declare
@@ -144,11 +168,15 @@ declare
   origin_3  uuid := 'a4000000-0000-4000-8000-000000000005';
   origin_4  uuid := 'a4000000-0000-4000-8000-000000000006';
   origin_5  uuid := 'a4000000-0000-4000-8000-000000000007';
+  origin_6  uuid := 'a4000000-0000-4000-8000-000000000008';
+  origin_7  uuid := 'a4000000-0000-4000-8000-000000000009';
   task_1    uuid := 'a5000000-0000-4000-8000-000000000001';
   task_2    uuid := 'a5000000-0000-4000-8000-000000000002';
   task_3    uuid := 'a5000000-0000-4000-8000-000000000003';
   task_4    uuid := 'a5000000-0000-4000-8000-000000000004';
   task_5    uuid := 'a5000000-0000-4000-8000-000000000005';
+  task_6    uuid := 'a5000000-0000-4000-8000-000000000006';
+  task_7    uuid := 'a5000000-0000-4000-8000-000000000007';
   step_q1   uuid := 'a6000000-0000-4000-8000-000000000001';
   step_q2   uuid := 'a6000000-0000-4000-8000-000000000002';
   step_q3   uuid := 'a6000000-0000-4000-8000-000000000003';
@@ -158,6 +186,8 @@ declare
   step_q7   uuid := 'a6000000-0000-4000-8000-000000000007';
   step_q8   uuid := 'a6000000-0000-4000-8000-000000000008';
   step_q9   uuid := 'a6000000-0000-4000-8000-00000000000a';
+  step_q10  uuid := 'a6000000-0000-4000-8000-00000000000b';
+  step_q11  uuid := 'a6000000-0000-4000-8000-00000000000c';
   -- 64 lowercase hex characters, which is all the schema asks of a hash.
   hash_q1 text := repeat('11', 32);
   hash_a1 text := repeat('22', 32);
@@ -174,9 +204,15 @@ declare
   hash_q8 text := repeat('de', 32);
   hash_a8 text := repeat('ea', 32);
   hash_q9 text := repeat('df', 32);
+  hash_q10 text := repeat('fa', 32);
+  hash_q11 text := repeat('cb', 32);
   result jsonb;
   task jsonb;
   rounds integer;
+  stranded integer;
+  reconciled integer;
+  granted timestamptz;
+  expires timestamptz;
   used integer;
   swept integer;
   offenders integer;
@@ -189,13 +225,15 @@ declare
     'public.agent_clarification_task_json(uuid)',
     'public.load_agent_clarification_context(uuid,uuid,integer)',
     'public.grant_agent_dialogue_originator(uuid,uuid,text,text)',
+    'public.revoke_agent_dialogue_originator(uuid,uuid)',
     'public.activate_agent_clarification(uuid,uuid,text,text)',
     'public.load_agent_clarification(uuid,uuid)',
     'public.list_agent_clarifications(uuid,bigint,uuid)',
     'public.begin_agent_clarification_question(uuid,uuid,uuid,text,text,uuid[],text,integer)',
     'public.record_agent_clarification_dialogue_result(uuid,uuid,uuid,uuid,integer,text,text,text,text,uuid[],text,text)',
     'public.continue_agent_clarification(uuid,uuid,uuid,text,text,integer)',
-    'public.stop_agent_clarification(uuid,uuid,boolean)'
+    'public.stop_agent_clarification(uuid,uuid,boolean)',
+    'public.reconcile_running_agent_clarifications(timestamptz)'
   ];
   constraint_hit text;
 begin
@@ -875,6 +913,176 @@ begin
   if offenders <> 0 then
     raise exception 'F4 FAILED: row level security is off on % clarification tables',
       offenders;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- Restart recovery. An exchange whose in-process driver died is cancelled,
+  -- because nothing left in the system will ever advance it. The stranding
+  -- this covers is invisible from the server's own tests: the rows are intact
+  -- and consistent, and the only thing missing is a process that is gone.
+  ---------------------------------------------------------------------------
+  perform public.grant_agent_dialogue_originator(origin_6, requester, 'codex', null);
+  perform public.activate_agent_clarification(task_6, responder, 'claude', null);
+  result := public.begin_agent_clarification_question(
+    task_6, responder, step_q10, 'Which environment?', 'ambiguity',
+    '{}'::uuid[], hash_q10, 0);
+  if result ->> 'outcome' <> 'route_dialogue' then
+    raise exception 'V1 FAILED: the sixth task could not ask: %', result;
+  end if;
+  result := public.record_agent_clarification_dialogue_result(
+    task_6, requester, step_q10, null, 1, 'human_required', null, null, null,
+    null, 'private_context', null);
+  task := result -> 'task';
+  if result ->> 'outcome' <> 'human_required'
+     or task ->> 'state' <> 'human_required' then
+    raise exception 'V2 FAILED: the exchange did not park for a human: %', task;
+  end if;
+
+  -- Whatever the sections above left mid-flight is stranded by the same
+  -- restart, so the count is taken rather than assumed. It is at least the
+  -- exchange just parked.
+  select count(*) into stranded from public.agent_clarification_tasks
+   where state not in ('completed', 'cancelled', 'expired');
+  if stranded < 1 then
+    raise exception 'V3 FAILED: nothing was left in flight to reconcile';
+  end if;
+  reconciled := public.reconcile_running_agent_clarifications(now());
+  if reconciled <> stranded then
+    raise exception 'V4 FAILED: reconciliation cancelled % of % exchanges',
+      reconciled, stranded;
+  end if;
+
+  task := public.load_agent_clarification(task_6, responder) -> 'task';
+  if task ->> 'state' <> 'cancelled'
+     or task ->> 'expectedUserId' is not null
+     or task ->> 'expectedLane' is not null
+     or task ->> 'currentStepId' is not null then
+    raise exception 'V5 FAILED: a reconciled exchange kept routing state: %', task;
+  end if;
+
+  -- The same three guarantees an explicit stop gives: no unread text, no live
+  -- consent, and an audit trail that survives both.
+  if exists (select 1 from public.agent_clarification_payloads
+       where task_id = task_6) then
+    raise exception 'V6 FAILED: reconciliation left question text behind';
+  end if;
+  if exists (
+    select 1 from public.agent_dialogue_origin_grants
+     where origin_shared_message_id = origin_6 and revoked_at is null
+  ) then
+    raise exception 'V7 FAILED: reconciliation left the origin grant live';
+  end if;
+  if (select count(*) from public.agent_clarification_steps
+       where task_id = task_6) <> 1 then
+    raise exception 'V8 FAILED: reconciliation deleted the structural audit trail';
+  end if;
+
+  -- Idempotent, because a crash loop runs this on every boot.
+  if public.reconcile_running_agent_clarifications(now()) <> 0 then
+    raise exception 'V9 FAILED: a second reconciliation cancelled something again';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- Consent lifetime and withdrawal. The originator's grant is written by
+  -- `Send` and may sit unused for as long as the recipient takes to look at
+  -- the message. It has to stop being good on its own, and its author has to
+  -- be able to take it back before anything has used it.
+  --
+  -- Deliberately after restart recovery: this section activates and cancels a
+  -- seventh exchange, so nothing that counts exchanges may follow it.
+  ---------------------------------------------------------------------------
+  result := public.grant_agent_dialogue_originator(origin_7, requester, 'codex', null);
+  if result ->> 'outcome' <> 'granted' then
+    raise exception 'W1 FAILED: the seventh origin could not be consented: %', result;
+  end if;
+  select g.granted_at, g.expires_at into granted, expires
+    from public.agent_dialogue_origin_grants g
+   where g.origin_shared_message_id = origin_7;
+  -- The same hour the collaboration task itself gets. A grant outliving the
+  -- exchange it authorizes reads as live while authorizing nothing.
+  if expires <= granted or expires > granted + interval '61 minutes' then
+    raise exception 'W2 FAILED: consent lifetime is % to %', granted, expires;
+  end if;
+
+  -- Backdated whole, not just expired: the row's own constraint keeps
+  -- 'expires_at' after 'granted_at', so an expiry in the past needs a grant
+  -- further in the past. That is exactly the shape this guards against -- a
+  -- consent given an hour ago and never used.
+  update public.agent_dialogue_origin_grants
+     set granted_at = now() - interval '2 hours',
+         expires_at = now() - interval '1 hour'
+   where origin_shared_message_id = origin_7;
+  result := public.activate_agent_clarification(task_7, responder, 'claude', null);
+  if result ->> 'outcome' <> 'consent_expired' then
+    raise exception 'W3 FAILED: an expired grant still opened an exchange: %', result;
+  end if;
+
+  update public.agent_dialogue_origin_grants
+     set granted_at = now(), expires_at = now() + interval '60 minutes'
+   where origin_shared_message_id = origin_7;
+  result := public.activate_agent_clarification(task_7, responder, 'claude', null);
+  if result ->> 'outcome' <> 'active' then
+    raise exception 'W4 FAILED: a live grant could not open an exchange: %', result;
+  end if;
+
+  -- Re-checked on every context read, not trusted from activation time.
+  update public.agent_dialogue_origin_grants
+     set granted_at = now() - interval '2 hours',
+         expires_at = now() - interval '1 hour'
+   where origin_shared_message_id = origin_7;
+  if public.load_agent_clarification_context(task_7, responder, 20) is not null then
+    raise exception 'W5 FAILED: an expired grant still handed out shared history';
+  end if;
+  update public.agent_dialogue_origin_grants
+     set granted_at = now(), expires_at = now() + interval '60 minutes'
+   where origin_shared_message_id = origin_7;
+
+  result := public.begin_agent_clarification_question(
+    task_7, responder, step_q11, 'Which region?', 'ambiguity',
+    '{}'::uuid[], hash_q11, 0);
+  if result ->> 'outcome' <> 'route_dialogue' then
+    raise exception 'W6 FAILED: the seventh task could not ask: %', result;
+  end if;
+
+  -- The recipient may stop an exchange. The grant records what the originator
+  -- agreed to, so only the originator may unmake it.
+  result := public.revoke_agent_dialogue_originator(origin_7, responder);
+  if result ->> 'outcome' <> 'unavailable' then
+    raise exception 'W7 FAILED: the recipient revoked the originator''s consent: %', result;
+  end if;
+
+  result := public.revoke_agent_dialogue_originator(origin_7, requester);
+  if result ->> 'outcome' <> 'revoked'
+     or not (result -> 'cancelledTaskIds' ? task_7::text) then
+    raise exception 'W8 FAILED: revocation did not cancel the exchange it fed: %', result;
+  end if;
+  task := public.load_agent_clarification(task_7, responder) -> 'task';
+  if task ->> 'state' <> 'cancelled'
+     or task ->> 'expectedUserId' is not null
+     or task ->> 'expectedLane' is not null
+     or task ->> 'currentStepId' is not null then
+    raise exception 'W9 FAILED: a revoked exchange kept routing state: %', task;
+  end if;
+  if exists (select 1 from public.agent_clarification_payloads
+       where task_id = task_7) then
+    raise exception 'W10 FAILED: revocation left question text behind';
+  end if;
+  if (select count(*) from public.agent_clarification_steps
+       where task_id = task_7) <> 1 then
+    raise exception 'W11 FAILED: revocation deleted the structural audit trail';
+  end if;
+
+  -- Idempotent, because this is a person clicking a button.
+  result := public.revoke_agent_dialogue_originator(origin_7, requester);
+  if result ->> 'outcome' <> 'revoked'
+     or jsonb_array_length(result -> 'cancelledTaskIds') <> 0 then
+    raise exception 'W12 FAILED: a second revocation was not a no-op: %', result;
+  end if;
+
+  -- Withdrawal is final for that message, matching what a stop already did.
+  result := public.grant_agent_dialogue_originator(origin_7, requester, 'codex', null);
+  if result ->> 'outcome' <> 'unavailable' then
+    raise exception 'W13 FAILED: a revoked grant was silently re-armed: %', result;
   end if;
 
   ---------------------------------------------------------------------------
