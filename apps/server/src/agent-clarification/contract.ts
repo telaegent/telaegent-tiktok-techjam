@@ -16,6 +16,16 @@ export const AGENT_CLARIFICATION_LIMITS = Object.freeze({
   maxTranscriptBytes: 4_000,
   /** Owner-facing only; never crosses to the peer. */
   maxPrivateExplanationBytes: 2_000,
+  /**
+   * The approved history rendered into a dialogue capsule.
+   *
+   * The loader pages at 200 messages, which bounds the row count and nothing
+   * else. Without a byte budget the no-tools lane could be handed a larger
+   * prompt than the work lane ever gets, for a turn whose entire job is to
+   * answer one narrow question.
+   */
+  maxSharedContextBytes: 64_000,
+  maxSharedContextMessageBytes: 8_000,
   /** Evidence hints, never authorization, so a small ceiling is enough. */
   maxSharedBasisMessageIds: 8,
 });
@@ -50,6 +60,21 @@ function boundedText(maximumBytes: number) {
       { message: `Text exceeds ${maximumBytes} UTF-8 bytes` },
     );
 }
+
+/**
+ * The human answer, bounded where the request arrives rather than where it is
+ * stored.
+ *
+ * The route used to take 2000 characters while the contract and the SQL check
+ * take 1500 UTF-8 bytes, so an over-length answer was accepted at the edge and
+ * rejected in the database, reaching the person as a generic 409 that reads as
+ * "the task moved on". Bilingual conversations hit it first: Vietnamese and CJK
+ * text spends two to three bytes a character, so the byte ceiling arrives while
+ * the character count still looks small.
+ */
+export const humanClarificationAnswerSchema = boundedText(
+  AGENT_CLARIFICATION_LIMITS.maxAnswerBytes,
+);
 
 const sharedBasisMessageIdsSchema = z
   .array(z.string().uuid())

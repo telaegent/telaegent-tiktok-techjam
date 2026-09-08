@@ -431,7 +431,7 @@ export class ConversationService {
         role: draft.role,
         correlationId: draft.draftId,
         turnId,
-        ...(isRunnableClarificationTask(clarificationTask, draft.ownerUserId)
+        ...(this.taskSessionReady(clarificationTask, draft)
           ? {
               allowPeerClarification:
                 clarificationTask.questionsUsed < MAX_AGENT_CLARIFICATION_QUESTIONS,
@@ -906,7 +906,7 @@ export class ConversationService {
         role: draft.role,
         correlationId: draft.draftId,
         deliveredResources: delivered,
-        ...(isRunnableClarificationTask(clarificationTask, draft.ownerUserId)
+        ...(this.taskSessionReady(clarificationTask, draft)
           ? {
               allowPeerClarification:
                 clarificationTask.questionsUsed < MAX_AGENT_CLARIFICATION_QUESTIONS,
@@ -937,6 +937,27 @@ export class ConversationService {
     return result;
   }
 
+  /**
+   * Whether a task-scoped envelope may be attached to the next job.
+   *
+   * Runnability is a fact about the task; capability is a fact about the
+   * connector, and the connector can change under us. Both are asked here, at
+   * the moment the envelope is built, because a connector that reconnected on an
+   * older build would reject a task-scoped job outright.
+   */
+  private taskSessionReady(
+    task: AgentClarificationTask | null,
+    draft: PrivateDraft,
+  ): task is AgentClarificationTask {
+    return (
+      isRunnableClarificationTask(task, draft.ownerUserId) &&
+      (this.agentClarification?.supportsTaskSession(
+        draft.ownerUserId,
+        draft.githubRepositoryId,
+      ) ??
+        false)
+    );
+  }
   private async settleTurn(
     draft: PrivateDraft,
     turnId: string,
@@ -977,6 +998,18 @@ export class ConversationService {
         );
         if (exchanged.outcome !== "resolved") break;
         clarificationTask = exchanged.task;
+        // The connector can reconnect on an older build while the peer agent is
+        // answering, and capabilities are re-advertised on every readiness beat.
+        // A task-scoped envelope would then reach a strict job schema that has
+        // never heard of it, and the turn would fail for a reason neither person
+        // can see. Stopping here leaves the peer question standing, which is the
+        // same fallback taken when the exchange does not resolve.
+        if (
+          this.agentClarification?.supportsTaskSession(
+            draft.ownerUserId,
+            draft.githubRepositoryId,
+          ) !== true
+        ) break;
         const started = await this.runtime.start<ProtocolTurnOutput>({
           authorization: this.authorizationInput(draft),
           provider: draft.provider,

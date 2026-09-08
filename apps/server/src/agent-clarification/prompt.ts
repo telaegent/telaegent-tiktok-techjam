@@ -79,14 +79,45 @@ export function buildAgentClarificationPrompt(input: Readonly<{
   ].join("\n");
 }
 
+/** Says that history was dropped, so a gap does not read as the whole record. */
+const ELIDED_SHARED_HISTORY =
+  "(older shared history omitted to fit the dialogue context budget)";
+
+/**
+ * Renders the approved history newest-first under a total byte budget.
+ *
+ * The loader pages at 200 messages, which bounds the row count and nothing else,
+ * so the capsule for a no-tools turn could otherwise grow larger than anything
+ * the work lane is ever handed. The messages nearest the question are the ones
+ * an answer is most likely to need, so a budget that has to drop something drops
+ * the oldest.
+ *
+ * The marker is not decoration. An agent shown a silently shortened history
+ * reads it as the complete record, and answers a question about what was agreed
+ * with more confidence than it has earned.
+ */
 function renderSharedContext(context: AgentClarificationContext): string {
-  return context.sharedHistory
-    .map(
-      (message) =>
-        `${message.messageId} ${message.authorName}: ` +
-        `<untrusted-message>${bounded(message.text, 50_000)}</untrusted-message>`,
-    )
-    .join("\n");
+  const lines: string[] = [];
+  let used = 0;
+  for (let index = context.sharedHistory.length - 1; index >= 0; index -= 1) {
+    const message = context.sharedHistory[index];
+    if (!message) continue;
+    const line =
+      `${message.messageId} ${message.authorName}: ` +
+      `<untrusted-message>${bounded(
+        message.text,
+        AGENT_CLARIFICATION_LIMITS.maxSharedContextMessageBytes,
+      )}</untrusted-message>`;
+    // The newline this line will be joined with is part of what it costs.
+    const cost = Buffer.byteLength(line, "utf8") + 1;
+    if (used + cost > AGENT_CLARIFICATION_LIMITS.maxSharedContextBytes) {
+      lines.unshift(ELIDED_SHARED_HISTORY);
+      break;
+    }
+    used += cost;
+    lines.unshift(line);
+  }
+  return lines.join("\n");
 }
 
 function renderResolvedSteps(

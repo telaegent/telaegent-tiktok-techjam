@@ -681,6 +681,31 @@ begin
      or octet_length(p_answer) not between 1 and 1500 then
     return jsonb_build_object('outcome', 'unavailable');
   end if;
+  -- Plan section 6: an exact normalized repeat is deterministic no progress, and
+  -- the answered branch needs the check as much as the counter-question branch.
+  -- An answer whose bytes the task has already seen -- the same answer twice, or
+  -- the question echoed back as its own answer -- means the two agents are
+  -- circling, and no further round will break it.
+  --
+  -- This escalates rather than returning 'stale'. A stale result invites the
+  -- caller to reload and try again, which is the one thing that cannot help
+  -- here; the plan asks to stop at the first detected repetition instead of
+  -- spending the remaining rounds. The two humans get the question back, which
+  -- is where it was always going to end up.
+  if exists (select 1 from public.agent_clarification_steps
+      where task_id = p_task_id and (content_hash = p_content_hash or answer_hash = p_content_hash)) then
+    update public.agent_clarification_steps set
+      status = 'human_required', human_required_reason = 'ambiguous'
+    where step_id = p_current_step_id;
+    update public.agent_clarification_tasks set
+      state = 'human_required', expected_lane = 'human',
+      version = version + 1, updated_at = v_now
+    where task_id = p_task_id;
+    return jsonb_build_object(
+      'outcome', 'human_required',
+      'task', public.agent_clarification_task_json(p_task_id)
+    );
+  end if;
   if v_task.follow_up_rounds >= 5 then
     return jsonb_build_object('outcome', 'exhausted');
   end if;

@@ -6,6 +6,7 @@ import { setPrivateNoStore } from "../http-cache.js";
 import { DEFAULT_RUNTIME_EFFORT, RUNTIME_EFFORTS } from "../runtime-efforts.js";
 import { DEFAULT_RUNTIME_MODEL, RUNTIME_MODELS } from "../runtime-models.js";
 import type { AgentProvider } from "../runtime-contract.js";
+import { humanClarificationAnswerSchema } from "../agent-clarification/contract.js";
 import { PROTOCOL_LIMITS } from "../telagent/protocol/contract.js";
 import type { ConversationService } from "./service.js";
 
@@ -69,7 +70,7 @@ const sendBody = z.strictObject({
 const continueAgentClarificationBody = z.strictObject({
   currentStepId: uuid,
   expectedVersion: z.number().int().min(0),
-  answer: z.string().trim().min(1).max(2_000),
+  answer: humanClarificationAnswerSchema,
 });
 const messageQuery = z.object({
   githubRepositoryId: repositoryId,

@@ -86,7 +86,12 @@ insert into public.shared_messages (
    'a3000000-0000-4000-8000-000000000001', 1345851099,
    'a1000000-0000-4000-8000-000000000001',
    'Origin message for the fourth task.',
-   'agent', 'codex', now() - interval '5 minutes');
+   'agent', 'codex', now() - interval '5 minutes'),
+  ('a4000000-0000-4000-8000-000000000007',
+   'a3000000-0000-4000-8000-000000000001', 1345851099,
+   'a1000000-0000-4000-8000-000000000001',
+   'Origin message for the fifth task.',
+   'agent', 'codex', now() - interval '4 minutes');
 
 insert into public.collaboration_tasks (
   task_id, project_id, conversation_id, github_repository_id,
@@ -120,7 +125,14 @@ insert into public.collaboration_tasks (
    'a1000000-0000-4000-8000-000000000001',
    'a1000000-0000-4000-8000-000000000002',
    'a4000000-0000-4000-8000-000000000006',
-   'active', now() - interval '5 minutes', now() + interval '1 hour', null);
+   'active', now() - interval '5 minutes', now() + interval '1 hour', null),
+  ('a5000000-0000-4000-8000-000000000005',
+   'a2000000-0000-4000-8000-000000000001',
+   'a3000000-0000-4000-8000-000000000001', 1345851099,
+   'a1000000-0000-4000-8000-000000000001',
+   'a1000000-0000-4000-8000-000000000002',
+   'a4000000-0000-4000-8000-000000000007',
+   'active', now() - interval '4 minutes', now() + interval '1 hour', null);
 
 do $$
 declare
@@ -131,10 +143,12 @@ declare
   origin_2  uuid := 'a4000000-0000-4000-8000-000000000004';
   origin_3  uuid := 'a4000000-0000-4000-8000-000000000005';
   origin_4  uuid := 'a4000000-0000-4000-8000-000000000006';
+  origin_5  uuid := 'a4000000-0000-4000-8000-000000000007';
   task_1    uuid := 'a5000000-0000-4000-8000-000000000001';
   task_2    uuid := 'a5000000-0000-4000-8000-000000000002';
   task_3    uuid := 'a5000000-0000-4000-8000-000000000003';
   task_4    uuid := 'a5000000-0000-4000-8000-000000000004';
+  task_5    uuid := 'a5000000-0000-4000-8000-000000000005';
   step_q1   uuid := 'a6000000-0000-4000-8000-000000000001';
   step_q2   uuid := 'a6000000-0000-4000-8000-000000000002';
   step_q3   uuid := 'a6000000-0000-4000-8000-000000000003';
@@ -142,6 +156,8 @@ declare
   step_q5   uuid := 'a6000000-0000-4000-8000-000000000005';
   step_q6   uuid := 'a6000000-0000-4000-8000-000000000006';
   step_q7   uuid := 'a6000000-0000-4000-8000-000000000007';
+  step_q8   uuid := 'a6000000-0000-4000-8000-000000000008';
+  step_q9   uuid := 'a6000000-0000-4000-8000-00000000000a';
   -- 64 lowercase hex characters, which is all the schema asks of a hash.
   hash_q1 text := repeat('11', 32);
   hash_a1 text := repeat('22', 32);
@@ -155,6 +171,9 @@ declare
   hash_q7 text := repeat('aa', 32);
   hash_a7 text := repeat('bb', 32);
   hash_a6 text := repeat('cc', 32);
+  hash_q8 text := repeat('de', 32);
+  hash_a8 text := repeat('ea', 32);
+  hash_q9 text := repeat('df', 32);
   result jsonb;
   task jsonb;
   rounds integer;
@@ -656,6 +675,64 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
+  -- Repetition on the answered branch. Plan section 6 calls an exact
+  -- normalized repeat deterministic no progress and says to stop at the first
+  -- one rather than spend the rounds that are left. The counter-question
+  -- branch already refuses a replayed hash; an answer that repeats one is the
+  -- same circling, and it has to end with the two people rather than with
+  -- another round nobody can learn anything from.
+  ---------------------------------------------------------------------------
+  perform public.grant_agent_dialogue_originator(origin_5, requester, 'codex', null);
+  perform public.activate_agent_clarification(task_5, responder, 'claude', null);
+  perform public.begin_agent_clarification_question(
+    task_5, responder, step_q8, 'Which region should this deploy to?',
+    'ambiguity', '{}'::uuid[], hash_q8, 0);
+  result := public.record_agent_clarification_dialogue_result(
+    task_5, requester, step_q8, null, 1, 'answered', 'The primary region.',
+    null, null, null, null, hash_a8);
+  if result ->> 'outcome' <> 'resume_recipient' then
+    raise exception 'D1 FAILED: the fifth task could not settle its first question: %',
+      result;
+  end if;
+
+  perform public.begin_agent_clarification_question(
+    task_5, responder, step_q9, 'And the failover region?',
+    'ambiguity', '{}'::uuid[], hash_q9, 2);
+  select follow_up_rounds into rounds
+    from public.collaboration_tasks where task_id = task_5;
+  if rounds <> 3 then
+    raise exception 'D2 FAILED: the fifth task was not three rounds in: %', rounds;
+  end if;
+
+  -- The same answer a second time. Nothing about the exchange has moved.
+  result := public.record_agent_clarification_dialogue_result(
+    task_5, requester, step_q9, null, 3, 'answered', 'The primary region.',
+    null, null, null, null, hash_a8);
+  task := result -> 'task';
+  if result ->> 'outcome' <> 'human_required'
+     or task ->> 'state' <> 'human_required'
+     or task ->> 'expectedLane' <> 'human'
+     or task ->> 'expectedUserId' <> requester::text
+     or task ->> 'currentStepId' <> step_q9::text then
+    raise exception 'D3 FAILED: a repeated answer did not stop for a human: %', task;
+  end if;
+  if not exists (select 1 from public.agent_clarification_steps
+    where step_id = step_q9 and status = 'human_required'
+      and human_required_reason = 'ambiguous'
+      and answer_hash is null and resolved_at is null) then
+    raise exception 'D4 FAILED: the repeated answer still resolved the step';
+  end if;
+  if exists (select 1 from public.agent_clarification_payloads
+    where step_id = step_q9 and answer is not null) then
+    raise exception 'D5 FAILED: the repeated answer text was stored anyway';
+  end if;
+  select follow_up_rounds into rounds
+    from public.collaboration_tasks where task_id = task_5;
+  if rounds <> 3 then
+    raise exception 'D6 FAILED: the refused repeat still spent a round: %', rounds;
+  end if;
+
+  ---------------------------------------------------------------------------
   -- Expiry, and the sweep that catches the exchanges nobody terminates.
   ---------------------------------------------------------------------------
   perform public.grant_agent_dialogue_originator(origin_3, requester, 'codex', null);
@@ -703,7 +780,7 @@ begin
   -- Listing, scoped to participants.
   ---------------------------------------------------------------------------
   if jsonb_array_length(public.list_agent_clarifications(
-       requester, 1345851099, 'a3000000-0000-4000-8000-000000000001')) <> 4 then
+       requester, 1345851099, 'a3000000-0000-4000-8000-000000000001')) <> 5 then
     raise exception 'L1 FAILED: a participant could not list their exchanges';
   end if;
   if jsonb_array_length(public.list_agent_clarifications(

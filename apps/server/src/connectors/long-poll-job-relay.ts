@@ -316,7 +316,7 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     registration.lastSeenAt = this.now();
   }
 
-/**
+  /**
    * Capability checks fail closed for old, missing, or stale connectors, and
    * every required capability must be present on the same binding.
    */

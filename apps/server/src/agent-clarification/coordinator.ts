@@ -205,6 +205,20 @@ export class AgentClarificationCoordinator {
   }
 
   /**
+   * Whether this connector can still be handed a task-scoped job right now.
+   *
+   * Capabilities are re-advertised on every readiness beat, so a connector that
+   * reconnects on an older build between the check at task creation and the
+   * recipient resume drops back to protocol version 1. It would then receive a
+   * task-scoped envelope its strict job schema rejects, and the turn fails for a
+   * reason neither person can see. Callers that attach a taskSession re-ask here
+   * rather than trusting the answer from the start of the task.
+   */
+  supportsTaskSession(userId: string, githubRepositoryId: string): boolean {
+    return this.options.supportsCapabilities(userId, githubRepositoryId);
+  }
+
+  /**
    * The recipient is the only participant whose connector receives the first
    * task-scoped job, so its advertisement decides whether the task may exist.
    */

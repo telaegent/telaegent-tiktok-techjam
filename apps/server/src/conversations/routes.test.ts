@@ -1,5 +1,6 @@
 import type { FastifyRequest } from "fastify";
 import { describe, expect, it, vi } from "vitest";
+import { AGENT_CLARIFICATION_LIMITS } from "../agent-clarification/contract.js";
 import type { AgentService } from "../agent-service.js";
 import { createApp } from "../app.js";
 import { PrivateRuntimeAuthorizationError } from "../authorization/private-runtime-authorization.js";
@@ -1111,5 +1112,51 @@ describe("canonical conversation API", () => {
     });
     expect(denied.body).not.toContain("repository_access_stale");
     await app.close();
+  });
+});
+
+describe("a human answer to an agent clarification", () => {
+  const TASK = "44444444-4444-4444-8444-444444444444";
+  const STEP = "55555555-5555-4555-8555-555555555555";
+
+  async function continueWith(answer: string) {
+    const test = harness();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/agent-clarifications/${TASK}/continue`,
+      headers: { "x-test-user": OWNER },
+      payload: { currentStepId: STEP, expectedVersion: 1, answer },
+    });
+    await app.close();
+    return response;
+  }
+
+  it("refuses an over-long answer where it arrives, not where it is stored", async () => {
+    // The route used to bound this at 2000 characters while the contract and
+    // the SQL check bound it at 1500 UTF-8 bytes, so an over-length answer was
+    // accepted at the edge and refused in the database -- reaching the person
+    // as a generic 409 that reads as "the task moved on". Bilingual
+    // conversations hit it first: Vietnamese and CJK text spends two to three
+    // bytes a character, so the byte ceiling arrives while the character count
+    // still looks small.
+    const answer = String.fromCharCode(0x0111).repeat(800);
+    expect(answer.length).toBeLessThan(AGENT_CLARIFICATION_LIMITS.maxAnswerBytes);
+    expect(Buffer.byteLength(answer, "utf8")).toBeGreaterThan(
+      AGENT_CLARIFICATION_LIMITS.maxAnswerBytes,
+    );
+
+    expect((await continueWith(answer)).statusCode).toBe(400);
+  });
+
+  it("lets an answer that exactly spends the byte budget reach the service", async () => {
+    // This composition carries no coordinator, so passing validation is visible
+    // as the service's own 404 rather than as a 400 from the schema. That is
+    // the difference the test above depends on.
+    const answer = "a".repeat(AGENT_CLARIFICATION_LIMITS.maxAnswerBytes);
+    expect((await continueWith(answer)).statusCode).toBe(404);
   });
 });

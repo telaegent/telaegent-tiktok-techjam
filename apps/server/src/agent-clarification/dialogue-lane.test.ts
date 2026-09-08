@@ -239,6 +239,66 @@ describe("agent clarification prompt", () => {
       expect(prompt).not.toContain(forbidden);
     }
   });
+
+  const capsuleOf = (
+    sharedHistory: AgentClarificationContext["sharedHistory"],
+  ): string => {
+    const prompt = buildAgentClarificationPrompt({
+      task: task(),
+      context: context({ sharedHistory }),
+      actorUserId: requesterUserId,
+    });
+    return prompt.slice(
+      prompt.indexOf("\nAPPROVED SHARED CONTEXT\n"),
+      prompt.indexOf("\nRESOLVED TASK CLARIFICATIONS\n"),
+    );
+  };
+
+  const history = (count: number, characters: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      messageId: `a4000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      authorUserId: requesterUserId,
+      authorName: "mark",
+      text: `m${index} ${"x".repeat(characters)}`,
+      sentAt: "2026-09-08T08:00:00.000Z",
+    }));
+
+  it("spends the capsule budget on the messages nearest the question", () => {
+    // The loader pages at 200 messages, each of which may be 50_000
+    // characters. That bounds the row count and nothing else, so without a
+    // byte budget the no-tools lane could be handed a larger prompt than the
+    // work lane ever gets, for a turn whose whole job is to answer one narrow
+    // question. What has to go is the oldest: the messages nearest the
+    // question are the ones an answer is most likely to need.
+    const messages = history(40, 4_000);
+    const capsule = capsuleOf(messages);
+
+    expect(Buffer.byteLength(capsule, "utf8")).toBeLessThan(
+      AGENT_CLARIFICATION_LIMITS.maxSharedContextBytes,
+    );
+    expect(capsule).toContain(messages[messages.length - 1]!.messageId);
+    expect(capsule).not.toContain(messages[0]!.messageId);
+  });
+
+  it("marks the gap so a shortened history does not read as the whole record", () => {
+    // An agent shown a silently truncated history reads it as complete, and
+    // answers a question about what the two of them agreed with more
+    // confidence than it has earned.
+    expect(capsuleOf(history(40, 4_000))).toContain(
+      "(older shared history omitted to fit the dialogue context budget)",
+    );
+    expect(capsuleOf(history(2, 10))).not.toContain(
+      "older shared history omitted",
+    );
+  });
+
+  it("bounds one enormous message rather than letting it spend the budget", () => {
+    const capsule = capsuleOf(history(1, 20_000));
+    const fenced = /<untrusted-message>([\s\S]*?)<\/untrusted-message>/.exec(capsule);
+    expect(fenced?.[1]).toHaveLength(
+      AGENT_CLARIFICATION_LIMITS.maxSharedContextMessageBytes,
+    );
+  });
 });
 
 /* ========================================================================== *
