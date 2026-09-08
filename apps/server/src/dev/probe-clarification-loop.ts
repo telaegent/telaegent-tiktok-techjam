@@ -11,8 +11,10 @@
  * So this runs the loop for real.
  *
  * WHAT IS REAL HERE
- *   - The production runner (`ClaudeCodeRunner`), the production argv, and the
- *     production output schemas read off disk.
+ *   - The production runners, the production argv, and the production output
+ *     schemas read off disk. Which runner is on which side is a flag, and the
+ *     two sides do not have to agree: `--peer-provider` puts the other vendor's
+ *     CLI on the dialogue lane, which is what two people actually have.
  *   - The production recipient turn is TWO provider calls, and so is this one:
  *     an investigation pass with tools, then a drafting pass with `toolMode`
  *     "none" and the note appended under the same preamble `connector-worker`
@@ -34,8 +36,9 @@
  *   - The Supabase RPC state machine. The transitions below mirror plan section
  *     5 in memory; they are not the compare-and-swap functions that will run in
  *     production, and this probe therefore proves nothing about concurrency.
- *   - The authorization seam and the connector transport. Both participants run
- *     on this machine, against this one CLI login.
+ *   - The authorization seam and the connector transport. Both participants
+ *     run on this machine, against this operator's own CLI logins -- one login
+ *     per provider, so a split pairing is two vendors and still one human.
  *
  * Plan section 14 still stands: no production claim is made until two
  * independently authenticated machines pass together. This probe answers
@@ -43,6 +46,7 @@
  *
  *   npm run probe:clarification-loop            (requires TELAEGENT_LIVE_EVAL=1)
  *   npm run probe:clarification-loop -- --only contradiction --show-text
+ *   npm run probe:clarification-loop -- --provider claude --peer-provider codex
  *
  * Nothing here writes to Supabase or to this repository. Fixtures materialise
  * into the OS temp directory.
@@ -360,14 +364,30 @@ interface ProbeOptions {
   dumpPrompt: boolean;
   model: string | null;
   /**
-   * Which CLI runs both lanes.
+   * Which CLI runs the work lane -- the agent that drafts, and that asks.
    *
-   * Both agents in an exchange run on the same provider here, which is not the
-   * production case -- two people can be on different CLIs. Keeping them equal
-   * is what makes a cross-provider comparison mean anything: any difference in
-   * the numbers below is the provider, not the pairing.
+   * Defaults to running both sides of the exchange, which is what makes a
+   * provider comparison mean anything: with the pairing held equal, any
+   * difference in the numbers below is the provider.
    */
   provider: "claude" | "codex";
+  /**
+   * Which CLI answers in the dialogue lane. Defaults to `provider`.
+   *
+   * Splitting the two is the production case and not a variation on it: the
+   * two people in an exchange are on whatever CLI each of them installed, and
+   * nothing in the protocol makes them agree. This is the only way to watch
+   * one vendor's model read a question written by another's and answer it
+   * inside the schema both sides are held to.
+   */
+  peerProvider: "claude" | "codex";
+  /**
+   * Model for the peer runner, when it should differ from `--model`.
+   *
+   * A model name means nothing outside its own CLI, so `--model` is inherited
+   * across the pairing only when both sides run the same provider.
+   */
+  peerModel: string | null;
 }
 
 function parseOptions(argv: readonly string[]): ProbeOptions {
@@ -375,18 +395,25 @@ function parseOptions(argv: readonly string[]): ProbeOptions {
     const index = argv.indexOf(flag);
     return index === -1 ? null : (argv[index + 1] ?? null);
   };
+  const readProvider = (flag: string): "claude" | "codex" | null => {
+    const value = get(flag);
+    if (value !== null && value !== "claude" && value !== "codex") {
+      throw new Error(flag + " must be claude or codex");
+    }
+    return value;
+  };
   const timeout = get("--timeout");
-  const provider = get("--provider");
-  if (provider !== null && provider !== "claude" && provider !== "codex") {
-    throw new Error("--provider must be claude or codex");
-  }
+  const provider = readProvider("--provider") ?? "claude";
+  const peerProvider = readProvider("--peer-provider") ?? provider;
   return {
     only: get("--only"),
     timeoutMs: timeout === null ? 180_000 : Number(timeout),
     showText: argv.includes("--show-text"),
     dumpPrompt: argv.includes("--dump-prompt"),
     model: get("--model"),
-    provider: provider ?? "claude",
+    provider,
+    peerProvider,
+    peerModel: get("--peer-model") ?? (peerProvider === provider ? get("--model") : null),
   };
 }
 
@@ -395,6 +422,14 @@ function parseOptions(argv: readonly string[]): ProbeOptions {
  * ========================================================================== */
 
 interface CallRecord {
+  /**
+   * Which CLI made this call, because it is no longer one of them.
+   *
+   * With a split pairing the per-pass latencies below stop being comparable to
+   * each other, and the line that says the loop worked is the one showing a
+   * dialogue answer from a different provider than the draft that asked.
+   */
+  provider: string;
   lane: "private_work" | "clarification_dialogue";
   pass: "investigate" | "draft" | "dialogue";
   durationMs: number;
@@ -443,6 +478,7 @@ async function callProvider(
     );
     runtime.calls.push({
       ...record,
+      provider: runtime.runner.provider,
       durationMs: Date.now() - started,
       ok: true,
       detail: "ok",
@@ -452,6 +488,7 @@ async function callProvider(
     // The message is the runner's own classified failure, never provider text.
     runtime.calls.push({
       ...record,
+      provider: runtime.runner.provider,
       durationMs: Date.now() - started,
       ok: false,
       detail: error instanceof Error ? error.message : "unknown failure",
@@ -607,9 +644,11 @@ async function runDialogueTurn(
       // Codex runner swaps in an empty workspace of its own no matter what is
       // passed here. A read-only sandbox does not stop reads; a deny does.
       //
-      // This probe does not run against Codex on Windows: enforcing a denied
-      // read needs a sandbox the unelevated backend cannot provide, and Codex
-      // refuses to start rather than run without one.
+      // On Windows the deny profile is not applied at all -- the unelevated
+      // sandbox cannot express a denied read and would refuse to start -- so a
+      // run there is exercising the empty workspace and the refusal alone. See
+      // `enforcesToolDenial()`. Read a Windows pass as "the loop works", never
+      // as "the containment holds".
       workspacePath,
       purpose: "clarification_dialogue",
       runtimePrompt: prompt,
@@ -1058,6 +1097,12 @@ function describeRejectedOutput(raw: unknown): string {
 async function runCase(
   testCase: LoopCase,
   runtime: ProbeRuntime,
+  /**
+   * The other person's agent. The same object as `runtime` unless the pairing
+   * was split, and sharing its `calls` array either way so the per-case slice
+   * below still sees the whole exchange in order.
+   */
+  peer: ProbeRuntime,
   workspaceRoot: string,
 ): Promise<CaseOutcome> {
   const slug = testCase.id.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -1178,7 +1223,7 @@ async function runCase(
       }
       dialogueTurns += 1;
       const result = await runDialogueTurn(
-        runtime,
+        peer,
         dialogueWorkspace,
         task,
         capsule,
@@ -1353,11 +1398,11 @@ function passed(outcome: CaseOutcome): boolean {
 function report(
   outcomes: readonly CaseOutcome[],
   showText: boolean,
-  provider: string,
+  pairing: string,
 ): boolean {
   const lines: string[] = [
     "",
-    "AGENT CLARIFICATION LOOP PROBE  (provider=" + provider + ")",
+    "AGENT CLARIFICATION LOOP PROBE  (" + pairing + ")",
     "",
   ];
   let failures = 0;
@@ -1425,7 +1470,7 @@ function report(
         "          "
         + String(index + 1)
         + ". "
-        + (call.lane + "/" + call.pass).padEnd(30)
+        + (call.provider + "  " + call.lane + "/" + call.pass).padEnd(38)
         + (call.durationMs / 1000).toFixed(1).padStart(6)
         + "s  "
         + (call.ok ? "ok" : "FAILED: " + call.detail),
@@ -1563,24 +1608,33 @@ async function main(): Promise<void> {
     ...process.env,
     CODEX_HOME: process.env.CODEX_HOME?.trim() || path.join(homedir(), ".codex"),
   });
-  const runner: MiddlewareProviderRunner =
-    options.provider === "codex"
-      ? new CodexRunner(config)
-      : new ClaudeCodeRunner(config);
-  const capability = await runner.capability();
-  if (!capability.installed || !capability.authenticated) {
-    process.stderr.write(
-      options.provider
-      + " CLI is not usable: installed="
-      + String(capability.installed)
-      + " authenticated="
-      + String(capability.authenticated)
-      + " reason="
-      + String(capability.reason)
-      + "\n",
-    );
-    process.exitCode = 1;
-    return;
+  const build = (provider: "claude" | "codex"): MiddlewareProviderRunner =>
+    provider === "codex" ? new CodexRunner(config) : new ClaudeCodeRunner(config);
+  const runner = build(options.provider);
+  // One runner when the pairing is not split, so a same-provider run keeps the
+  // single session pool and the single `cancelAll` it has always had.
+  const peerRunner =
+    options.peerProvider === options.provider ? runner : build(options.peerProvider);
+  for (const [role, candidate] of [
+    ["work", runner],
+    ["dialogue", peerRunner],
+  ] as const) {
+    if (candidate === runner && role === "dialogue") continue;
+    const capability = await candidate.capability();
+    if (!capability.installed || !capability.authenticated) {
+      process.stderr.write(
+        candidate.provider
+        + " CLI (" + role + " lane) is not usable: installed="
+        + String(capability.installed)
+        + " authenticated="
+        + String(capability.authenticated)
+        + " reason="
+        + String(capability.reason)
+        + "\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
   }
 
   const runtime: ProbeRuntime = {
@@ -1598,22 +1652,38 @@ async function main(): Promise<void> {
     timeoutMs: options.timeoutMs,
     model: options.model,
   };
+  // Everything but the runner and its model is shared, the `calls` array most
+  // of all: the report slices one list per case and would otherwise show only
+  // the half of the exchange that ran on the work lane's CLI.
+  const peerRuntime: ProbeRuntime =
+    peerRunner === runner
+      ? runtime
+      : { ...runtime, runner: peerRunner, model: options.peerModel };
 
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "telaegent-loop-"));
   const outcomes: CaseOutcome[] = [];
   try {
     for (const testCase of cases) {
       process.stderr.write("running " + testCase.id + "...\n");
-      outcomes.push(await runCase(testCase, runtime, workspaceRoot));
+      outcomes.push(await runCase(testCase, runtime, peerRuntime, workspaceRoot));
     }
   } finally {
     // Optional on the interface: a runner whose children share this process's
     // group is already reached by the terminal's signal.
     await runner.cancelAll?.();
+    if (peerRunner !== runner) await peerRunner.cancelAll?.();
   }
   // A probe that prints FAIL and exits 0 is worse than no probe: it is the
   // shape every wrapper, CI step and eyeballed terminal reads as success.
-  if (!report(outcomes, options.showText, options.provider)) {
+  if (
+    !report(
+      outcomes,
+      options.showText,
+      options.peerProvider === options.provider
+        ? "provider=" + options.provider
+        : "work=" + options.provider + "  dialogue=" + options.peerProvider,
+    )
+  ) {
     process.exitCode = 1;
   }
 }
