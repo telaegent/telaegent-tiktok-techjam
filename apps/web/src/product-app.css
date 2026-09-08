@@ -2693,6 +2693,29 @@ html[data-theme="dark"] .app-rail button > img {
   line-height: 1.55;
 }
 
+.app-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.typewriter-reveal.is-typing::after {
+  width: 1px;
+  height: 1.05em;
+  margin-left: 2px;
+  display: inline-block;
+  vertical-align: -0.13em;
+  background: currentColor;
+  content: "";
+  animation: typewriter-caret 700ms steps(1, end) infinite;
+}
+
 .private-bubble.user {
   width: 84%;
   margin-left: auto;
@@ -3584,6 +3607,11 @@ html[data-theme="dark"] .app-rail button > img {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .typewriter-reveal.is-typing::after {
+    display: none;
+    animation: none;
+  }
+
   .app-typing-dots i {
     transform: none;
     animation: app-reduced-opacity-pulse 1.2s linear infinite;
@@ -3610,6 +3638,18 @@ html[data-theme="dark"] .app-rail button > img {
     opacity: 1;
     transform: none;
     transition-delay: 0s;
+  }
+}
+
+@keyframes typewriter-caret {
+  0%,
+  48% {
+    opacity: 0.75;
+  }
+
+  49%,
+  100% {
+    opacity: 0;
   }
 }
 

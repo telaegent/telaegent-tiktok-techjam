@@ -47,9 +47,21 @@ import { shouldSubmitComposerOnKeyDown } from "./composer-keyboard";
 import { buildConnectorCommand } from "./connector-command";
 import { deviceAuthorizationUiOutcome } from "./device-authorization-ui";
 import { collectCursorPages, collectCursorSnapshot } from "./cursor-pagination";
-import { mergeConversationMessages } from "./conversation-sync";
+import {
+  completeMessageReveal,
+  enqueueMessageReveals,
+  mergeConversationMessages,
+  newlyArrivedIncomingMessageIds,
+} from "./conversation-sync";
 import { getOrCreateIdempotencyKey } from "./idempotency-keys";
 import { selectAvailableProvider } from "./runtime-selection";
+import {
+  draftResponseReveal,
+  type DraftResponseReveal,
+} from "./draft-response-reveal";
+import TypewriterText, {
+  usePrefersReducedMotion,
+} from "./typewriter-text";
 import { ProviderSetup } from "./ProviderSetup";
 import ThemeSwitch from "./ThemeSwitch";
 import {
@@ -2464,7 +2476,7 @@ function RuntimeRoutePicker({
   );
 }
 
-function PrivateAgentRoom({
+export function PrivateAgentRoom({
   open,
   draft,
   answering,
@@ -2478,6 +2490,7 @@ function PrivateAgentRoom({
   editingCandidate,
   busy,
   error,
+  responseReveal,
   onClarificationChange,
   onApprovedContentChange,
   onClarify,
@@ -2503,6 +2516,7 @@ function PrivateAgentRoom({
   editingCandidate: boolean;
   busy: boolean;
   error: ApiError | null;
+  responseReveal: DraftResponseReveal | null;
   onClarificationChange: (value: string) => void;
   onApprovedContentChange: (value: string) => void;
   onClarify: (event: FormEvent<HTMLFormElement>) => void;
@@ -2525,6 +2539,22 @@ function PrivateAgentRoom({
   const showPrivateMessage =
     !!draft?.privateMessage &&
     !(lastTurn?.speaker === "agent" && lastTurn.text === draft.privateMessage);
+  const animateResponse =
+    !!draft &&
+    responseReveal?.draftId === draft.draftId &&
+    responseReveal.responseVersion === (draft.turnId ?? draft.updatedAt);
+  const reducedMotion = usePrefersReducedMotion();
+  const privateThreadRef = useRef<HTMLDivElement>(null);
+  const [completedCandidateReveal, setCompletedCandidateReveal] = useState<
+    string | null
+  >(null);
+  const activeRevealKey = animateResponse
+    ? `${responseReveal.draftId}:${responseReveal.responseVersion}`
+    : null;
+  const animateCandidate =
+    animateResponse && state === "ready" && !editingCandidate && !reducedMotion;
+  const candidateRevealed =
+    !animateCandidate || completedCandidateReveal === activeRevealKey;
 
   return (
     <aside
@@ -2561,7 +2591,11 @@ function PrivateAgentRoom({
         </span>
       </div>
 
-      <div className="workspace-private-thread" aria-live="polite">
+      <div
+        className="workspace-private-thread"
+        aria-live="polite"
+        ref={privateThreadRef}
+      >
         {answering && (
           <article className="private-bubble answering">
             <span>{recipient.name} · approved message</span>
@@ -2586,14 +2620,37 @@ function PrivateAgentRoom({
                 ? "You"
                 : formatProvider(draft.provider)}
             </span>
-            <p>{turn.text}</p>
+            <p>
+              {animateResponse &&
+              state !== "ready" &&
+              turn.speaker === "agent" &&
+              index >= responseReveal.firstNewTurnIndex ? (
+                <TypewriterText
+                  text={turn.text}
+                  animate
+                  scrollContainerRef={privateThreadRef}
+                />
+              ) : (
+                turn.text
+              )}
+            </p>
           </article>
         ))}
 
         {showPrivateMessage && (
           <article className="private-bubble agent">
             <span>{draft ? formatProvider(draft.provider) : "Agent"}</span>
-            <p>{draft?.privateMessage}</p>
+            <p>
+              {animateResponse && state !== "ready" ? (
+                <TypewriterText
+                  text={draft?.privateMessage ?? ""}
+                  animate
+                  scrollContainerRef={privateThreadRef}
+                />
+              ) : (
+                draft?.privateMessage
+              )}
+            </p>
           </article>
         )}
 
@@ -2672,7 +2729,22 @@ function PrivateAgentRoom({
                 }
               />
             ) : (
-              <blockquote>{approvedContent || draft?.sendCandidate}</blockquote>
+              <blockquote>
+                {animateCandidate ? (
+                  <TypewriterText
+                    text={approvedContent || draft?.sendCandidate || ""}
+                    animate
+                    scrollContainerRef={privateThreadRef}
+                    onComplete={() => {
+                      if (activeRevealKey) {
+                        setCompletedCandidateReveal(activeRevealKey);
+                      }
+                    }}
+                  />
+                ) : (
+                  approvedContent || draft?.sendCandidate
+                )}
+              </blockquote>
             )}
           </article>
         )}
@@ -2745,9 +2817,9 @@ function PrivateAgentRoom({
               className="send"
               type="button"
               onClick={onSend}
-              disabled={busy || !approvedContent.trim()}
+              disabled={busy || !approvedContent.trim() || !candidateRevealed}
             >
-              Send
+              {candidateRevealed ? "Send" : "Reviewing…"}
             </button>
           )}
           {(state === "runtime_failed" || (state === "created" && !!error)) &&
@@ -2810,6 +2882,7 @@ function ProjectChat({
   const [messageLoadState, setMessageLoadState] =
     useState<AsyncLoadState>("idle");
   const [messageError, setMessageError] = useState<ApiError | null>(null);
+  const [messageRevealQueue, setMessageRevealQueue] = useState<string[]>([]);
   const [scopeRequests, setScopeRequests] = useState<CapabilityScopeRequest[]>(
     [],
   );
@@ -2834,6 +2907,8 @@ function ProjectChat({
   const [editingCandidate, setEditingCandidate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ApiError | null>(null);
+  const [responseReveal, setResponseReveal] =
+    useState<DraftResponseReveal | null>(null);
   const ownMessageIds = useRef(new Set<string>());
   // A network retry or double click reuses the same backend creation key. A
   // deliberate runtime retry clears it and opens a new private attempt.
@@ -2845,6 +2920,7 @@ function ProjectChat({
     new SingleFlightByKey<{ items: ConversationMessage[]; pollCursor: string | null }>(),
   );
   const rawConversationMessages = useRef<ConversationMessage[]>([]);
+  const sharedThreadRef = useRef<HTMLDivElement>(null);
   const messagePollCursor = useRef<string | null>(null);
   const scopeRequestsInFlight = useRef(
     new SingleFlightByKey<CapabilityScopeRequest[]>(),
@@ -2977,10 +3053,25 @@ function ProjectChat({
     items: ConversationMessage[];
     pollCursor: string | null;
   }, replace: boolean): number {
+    const newlyArrivedIds = replace
+      ? []
+      : newlyArrivedIncomingMessageIds(
+          rawConversationMessages.current,
+          snapshot.items,
+          currentUserId,
+          ownMessageIds.current,
+        );
     rawConversationMessages.current = replace
       ? snapshot.items
       : mergeConversationMessages(rawConversationMessages.current, snapshot.items);
     messagePollCursor.current = snapshot.pollCursor;
+    if (replace) {
+      setMessageRevealQueue([]);
+    } else if (newlyArrivedIds.length > 0) {
+      setMessageRevealQueue((current) =>
+        enqueueMessageReveals(current, newlyArrivedIds),
+      );
+    }
     setMessages(
       rawConversationMessages.current.map((message) =>
         mapConversationMessage(
@@ -2994,6 +3085,7 @@ function ProjectChat({
   }
 
   function openRecoveredDraft(nextDraft: PrivateDraftView) {
+    setResponseReveal(null);
     setDraft(nextDraft);
     setRoughMessage(nextDraft.roughMessage ?? "");
     setClarification("");
@@ -3069,6 +3161,7 @@ function ProjectChat({
     }
     setMessageLoadState("loading");
     setMessageError(null);
+    setMessageRevealQueue([]);
     const scopeKey = messageScopeKey;
     const selectedConversationId = conversationId;
     const repositoryId = project.githubRepositoryId;
@@ -3123,6 +3216,7 @@ function ProjectChat({
     setRoughMessage("");
     setPrivateRoomOpen(false);
     setDraft(null);
+    setResponseReveal(null);
     setRecoverableDrafts([]);
     setDraftRecoveryError(null);
     setAnswering(null);
@@ -3266,6 +3360,8 @@ function ProjectChat({
         .conversationDraft(draft.draftId)
         .then(({ draft: nextDraft }) => {
           if (!active) return;
+          const reveal = draftResponseReveal(draft, nextDraft);
+          if (reveal) setResponseReveal(reveal);
           setDraft(nextDraft);
           setRecoverableDrafts((current) =>
             current.map((candidate) =>
@@ -3297,7 +3393,11 @@ function ProjectChat({
     return catalogue?.defaultModel;
   }
 
-  async function runDraft(draftId: string, draftProvider: AgentProvider) {
+  async function runDraft(
+    draftId: string,
+    draftProvider: AgentProvider,
+    previousDraft: PrivateDraftView | null = draft,
+  ) {
     try {
       const model = selectedModelFor(draftProvider);
       const effort = selectedEffort ?? undefined;
@@ -3308,6 +3408,8 @@ function ProjectChat({
           ...(effort ? { effort } : {}),
         },
       );
+      const reveal = draftResponseReveal(previousDraft, result.draft);
+      if (reveal) setResponseReveal(reveal);
       setDraft(result.draft);
       setRecoverableDrafts((current) => [
         result.draft,
@@ -3323,6 +3425,7 @@ function ProjectChat({
     if (!conversationId || !runtimeSelectionReady) return;
     setBusy(true);
     setDraft(null);
+    setResponseReveal(null);
     setActionError(null);
     try {
       const created = await api.createConversationDraft(conversationId, {
@@ -3336,7 +3439,7 @@ function ProjectChat({
         ...current.filter((candidate) => candidate.draftId !== created.draft.draftId),
       ]);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId, created.draft.provider);
+      await runDraft(created.draft.draftId, created.draft.provider, created.draft);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -3356,6 +3459,7 @@ function ProjectChat({
     if (!conversationId || !runtimeSelectionReady) return;
     setBusy(true);
     setDraft(null);
+    setResponseReveal(null);
     setActionError(null);
     setAnswering(message);
     setRoughMessage("");
@@ -3381,7 +3485,7 @@ function ProjectChat({
         ...current.filter((candidate) => candidate.draftId !== created.draft.draftId),
       ]);
       setPrivateRoomOpen(true);
-      await runDraft(created.draft.draftId, created.draft.provider);
+      await runDraft(created.draft.draftId, created.draft.provider, created.draft);
     } catch (error) {
       setActionError(normalizeApiError(error));
       setPrivateRoomOpen(true);
@@ -3432,6 +3536,7 @@ function ProjectChat({
     if (!draft || !clarification.trim()) return;
     setBusy(true);
     setActionError(null);
+    setResponseReveal(null);
     try {
       const clarified = await api.clarifyConversationDraft(
         draft.draftId,
@@ -3443,7 +3548,11 @@ function ProjectChat({
         ...current.filter((candidate) => candidate.draftId !== clarified.draft.draftId),
       ]);
       setClarification("");
-      await runDraft(clarified.draft.draftId, clarified.draft.provider);
+      await runDraft(
+        clarified.draft.draftId,
+        clarified.draft.provider,
+        clarified.draft,
+      );
     } catch (error) {
       setActionError(normalizeApiError(error));
     } finally {
@@ -3467,6 +3576,7 @@ function ProjectChat({
       if (answering) replyCreationKeys.current.delete(answering.id);
       setPrivateRoomOpen(false);
       setDraft(null);
+      setResponseReveal(null);
       setAnswering(null);
       setComposer("");
     } catch (error) {
@@ -3527,6 +3637,7 @@ function ProjectChat({
           if (answering) replyCreationKeys.current.delete(answering.id);
           setPrivateRoomOpen(false);
           setDraft(null);
+          setResponseReveal(null);
           setAnswering(null);
           setComposer("");
           await loadMessages(true);
@@ -3544,6 +3655,7 @@ function ProjectChat({
 
   async function retryDraft() {
     if (!runtimeSelectionReady) return;
+    setResponseReveal(null);
     if (draft?.state === "created") {
       setBusy(true);
       await runDraft(draft.draftId, draft.provider);
@@ -3589,7 +3701,7 @@ function ProjectChat({
         </small>
       </div>
 
-      <div className="shared-thread" aria-live="polite">
+      <div className="shared-thread" aria-live="polite" ref={sharedThreadRef}>
         {!privateRoomOpen && recoverableDrafts.length > 0 && (
           <section className="api-state" aria-label="Unfinished private drafts">
             <strong>
@@ -3854,7 +3966,22 @@ function ProjectChat({
             <span>
               {message.author} / {message.provider}
             </span>
-            <p>{message.body}</p>
+            <p>
+              {messageRevealQueue[0] === message.id ? (
+                <TypewriterText
+                  text={message.body}
+                  animate
+                  scrollContainerRef={sharedThreadRef}
+                  onComplete={() => {
+                    setMessageRevealQueue((current) =>
+                      completeMessageReveal(current, message.id),
+                    );
+                  }}
+                />
+              ) : (
+                message.body
+              )}
+            </p>
             <small>{message.meta}</small>
             {message.side === "incoming" && (
               <button
@@ -3967,6 +4094,7 @@ function ProjectChat({
           editingCandidate={editingCandidate}
           busy={busy}
           error={actionError}
+          responseReveal={responseReveal}
           onClarificationChange={setClarification}
           onApprovedContentChange={setApprovedContent}
           onClarify={clarifyDraft}
