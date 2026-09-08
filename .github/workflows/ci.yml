@@ -1,8 +1,26 @@
 name: CI and container delivery
 
+# Documentation-only changes skip the matrix. A push or pull request runs CI
+# unless *every* changed file matches one of these patterns, so a commit that
+# touches a doc and a source file still runs in full.
+#
+# NOTE: `main` is currently unprotected. If required status checks are ever
+# enabled, a skipped workflow reports nothing and a docs-only pull request will
+# sit unmergeable -- add the checks to the protection rule's exemptions, or
+# replace this with a job that reports success for skipped paths.
 on:
   push:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
   workflow_dispatch:
 
 permissions:
