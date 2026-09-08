@@ -88,13 +88,17 @@ Automatic internal file access never implies automatic final replies:
 The only automatic cross-user text allowed in P0 is a task-control
 clarification dialogue with active consent from both humans for the exact
 task. It is limited to two questions, no tools, no new authority, and context
-already approved for that task. Its payload is task-private and deleted when
-the task completes or is cancelled, and otherwise by a backend sweep that runs
-every five minutes against the 60-minute task expiry -- so an exchange both
-people abandon still loses its text without either of them returning. A need for a
-new file, permission, secret, cross-project path, or another user's private
-state pauses for a human. Human-supplied context resumes the same bounded task
-only after an explicit **Continue** action. The final reply always remains
+already approved for that task. "No tools" is enforced, not requested: the
+turn runs under a permission profile that denies the whole filesystem, so a
+command fails in the sandbox rather than running, and a host that cannot
+enforce that fails the turn instead of proceeding unsandboxed. Its payload is
+task-private and deleted when the task completes or is cancelled, and
+otherwise by a backend sweep that runs every five minutes against the
+60-minute task expiry -- so an exchange both people abandon still loses its
+text without either of them returning. A need for a new file, permission,
+secret, cross-project path, or another user's private state pauses for a
+human. Human-supplied context resumes the same bounded task only after an
+explicit **Continue** action. The final reply always remains
 behind the owner's `Send` gate.
 
 Audit every delivered snapshot with resource ID, task ID, recipient, byte

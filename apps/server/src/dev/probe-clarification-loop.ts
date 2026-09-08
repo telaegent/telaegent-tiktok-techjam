@@ -602,9 +602,14 @@ async function runDialogueTurn(
       // A different workspace from the work lane, and an empty one, because a
       // probe that pointed both lanes at the same checkout would be quietly
       // testing something easier. It is not what keeps this lane from reading:
-      // `toolMode` "none" is enforced by killing the turn on the first tool
-      // event, and the Codex runner swaps in an empty workspace of its own no
-      // matter what is passed here. A read-only sandbox does not stop reads.
+      // `toolMode` "none" runs under a permission profile that denies `:root`
+      // in the sandbox, backed by a refusal on the first tool event, and the
+      // Codex runner swaps in an empty workspace of its own no matter what is
+      // passed here. A read-only sandbox does not stop reads; a deny does.
+      //
+      // This probe does not run against Codex on Windows: enforcing a denied
+      // read needs a sandbox the unelevated backend cannot provide, and Codex
+      // refuses to start rather than run without one.
       workspacePath,
       purpose: "clarification_dialogue",
       runtimePrompt: prompt,

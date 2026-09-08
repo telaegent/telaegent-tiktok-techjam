@@ -8,7 +8,9 @@ import {
   buildCodexMiddlewareArgs,
   closedToolSurface,
   codexProcessFailed,
+  noToolsPermissionArgs,
   parseCodexEventLine,
+  NO_TOOLS_PERMISSION_PROFILE,
   type CodexRunnerDependencies,
 } from "./codex-runner.js";
 import { loadConfig } from "./config.js";
@@ -389,6 +391,75 @@ describe("Codex runner protocol", () => {
     expect(args.slice(-3)).toEqual(["resume", "thread-123", "-"]);
     expect(args).not.toContain("Return status");
     expect(args).not.toContain("danger-full-access");
+  });
+
+  it("denies the filesystem to a turn that declared no tools", () => {
+    const args = buildCodexMiddlewareArgs(noToolsRequest(), "/tmp/draft.schema.json");
+
+    // `:root` is Codex's token for the whole filesystem, and `deny` outranks
+    // every other entry -- "deny beats write, and write beats read" -- so this
+    // is not an allowlist with a hole in it.
+    expect(args).toContain(
+      `permissions.${NO_TOOLS_PERMISSION_PROFILE}.filesystem={":root"="deny"}`,
+    );
+    expect(args).toContain(
+      `permissions.${NO_TOOLS_PERMISSION_PROFILE}.network={enabled=false}`,
+    );
+    // Defining a profile does nothing until something selects it, and a
+    // `default_permissions` naming a profile that was never defined is the one
+    // way this could read as configured and enforce nothing.
+    expect(args).toContain(`default_permissions="${NO_TOOLS_PERMISSION_PROFILE}"`);
+    const selected = args
+      .find((arg) => arg.startsWith("default_permissions="))
+      ?.slice('default_permissions="'.length, -1);
+    expect(
+      args.some((arg) => arg.startsWith(`permissions.${selected}.`)),
+    ).toBe(true);
+    // Not a built-in. `:read-only` reads everything and writes nothing, which
+    // is the profile this lane keeps being mistaken for.
+    expect(selected?.startsWith(":")).toBe(false);
+  });
+
+  it("does not pass --sandbox alongside the deny profile", () => {
+    // These are alternatives, not layers. `--sandbox` resolves to a built-in
+    // profile and replaces `default_permissions` outright, so passing both
+    // silently discards the deny and the turn runs under `:read-only` --
+    // reading everything, warning about nothing. Measured on 0.153.4: the
+    // same argv leaked a sentinel outside its `-C` root with the flag present
+    // and refused to start without it. This assertion is the whole difference
+    // between a control and a comment claiming there is one.
+    const args = buildCodexMiddlewareArgs(noToolsRequest(), "/tmp/draft.schema.json");
+
+    expect(args).not.toContain("--sandbox");
+    expect(args).toContain(`default_permissions="${NO_TOOLS_PERMISSION_PROFILE}"`);
+  });
+
+  it("spells the deny in the inline-table form Codex can parse", () => {
+    // `-c permissions.x.filesystem.":root"="deny"` parses on the command line
+    // and keeps the quotes as part of the key, so it defines a path nothing
+    // matches and denies nothing. Measured on 0.153.4. The inline table is the
+    // form that resolves, and this is a silent failure otherwise.
+    for (const arg of noToolsPermissionArgs()) {
+      expect(arg).not.toMatch(/\.":root"=/);
+    }
+    expect(noToolsPermissionArgs()).toContain(
+      `permissions.${NO_TOOLS_PERMISSION_PROFILE}.filesystem={":root"="deny"}`,
+    );
+  });
+
+  it("leaves a turn that may read the workspace unrestricted", () => {
+    const args = buildCodexMiddlewareArgs(
+      { ...noToolsRequest(), toolMode: "read" as const },
+      "/tmp/draft.schema.json",
+    );
+
+    expect(args.some((arg) => arg.startsWith("permissions."))).toBe(false);
+    expect(args.some((arg) => arg.startsWith("default_permissions="))).toBe(false);
+    // A turn that may read still gets the sandbox mode it asked for. Only the
+    // toolless path trades the flag away, and only because the flag would
+    // overwrite the thing that makes that path safe.
+    expect(args).toContain("--sandbox");
+    expect(args).toContain("read-only");
   });
 
   it("passes an explicit model to structured middleware runs", () => {

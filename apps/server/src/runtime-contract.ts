@@ -60,17 +60,26 @@ export interface MiddlewareRunRequest {
    * returns structured output. `none` removes the temptation structurally.
    *
    * Both runners honour it; they cannot honour it the same way. Claude spells
-   * it in argv (`--tools ""`) and the CLI obeys. Codex has no such switch: its
-   * only file access is spawning a shell, and its `tools` config table holds
-   * one key, `web_search`.
+   * it in argv (`--tools ""`) and the CLI obeys. Codex has no such switch --
+   * its only file access is spawning a shell, and its `tools` config table
+   * holds one key, `web_search` -- so the runner denies the filesystem to the
+   * shell instead, through a permission profile that maps `:root` to `deny`.
+   * The command dies in the sandbox rather than running, and escalation cannot
+   * lift it: Codex keeps a policy carrying denied reads sandboxed even for a
+   * command it would otherwise trust. On top of that the runner still refuses
+   * the turn at the first tool event, because a denial governs what a command
+   * reaches and not whether one was attempted.
    *
-   * Do not read the sandbox as the backstop. `--sandbox read-only` governs
-   * writes, not reads, and a Codex run pinned to an empty `-C` workspace was
-   * measured reading an absolute path outside it. A pinned workspace is
-   * obscurity, not containment. What makes `none` mean none on Codex is the
-   * runner refusing the turn at the first tool event, before the tool's output
-   * re-enters the model's context -- so a caller who sets this gets a turn with
-   * no tools or no turn, never a quiet third thing.
+   * Do not read `sandboxMode` as any part of this. `read-only` governs writes,
+   * not reads: it means read everything and write nothing, and a Codex run
+   * pinned to an empty `-C` workspace was measured reading an absolute path
+   * outside it. A pinned workspace is obscurity, not containment.
+   *
+   * Enforcing a denied read needs a real sandbox, so `none` costs Codex
+   * availability on hosts that cannot provide one -- Windows unelevated, or a
+   * container without user namespaces. Every one of those fails closed, loudly,
+   * before the model is called. A caller who sets this gets a turn with no
+   * tools or no turn, never a quiet third thing.
    */
   toolMode?: "none" | "read" | undefined;
 

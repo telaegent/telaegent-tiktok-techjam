@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NO_TOOLS_PERMISSION_PROFILE } from "./codex-runner.js";
 import { loadConfig } from "./config.js";
 import { buildContainerMiddlewareRunArgs } from "./container-codex-middleware-runner.js";
 import type { MiddlewareRunRequest } from "./runtime-contract.js";
@@ -56,8 +57,8 @@ describe("Container Codex middleware invocation", () => {
   it("mounts the directory the caller names, not the one on the request", () => {
     // A turn that declared no tools is pointed at an empty directory instead
     // of the repository. Inside the container a shell still reaches the image
-    // and /codex-home, so this is not the enforcement -- the event-stream
-    // refusal is. It removes the thing worth reaching for and keeps the
+    // and /codex-home, so the mount is not the enforcement -- the permission
+    // profile is. It removes the thing worth reaching for and keeps the
     // repository path out of argv the model could read back.
     const config = loadConfig({
       NODE_ENV: "test",
@@ -94,5 +95,18 @@ describe("Container Codex middleware invocation", () => {
       "type=bind,src=C:\\temp\\telagent-notools-abc,dst=/workspace,readonly",
     );
     expect(args.join(" ")).not.toContain("C:\\approved\\workspace");
+    // The container runner shares the local runner's argv builder, so the
+    // deny reaches the codex inside the container too. Asserted here because
+    // the two runners are free to drift and only one of them is where a
+    // toolless turn actually ships.
+    expect(args).toContain(
+      `default_permissions="${NO_TOOLS_PERMISSION_PROFILE}"`,
+    );
+    expect(args).toContain(
+      `permissions.${NO_TOOLS_PERMISSION_PROFILE}.filesystem={":root"="deny"}`,
+    );
+    // The mount stays read-only, but `--sandbox` must not reach codex: it
+    // would replace the deny with a built-in that reads the whole container.
+    expect(args).not.toContain("--sandbox");
   });
 });

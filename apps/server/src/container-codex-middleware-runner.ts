@@ -165,10 +165,16 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
     const startedAt = Date.now();
     const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
     // Same shape as the local runner: a turn that declared no tools is not
-    // pointed at the repository at all, and `noTools` below is what actually
-    // enforces the policy. The empty mount only removes the thing worth
-    // reaching for -- inside the container a shell still reaches /codex-home
-    // and the image itself, so obscurity is all a mount can buy.
+    // pointed at the repository at all, and the mount is not what enforces
+    // that -- inside the container a shell still reaches /codex-home and the
+    // image itself, so obscurity is all a mount can buy. The deny-everything
+    // permission profile in `buildCodexMiddlewareArgs` is the control, and
+    // `noTools` below backs it up.
+    //
+    // Enforcing it here needs bubblewrap, which needs user namespaces the
+    // engine may not grant under `--cap-drop ALL`. Codex fails the turn rather
+    // than running unsandboxed, so this degrades to an outage and never to an
+    // unnoticed read. See the deployment note on `toolMode` in the contract.
     const noTools = request.toolMode === "none";
     const emptyWorkspace = noTools
       ? await mkdtemp(path.join(tmpdir(), "telagent-notools-"))

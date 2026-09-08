@@ -275,8 +275,9 @@ export function buildCodexMiddlewareArgs(
     ...closedToolSurface(process.platform, request.effort),
     "-c",
     'approval_policy="never"',
-    "--sandbox",
-    request.sandboxMode,
+    ...(request.toolMode === "none"
+      ? noToolsPermissionArgs()
+      : ["--sandbox", request.sandboxMode]),
     "--skip-git-repo-check",
     "-C",
     workspacePath,
@@ -300,13 +301,68 @@ export function buildCodexMiddlewareArgs(
   return args;
 }
 
+export const NO_TOOLS_PERMISSION_PROFILE = "telaegent_no_tools";
+
+/**
+ * Denies the filesystem, and the network, to a turn that declared no tools.
+ *
+ * Codex has no `--tools ""`, so for a long time this runner had nothing to
+ * pass and `toolMode: "none"` was enforced only by killing the turn after a
+ * tool had already started. It does have permission profiles, which are a
+ * different and much better thing: `FileSystemAccessMode` is `read` | `write`
+ * | `deny` per path, `:root` names the whole filesystem, and on Linux the
+ * resolved profile is handed to `codex-linux-sandbox` and enforced by
+ * bubblewrap and seccomp. The command dies at `execvp` rather than running.
+ *
+ * This holds under escalation, which is the part that makes it worth relying
+ * on. `unsandboxed_execution_allowed()` returns false whenever a policy
+ * carries any denied read, and it is consulted before the branch that honours
+ * `bypass_sandbox` -- so an approval, an execpolicy `allow`, and a
+ * `RequireEscalated` command all stay sandboxed with the denials intact.
+ * Codex's own comment: "bypassing the sandbox would silently grant those
+ * reads, so escalation must keep the command sandboxed".
+ *
+ * It fails closed everywhere it cannot be enforced, which was measured rather
+ * than assumed. Where bubblewrap cannot start -- a container without user
+ * namespaces -- the command fails instead of running unsandboxed. The legacy
+ * Landlock backend refuses these profiles outright ("permission profiles
+ * requiring direct runtime enforcement are incompatible with
+ * --use-legacy-landlock") instead of quietly dropping the denials. On Windows
+ * unelevated, which is what `closedToolSurface()` asks for, session
+ * initialisation itself aborts: "cannot enforce split filesystem read
+ * restrictions directly; refusing to run unsandboxed". That last one means a
+ * toolless Codex turn does not run on a Windows dev box at all. That is the
+ * honest outcome -- the alternative is a turn that believes it is contained
+ * and is not -- and the lane this serves runs on Linux.
+ *
+ * `--sandbox` must not be passed alongside this, which is the part that is
+ * easy to get wrong and impossible to notice. The two are not additive: the
+ * flag resolves to a built-in profile and replaces `default_permissions`
+ * outright, so the deny is dropped without a warning and the turn reads
+ * everything under `:read-only`. Measured -- the same argv leaked a sentinel
+ * outside its `-C` root with the flag and refused to start without it. Losing
+ * `sandboxMode` costs this path nothing: the profile denies reads and writes
+ * both, and no mode it could name is stricter.
+ */
+export function noToolsPermissionArgs(): string[] {
+  return [
+    "-c",
+    `permissions.${NO_TOOLS_PERMISSION_PROFILE}.filesystem={":root"="deny"}`,
+    "-c",
+    `permissions.${NO_TOOLS_PERMISSION_PROFILE}.network={enabled=false}`,
+    "-c",
+    `default_permissions="${NO_TOOLS_PERMISSION_PROFILE}"`,
+  ];
+}
+
 /**
  * What an empty workspace tells a model that arrives expecting a repository.
  *
  * Codex reads `AGENTS.md` from its `-C` root, so this is the one channel that
  * reaches the model without touching prompt construction on the cloud side.
- * It is a courtesy, not the control: the refusal in `parseCodexEventLine` is
- * what enforces the policy, and this only lowers how often it has to fire.
+ * It is a courtesy, not the control: `noToolsPermissionArgs()` denies the
+ * filesystem and `parseCodexEventLine` refuses the turn, and this only lowers
+ * how often either has to fire.
  *
  * Measured against 0.153.4 on an empty workspace. Ordinary drafting prompts
  * never reached for a tool either way. A prompt that explicitly asked for an
@@ -326,20 +382,23 @@ export const NO_TOOLS_WORKSPACE_NOTICE = [
 /**
  * @param noTools Enforce `toolMode: "none"` for this turn.
  *
- * The Claude runner spells a toolless turn in argv (`--tools ""`) and the CLI
- * honours it. Codex has no equivalent and cannot be given one: its only file
- * access is spawning a shell, and the `tools` config table holds exactly one
- * key (`web_search`) -- probed under `--strict-config`, which rejects every
- * plausible alternative (`tools.shell`, `tools.local_shell`, `features.shell`)
- * as unknown. `--sandbox read-only` governs writes, not reads: measured on
- * 0.153.4, a run pinned to an empty `-C` workspace still read an absolute path
- * outside it. So a workspace pin is not containment and never was.
+ * This is the second of two layers, and the weaker one. Prevention lives in
+ * `noToolsPermissionArgs()`: the turn runs under a permission profile that
+ * denies `:root`, so a command dies in the sandbox before it runs and Codex
+ * refuses to start at all where that cannot be enforced.
  *
- * What is left is to refuse rather than to prevent. The first tool event kills
- * the process through the same path a malformed line takes, before the tool's
- * output is ever parsed back into the model's context, and the turn fails
- * instead of returning an answer built from something it was told not to read.
- * A caller who declared no tools gets a turn with no tools or no turn.
+ * This layer still earns its place, because the profile governs what a command
+ * can reach and not whether one was attempted. `web_search` is not a
+ * filesystem read; a future tool need not be either. So the first tool event
+ * kills the process through the same path a malformed line takes, before the
+ * tool's output is ever parsed back into the model's context, and the turn
+ * fails instead of returning an answer built from something it was told not to
+ * read. A caller who declared no tools gets a turn with no tools or no turn.
+ *
+ * The claim this comment used to make -- that Codex could not be given a
+ * toolless turn -- was measured on Windows with `windows.sandbox=unelevated`,
+ * which this runner passes itself, and on `--sandbox read-only`, which governs
+ * writes and never governed reads. Neither was the control it was read as.
  */
 export function parseCodexEventLine(
   line: string,
@@ -608,12 +667,11 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       path.join(tmpdir(), "telagent-schema-"),
     );
     const schemaPath = path.join(schemaDirectory, "output.schema.json");
-    // A toolless turn is not pointed at the repository at all. On its own this
-    // is not containment -- a read-only Codex run reads absolute paths outside
-    // its `-C` root, measured -- so `noTools` below is what actually enforces
-    // the policy. This removes the thing worth reaching for and the paths that
-    // would name it, so the refusal stays the rare case rather than the way
-    // every Codex clarification turn ends.
+    // A toolless turn is not pointed at the repository at all. This is not
+    // what contains it -- `noToolsPermissionArgs()` denies `:root` in the
+    // sandbox, and the `noTools` refusal below backs that up -- but it removes
+    // the thing worth reaching for and the paths that would name it, so a
+    // clarification turn ends by answering rather than by being stopped.
     const noTools = request.toolMode === "none";
     const emptyWorkspace = noTools
       ? await this.dependencies.mkdtemp(path.join(tmpdir(), "telagent-notools-"))
