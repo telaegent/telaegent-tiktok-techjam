@@ -32,6 +32,15 @@ import type {
   SupabaseCapabilityScopeRequestClient,
 } from "./capability-scope-requests.js";
 import { resourceDisplayLabelSchema } from "../connectors/resource-request.js";
+import type {
+  AgentClarificationRepository,
+  AgentClarificationRpcClient,
+} from "../agent-clarification/repository.js";
+import {
+  AGENT_CLARIFICATION_LIMITS,
+  CLARIFICATION_REASON_CODES,
+  clarificationDialogueOutputSchema,
+} from "../agent-clarification/contract.js";
 
 const rpcPath = "/rest/v1/rpc/load_private_runtime_authorization_snapshot";
 const capabilityRpcPath =
@@ -68,7 +77,8 @@ export class SupabaseAuthorizationRpcClient
     SupabaseCapabilityScopeRequestClient,
     SupabaseCapabilityGrantClient,
     SupabaseOwnedCapabilityGrantClient,
-    SupabaseCollaborationTaskClient
+    SupabaseCollaborationTaskClient,
+    AgentClarificationRpcClient
 {
   readonly #origin: string;
   readonly #endpoint: string;
@@ -424,6 +434,201 @@ export class SupabaseAuthorizationRpcClient
     );
   }
 
+  async grantAgentDialogueOriginator(
+    request: Parameters<AgentClarificationRepository["grantOriginator"]>[0],
+  ): Promise<unknown> {
+    validateDialogueChoice(request.originSharedMessageId, request.actorUserId, request);
+    return this.#call(
+      this.#scopeEndpoint("grant_agent_dialogue_originator"),
+      {
+        p_origin_shared_message_id: request.originSharedMessageId,
+        p_actor_user_id: request.actorUserId,
+        p_provider: request.provider,
+        p_model: request.model,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async activateAgentClarification(
+    request: Parameters<AgentClarificationRepository["activate"]>[0],
+  ): Promise<unknown> {
+    validateDialogueChoice(request.taskId, request.responderUserId, request);
+    return this.#call(
+      this.#scopeEndpoint("activate_agent_clarification"),
+      {
+        p_task_id: request.taskId,
+        p_responder_user_id: request.responderUserId,
+        p_provider: request.provider,
+        p_model: request.model,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async loadAgentClarification(
+    request: Parameters<AgentClarificationRepository["load"]>[0],
+  ): Promise<unknown> {
+    if (!uuidPattern.test(request.taskId) || !uuidPattern.test(request.actorUserId)) {
+      throw new Error("Supabase agent clarification load is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("load_agent_clarification"),
+      { p_task_id: request.taskId, p_actor_user_id: request.actorUserId },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async listAgentClarifications(
+    request: Parameters<AgentClarificationRepository["list"]>[0],
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.actorUserId) ||
+      !uuidPattern.test(request.conversationId) ||
+      !isGitHubRepositoryId(request.githubRepositoryId)
+    ) {
+      throw new Error("Supabase agent clarification listing is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("list_agent_clarifications"),
+      {
+        p_actor_user_id: request.actorUserId,
+        p_github_repository_id: request.githubRepositoryId,
+        p_conversation_id: request.conversationId,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async beginAgentClarificationQuestion(
+    request: Parameters<AgentClarificationRepository["beginQuestion"]>[0],
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.taskId) ||
+      !uuidPattern.test(request.actorUserId) ||
+      !uuidPattern.test(request.stepId) ||
+      !validDialogueText(
+        request.question,
+        AGENT_CLARIFICATION_LIMITS.maxQuestionBytes,
+      ) ||
+      !CLARIFICATION_REASON_CODES.includes(request.reasonCode) ||
+      !validSharedBasis(request.sharedBasisMessageIds) ||
+      !isSha256(request.contentHash) ||
+      !Number.isInteger(request.expectedVersion) ||
+      request.expectedVersion < 0
+    ) {
+      throw new Error("Supabase agent clarification question is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("begin_agent_clarification_question"),
+      {
+        p_task_id: request.taskId,
+        p_actor_user_id: request.actorUserId,
+        p_step_id: request.stepId,
+        p_question: request.question,
+        p_reason_code: request.reasonCode,
+        p_shared_basis_message_ids: request.sharedBasisMessageIds,
+        p_content_hash: request.contentHash,
+        p_expected_version: request.expectedVersion,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async recordAgentClarificationDialogueResult(
+    request: Parameters<AgentClarificationRepository["recordDialogueResult"]>[0],
+  ): Promise<unknown> {
+    const output = clarificationDialogueOutputSchema.safeParse(request.output);
+    if (
+      !output.success ||
+      !uuidPattern.test(request.taskId) ||
+      !uuidPattern.test(request.actorUserId) ||
+      !uuidPattern.test(request.currentStepId) ||
+      !uuidPattern.test(request.counterStepId) ||
+      output.data.replyToStepId !== request.currentStepId ||
+      (request.contentHash !== null && !isSha256(request.contentHash)) ||
+      !Number.isInteger(request.expectedVersion) ||
+      request.expectedVersion < 0
+    ) {
+      throw new Error("Supabase agent clarification result is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("record_agent_clarification_dialogue_result"),
+      {
+        p_task_id: request.taskId,
+        p_actor_user_id: request.actorUserId,
+        p_current_step_id: request.currentStepId,
+        p_counter_step_id: request.counterStepId,
+        p_expected_version: request.expectedVersion,
+        p_outcome: output.data.outcome,
+        p_answer: output.data.answer,
+        p_question: output.data.counterQuestion?.question ?? null,
+        p_reason_code: output.data.counterQuestion?.reasonCode ?? null,
+        p_shared_basis_message_ids:
+          output.data.counterQuestion?.sharedBasisMessageIds ?? [],
+        p_human_required_reason: output.data.humanRequiredReason,
+        p_content_hash: request.contentHash,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async continueAgentClarification(
+    request: Parameters<AgentClarificationRepository["continueWithHumanAnswer"]>[0],
+  ): Promise<unknown> {
+    if (
+      !uuidPattern.test(request.taskId) ||
+      !uuidPattern.test(request.actorUserId) ||
+      !uuidPattern.test(request.currentStepId) ||
+      !validDialogueText(
+        request.answer,
+        AGENT_CLARIFICATION_LIMITS.maxAnswerBytes,
+      ) ||
+      !isSha256(request.answerHash) ||
+      !Number.isInteger(request.expectedVersion) ||
+      request.expectedVersion < 0
+    ) {
+      throw new Error("Supabase agent clarification continuation is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("continue_agent_clarification"),
+      {
+        p_task_id: request.taskId,
+        p_actor_user_id: request.actorUserId,
+        p_current_step_id: request.currentStepId,
+        p_answer: request.answer,
+        p_answer_hash: request.answerHash,
+        p_expected_version: request.expectedVersion,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
+  async stopAgentClarification(
+    request: Parameters<AgentClarificationRpcClient["stopAgentClarification"]>[0],
+  ): Promise<unknown> {
+    if (!uuidPattern.test(request.taskId) || !uuidPattern.test(request.actorUserId)) {
+      throw new Error("Supabase agent clarification stop is invalid");
+    }
+    return this.#call(
+      this.#scopeEndpoint("stop_agent_clarification"),
+      {
+        p_task_id: request.taskId,
+        p_actor_user_id: request.actorUserId,
+        p_completed: request.completed,
+      },
+      undefined,
+      maximumScopeResponseBytes,
+    );
+  }
+
   #scopeEndpoint(functionName: string): string {
     return this.#origin + scopeRpcPath + functionName;
   }
@@ -479,6 +684,45 @@ function isPromptText(value: string, maximumCharacters: number): boolean {
     value.length <= maximumCharacters &&
     !controlCharacterPattern.test(value)
   );
+}
+
+/**
+ * Plan section 6 budgets are UTF-8 byte budgets and the database checks
+ * `octet_length`. Validating characters alone would let a non-ASCII question
+ * through to a constraint violation that surfaces as an opaque RPC failure.
+ */
+function validDialogueText(value: string, maximumBytes: number): boolean {
+  return (
+    isPromptText(value, maximumBytes) &&
+    Buffer.byteLength(value, "utf8") <= maximumBytes
+  );
+}
+
+function validSharedBasis(ids: readonly string[]): boolean {
+  return (
+    ids.length <= AGENT_CLARIFICATION_LIMITS.maxSharedBasisMessageIds &&
+    ids.every((id) => uuidPattern.test(id))
+  );
+}
+
+function isSha256(value: string): boolean {
+  return /^[0-9a-f]{64}$/.test(value);
+}
+
+function validateDialogueChoice(
+  scopeId: string,
+  userId: string,
+  choice: Readonly<{ provider: string; model: string | null }>,
+): void {
+  if (
+    !uuidPattern.test(scopeId) ||
+    !uuidPattern.test(userId) ||
+    (choice.provider !== "codex" && choice.provider !== "claude") ||
+    (choice.model !== null &&
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(choice.model))
+  ) {
+    throw new Error("Supabase agent clarification choice is invalid");
+  }
 }
 
 function validateCapabilityRequest(

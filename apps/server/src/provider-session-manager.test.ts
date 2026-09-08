@@ -284,3 +284,127 @@ describe("ProviderSessionManager", () => {
     expect(provider.run).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Plan section 7.2 scope isolation.
+ *
+ * The dialogue lane is the one place a participant's agent answers on behalf of
+ * a peer, and it runs with no tools and only approved context. If it could
+ * resume the same provider session as that participant's `private_work` turn,
+ * the no-tools promise would be worth nothing: the provider would still be
+ * carrying the repository-aware conversation in its own memory.
+ */
+describe("ProviderSessionManager task lanes", () => {
+  const taskScope: ProviderSessionScope = {
+    ...scope,
+    taskId: "task-1",
+    peerUserId: "user-b",
+    lane: "private_work",
+    participantRole: "responder",
+    stepId: "step-1",
+  };
+
+  function sessions(): {
+    manager: ProviderSessionManager;
+    provider: ReturnType<typeof runtime>;
+  } {
+    let sequence = 0;
+    const provider = runtime(async (request) =>
+      result(request.sessionId ?? `session-${++sequence}`),
+    );
+    return {
+      provider,
+      manager: new ProviderSessionManager(
+        provider,
+        new InMemoryProviderSessionStore(),
+        async (_scope, request) => request,
+      ),
+    };
+  }
+
+  it("never lets a dialogue turn resume the private_work session", async () => {
+    const { manager, provider } = sessions();
+
+    await manager.run(taskScope, turn);
+    await manager.run({ ...taskScope, lane: "clarification_dialogue" }, turn);
+
+    expect(provider.run).toHaveBeenCalledTimes(2);
+    for (const call of provider.run.mock.calls) {
+      expect(call[0]).toMatchObject({ sessionMode: "fresh" });
+      expect(call[0]).not.toHaveProperty("sessionId");
+    }
+  });
+
+  it("keeps one dialogue session across the steps of a single task", async () => {
+    // The envelope's `stepId` and `participantRole` are labels derived from the
+    // task, not key material. Re-keying on them would restart the peer agent
+    // between a question and its answer and lose the exchange it just had.
+    const dialogue = { ...taskScope, lane: "clarification_dialogue" as const };
+    const { manager, provider } = sessions();
+
+    await manager.run(dialogue, turn);
+    await manager.run(
+      { ...dialogue, participantRole: "requester", stepId: "step-2" },
+      turn,
+    );
+
+    expect(provider.run.mock.calls[1]?.[0]).toMatchObject({
+      sessionMode: "continue",
+      sessionId: "session-1",
+    });
+  });
+
+  it("never shares a session across tasks, peers, or models", async () => {
+    const { manager, provider } = sessions();
+    const scopes: ProviderSessionScope[] = [
+      taskScope,
+      { ...taskScope, taskId: "task-2" },
+      { ...taskScope, peerUserId: "user-c" },
+      { ...taskScope, model: "sonnet" },
+    ];
+
+    for (const item of scopes) await manager.run(item, turn);
+
+    expect(provider.run).toHaveBeenCalledTimes(4);
+    for (const call of provider.run.mock.calls) {
+      expect(call[0]).toMatchObject({ sessionMode: "fresh" });
+    }
+  });
+
+  it("leaves a legacy conversation-scoped session untouched by task scopes", async () => {
+    // Old private drafts omit every task field, and a task-scoped turn must
+    // neither resume nor evict the session they already own.
+    const { manager, provider } = sessions();
+
+    await manager.run(scope, turn);
+    await manager.run(taskScope, turn);
+    await manager.run(scope, turn);
+
+    expect(provider.run.mock.calls[1]?.[0]).toMatchObject({
+      sessionMode: "fresh",
+    });
+    expect(provider.run.mock.calls[2]?.[0]).toMatchObject({
+      sessionMode: "continue",
+      sessionId: "session-1",
+    });
+  });
+
+  it("rejects a lane or participant role outside the closed sets", async () => {
+    const { manager, provider } = sessions();
+
+    await expect(
+      manager.run(
+        { ...taskScope, lane: "repository_work" as never },
+        turn,
+      ),
+    ).rejects.toThrow("Provider session scope is invalid");
+    await expect(
+      manager.run(
+        { ...taskScope, participantRole: "observer" as never },
+        turn,
+      ),
+    ).rejects.toThrow("Provider session scope is invalid");
+
+    expect(provider.run).not.toHaveBeenCalled();
+  });
+});

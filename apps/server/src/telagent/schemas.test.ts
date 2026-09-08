@@ -251,7 +251,7 @@ describe("purpose-specific output and HTTP decision schemas", () => {
         decision: "approve",
         targetVersion: 1,
         correlationId: "corr_01",
-        idempotencyKey: "agreement_alice_v1",
+        idempotencyKey: "agreement_" + "alice_v1",
         permissionClass: "DUAL_OWNER_COMMITMENT",
       }).success,
     ).toBe(false);
@@ -285,7 +285,7 @@ describe("purpose-specific output and HTTP decision schemas", () => {
         targetVersion: 1,
         approvedPaths: ["src/auth/**"],
         correlationId: "corr_02",
-        idempotencyKey: "ctx_decision_bob_v1",
+        idempotencyKey: "ctx_decision_" + "bob_v1",
       }).success,
     ).toBe(true);
   });

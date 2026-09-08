@@ -11,6 +11,7 @@
  * lets this suite stay fast and honest.
  */
 
+import { clarificationDialogueJsonSchema } from "../../agent-clarification/contract.js";
 import { describe, expect, it } from "vitest";
 
 import { createMemoryFileSystem } from "../testing/memory-fs.js";
@@ -41,10 +42,13 @@ import { allFormats, getFormat } from "./formats.js";
 import { allMemoryStrategies, rehydrationContext } from "./memory.js";
 import {
   extractJsonObject,
+  normalizeRecipientOutput,
   parseRecipientOutput,
   parseSenderOutput,
   recipientJsonSchema,
+  recipientOutputSchema,
   senderJsonSchema,
+  withoutNullOptionals,
 } from "./schemas.js";
 
 /* ========================================================================== *
@@ -302,6 +306,249 @@ describe("output schema invariants", () => {
     );
     expect(asking(tooMany).ok).toBe(false);
   });
+
+  /* ---------------------------------------------------------------- *
+   * Asking the peer's agent instead (plan section 7.3)
+   * ---------------------------------------------------------------- */
+
+  const peerAsk = (overrides: Record<string, unknown> = {}) => ({
+    question: "Do you mean the refresh window or the access window?",
+    reasonCode: "ambiguity",
+    sharedBasisMessageIds: ["11111111-1111-4111-8111-111111111111"],
+    ...overrides,
+  });
+
+  const clarifying = (overrides: Record<string, unknown> = {}) =>
+    parseRecipientOutput(
+      JSON.stringify({
+        state: "needs_clarification",
+        privateSummary: "Their intent could go either way.",
+        sendCandidate: null,
+        riskFlags: [],
+        sourcePaths: ["src/auth/session.ts"],
+        peerClarification: peerAsk(),
+        ...overrides,
+      }),
+    );
+
+  /**
+   * A negative assertion on `ok` alone would pass for any reason at all,
+   * including a typo in the fixture. These tests name the field the rejection
+   * has to come from, so they keep failing if the refinement is deleted.
+   */
+  const rejectedOn = (result: ReturnType<typeof parseRecipientOutput>): string[] =>
+    result.ok ? [] : result.issues.map((issue) => issue.path);
+
+  it("accepts a peer question only alongside needs_clarification and no draft", () => {
+    expect(clarifying().ok).toBe(true);
+
+    // A turn that has already written the reply has nothing left to ask, and a
+    // sendable draft beside an open question would put text in front of the
+    // owner whose premise is still unsettled.
+    expect(
+      rejectedOn(clarifying({ state: "ready", sendCandidate: "One hour." })),
+    ).toContain("peerClarification");
+
+    // Blocked is a decision, not a question. Its risk flags are populated here
+    // so the rejection can only come from the clarification rule.
+    expect(
+      rejectedOn(clarifying({ state: "blocked", riskFlags: ["scope_violation"] })),
+    ).toContain("peerClarification");
+  });
+
+  it("refuses a peer question in the same turn as a resource ask", () => {
+    // The two answer to different authorities. A resource ask goes to the
+    // owning human on the other machine; a peer question goes to an agent with
+    // no tools and no repository. Allowing both at once would let the question
+    // carry an access request past the approval path that exists for it.
+    expect(
+      rejectedOn(
+        clarifying({
+          resourceRequests: [
+            { kind: "hint", hint: "the auth session module", reason: "to compare" },
+          ],
+        }),
+      ),
+    ).toContain("peerClarification");
+
+    // An empty array is not an ask, so it must not cost the turn its question.
+    expect(clarifying({ resourceRequests: [] }).ok).toBe(true);
+  });
+
+  it("applies the section 6 budgets to the question it carries", () => {
+    // The nested object is the same schema the dialogue lane enforces, so the
+    // recipient turn cannot be the way an oversized or unlabelled question
+    // reaches the task tables.
+    expect(clarifying({ peerClarification: peerAsk({ question: "" }) }).ok).toBe(
+      false,
+    );
+    expect(
+      clarifying({ peerClarification: peerAsk({ reasonCode: "urgent" }) }).ok,
+    ).toBe(false);
+    expect(
+      clarifying({
+        peerClarification: peerAsk({
+          sharedBasisMessageIds: ["src/auth/session.ts"],
+        }),
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("still parses the ordinary turn, which asks its peer nothing", () => {
+    const parsed = parseRecipientOutput(
+      JSON.stringify({
+        state: "ready",
+        privateSummary: "Found the rotation logic.",
+        sendCandidate: "Rotation marks the previous token consumed.",
+        riskFlags: [],
+        sourcePaths: ["src/auth/session.ts"],
+      }),
+    );
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.value.peerClarification).toBeUndefined();
+  });
+
+  /* ---------------------------------------------------------------- *
+   * Salvaging a turn that stapled a question to a finished reply
+   * ---------------------------------------------------------------- */
+
+  /**
+   * The exclusivity above is real and stays enforced, but it is invisible to
+   * the model: `z.toJSONSchema` can only say `peerClarification` is optional,
+   * so a provider that fills in every field it is offered violates section 7.3
+   * on every turn. Codex does exactly this -- all three
+   * `probe-clarification-loop` cases came back `state: "ready"` with a complete
+   * sendCandidate and a vestigial question beside it.
+   *
+   * `normalizeRecipientOutput` drops the question in that conflict so the live
+   * conversation keeps the reply someone is waiting on. These tests pin which
+   * half it drops and, just as importantly, that it leaves a legitimately
+   * asking turn alone -- a normalizer that ate real questions would silently
+   * disable the whole loop.
+   */
+  const normalized = (value: unknown) => recipientOutputSchema.safeParse(
+    normalizeRecipientOutput(value),
+  );
+
+  const rawTurn = (overrides: Record<string, unknown> = {}) => ({
+    state: "needs_clarification",
+    privateSummary: "Their intent could go either way.",
+    sendCandidate: null,
+    riskFlags: [],
+    sourcePaths: ["src/auth/session.ts"],
+    peerClarification: peerAsk(),
+    ...overrides,
+  });
+
+  it("drops the question when the turn already wrote a reply", () => {
+    const result = normalized(
+      rawTurn({ state: "ready", sendCandidate: "Rotation consumes the old token." }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.peerClarification).toBeUndefined();
+    // The half worth keeping survives intact.
+    expect(result.success && result.data.sendCandidate).toBe(
+      "Rotation consumes the old token.",
+    );
+  });
+
+  it("drops the question when the turn is asking for resources instead", () => {
+    // A resource request goes to the owner through the capability path, never
+    // to a peer, so the peer question is the half with nothing behind it.
+    const result = normalized(
+      rawTurn({
+        resourceRequests: [{ kind: "hint", hint: "src/auth/refresh.ts", reason: "why" }],
+      }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.peerClarification).toBeUndefined();
+    expect(result.success && result.data.resourceRequests).toHaveLength(1);
+  });
+
+  it("leaves a genuine question untouched", () => {
+    const raw = rawTurn();
+    const result = normalized(raw);
+
+    expect(normalizeRecipientOutput(raw)).toBe(raw);
+    expect(result.success && result.data.peerClarification?.reasonCode).toBe("ambiguity");
+  });
+
+  it("changes nothing about a turn that asked no question", () => {
+    const raw = rawTurn({
+      state: "ready",
+      sendCandidate: "Rotation consumes the old token.",
+      peerClarification: undefined,
+    });
+
+    expect(normalizeRecipientOutput(raw)).toBe(raw);
+    expect(normalized(raw).success).toBe(true);
+  });
+
+  it("accepts null as the way a forced-required field says no question", () => {
+    // `providerCompatibleSchema` hands Codex a document where this key is
+    // mandatory and nullable, because OpenAI Structured Outputs has no
+    // omission. Null is the model obeying that document, not violating it.
+    const result = recipientOutputSchema.safeParse({
+      state: "ready",
+      privateSummary: "Read the rotation logic.",
+      sendCandidate: "Rotation consumes the old token.",
+      riskFlags: [],
+      sourcePaths: ["src/auth/session.ts"],
+      resourceRequests: null,
+      peerClarification: null,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.peerClarification).toBeNull();
+  });
+
+  it("hands the rest of the server absence, not null", () => {
+    // The pair to the test above. The schema hears null because the model was
+    // told to write one, and the boundary translates it away: `ProtocolTurnOutput`
+    // has two states for these fields, present and absent, and every consumer --
+    // the exclusivity invariant, the coordinator, the persisted turn -- is
+    // written against that. A null reaching them would be a third state nobody
+    // checks for.
+    const parsed = parseRecipientOutput(
+      JSON.stringify({
+        state: "ready",
+        privateSummary: "Read the rotation logic.",
+        sendCandidate: "Rotation consumes the old token.",
+        riskFlags: [],
+        sourcePaths: ["src/auth/session.ts"],
+        resourceRequests: null,
+        peerClarification: null,
+      }),
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect("peerClarification" in parsed.value).toBe(false);
+    expect("resourceRequests" in parsed.value).toBe(false);
+  });
+
+  it("leaves a question that was actually asked alone", () => {
+    // The fold removes a spelling, never a value.
+    const raw = rawTurn();
+    const parsed = recipientOutputSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    expect(withoutNullOptionals(parsed.data).peerClarification).toEqual(
+      raw.peerClarification,
+    );
+  });
+
+  it("passes a value it cannot read straight through to the parser", () => {
+    // Garbage stays garbage: repairing a shape is not this function's job, and
+    // swallowing a non-object here would turn a parse error into a crash.
+    for (const value of ["text", 7, null, undefined, [rawTurn()]]) {
+      expect(normalizeRecipientOutput(value)).toBe(value);
+    }
+  });
 });
 
 /* ========================================================================== *
@@ -359,9 +606,19 @@ describe("provider output schema documents", () => {
     const recipient = JSON.parse(
       await readFile(path.join(root, "recipient-turn.schema.json"), "utf8"),
     ) as unknown;
+    // The dialogue lane is served the same way, so it needs the same fuse:
+    // its document is the only description of the answer a no-tools peer
+    // agent may return, and nothing else would catch it drifting.
+    const dialogue = JSON.parse(
+      await readFile(
+        path.join(root, "clarification-dialogue.schema.json"),
+        "utf8",
+      ),
+    ) as unknown;
 
     expect(sender).toEqual(senderJsonSchema());
     expect(recipient).toEqual(recipientJsonSchema());
+    expect(dialogue).toEqual(clarificationDialogueJsonSchema());
   });
 
   it("generates from the same Zod object the parser uses", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
 import { loadConfig } from "../config.js";
+import type { AgentClarificationCoordinator } from "../agent-clarification/coordinator.js";
 import {
   AuthorizedConversationAccess,
   ConnectorUnavailableDraftRuntime,
@@ -89,6 +90,44 @@ describe("createConversationApi", () => {
         code: "PRIVATE_RUNTIME_FORBIDDEN",
         retryable: false,
       });
+    } finally {
+      await instance.close();
+    }
+  });
+});
+
+describe("agent clarification composition", () => {
+  // `index.ts` decides the flag; this factory is where the decision becomes a
+  // wired coordinator and a value the browser can read. Both halves are
+  // asserted because "off" has to mean the coordinator is genuinely absent, not
+  // merely unadvertised -- an absent coordinator is what makes every service
+  // method return null instead of reaching an unmigrated database.
+  const config = () => loadConfig({ NODE_ENV: "test" });
+
+  it("wires no coordinator, and advertises none, when nothing is passed", () => {
+    const api = createConversationApi(config(), {});
+
+    expect(api.agentClarificationEnabled).toBe(false);
+  });
+
+  it("advertises the loop only when a coordinator is really wired", () => {
+    const api = createConversationApi(config(), {
+      agentClarification: {} as AgentClarificationCoordinator,
+    });
+
+    expect(api.agentClarificationEnabled).toBe(true);
+  });
+
+  it("reports the loop as off to the browser client", async () => {
+    const instance = await app(() => USER);
+    try {
+      const response = await instance.inject({
+        method: "GET",
+        url: `/api/runtime/models?githubRepositoryId=${REPOSITORY}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().agentClarificationEnabled).toBe(false);
     } finally {
       await instance.close();
     }

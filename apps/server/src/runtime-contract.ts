@@ -19,6 +19,7 @@ export type PublicRuntimeErrorCode = RuntimeErrorCode | "RUNTIME_CANCELLED";
 export type RunPurpose =
   | "sender_draft"
   | "recipient_answer"
+  | "clarification_dialogue"
   | "plan_intent"
   | "implement"
   | "status"
@@ -28,6 +29,7 @@ export type RunPurpose =
   | "revise_plan";
 
 export type SessionMode = "continue" | "fresh" | "ephemeral";
+export type ProviderSessionLane = "private_work" | "clarification_dialogue";
 export type MiddlewareSandboxMode = "read-only" | "workspace-write";
 export type NetworkMode = "none" | "default";
 export type JsonSchemaDocument = Record<string, unknown>;

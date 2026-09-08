@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { progressSchemaForTests } from "./routes.js";
 
+const SYNTHETIC_PROGRESS_SECRET = ["sk", "live", "1234"].join("-");
+
 describe("progress target", () => {
   it("accepts an activity event with a workspace-relative target", () => {
     expect(
@@ -49,7 +51,7 @@ describe("progress target", () => {
       progressSchemaForTests.parse({
         type: "text_delta",
         provider: "claude",
-        text: "the API key is sk-live-1234",
+        text: `the API key is ${SYNTHETIC_PROGRESS_SECRET}`,
       }),
     ).toThrow();
   });

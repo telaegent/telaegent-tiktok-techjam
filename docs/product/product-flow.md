@@ -106,6 +106,16 @@ gaining new authority      -> human approval
 final cross-user message   -> human Send
 ```
 
+For an individual task, both humans may separately opt in to a task-control
+clarification dialogue between their agents. That channel is limited to two
+questions, has no tools, and may answer only from context already approved for
+the task. It does not create shared-message bubbles or durable conversation
+memory. Its short-lived task-private transcript is deleted when the task ends
+or reaches its existing 60-minute expiry. Anything requiring new authority or
+private context pauses for a human and resumes only after that human explicitly
+chooses **Continue**. The recipient's final answer remains private until
+**Send**.
+
 ## Cloud coordination and local execution
 
 The canonical judged product requires a small local connector. GitHub CLI,
@@ -135,7 +145,9 @@ Private/local state:
 - GitHub/provider credentials and provider home directories
 - repository checkout, local tool output, and provider sessions
 - canonical local paths and the resource-ID mapping behind them
-- rough drafts and clarification turns
+- rough drafts and owner-agent clarification turns
+- automatic agent clarification payloads, retained only until the task ends or
+  reaches its 60-minute expiry
 - raw provider streams and temporary tool output
 
 Provider sessions accelerate work but never replace Telaegent's durable shared conversation.
@@ -146,7 +158,8 @@ Provider sessions accelerate work but never replace Telaegent's durable shared c
 - no claim that local execution alone is a complete sandbox
 - no zero-knowledge or end-to-end-encryption claim
 - no direct collaborator filesystem access
-- no automatic cross-user send
+- no automatic final cross-user send; the only automatic cross-user text is
+  the bilateral, bounded, task-control clarification channel described above
 - no LLM-decided permission expansion; scope is deterministic code
 - no automatic write capability in P0
 - no capability reuse across a different task or peer

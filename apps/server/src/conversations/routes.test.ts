@@ -156,6 +156,10 @@ describe("model and effort selection", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
+      // The picker has to know whether the bilateral clarification control
+      // exists at all; the flag defaults off and this composition omits the
+      // coordinator, so an absent field would read as enabled.
+      agentClarificationEnabled: false,
       providers: [
         {
           provider: "claude",

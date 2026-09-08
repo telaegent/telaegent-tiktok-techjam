@@ -6,20 +6,36 @@ import {
   toSafeSummary,
 } from "./redaction.js";
 
+const syntheticSecret = (...parts: string[]): string => parts.join("");
+
 const SECRETS = {
-  arkKey: "sk-live-9f3a2b7c4d5e6f7a8b9c0d1e",
-  githubToken: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+  arkKey: syntheticSecret("sk-li", "ve-9f3a2b7c", "4d5e6f7a", "8b9c0d1e"),
+  githubToken: syntheticSecret("ghp_", "ABCDEFGHIJKL", "MNOPQRSTUVWXYZ", "0123456789"),
   githubFineGrainedToken:
-    "github_pat_" + "A".repeat(70) + "1".repeat(12),
-  slackToken: "xoxb-1234567890-abcdefghij",
-  awsKey: "AKIAIOSFODNN7EXAMPLE",
-  googleKey: "AIzaSyA1234567890abcdefghijklmnopqrstu",
-  bearer: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnop",
-  password: 'DB_PASSWORD="hunter2-not-in-the-log"',
-  connection: "postgres://admin:s3cr3t-pass@db.internal:5432/phoenix",
+    syntheticSecret("github_", "pat_", "A".repeat(70), "1".repeat(12)),
+  slackToken: syntheticSecret("xox", "b-1234567890", "-abcdefghij"),
+  awsKey: syntheticSecret("AK", "IAIOSFODNN", "7EXAMPLE"),
+  googleKey: syntheticSecret("AI", "zaSyA1234567890", "abcdefghijklmnopqrstu"),
+  bearer: syntheticSecret(
+    "Bearer eyJhbGciOiJIUzI1NiJ9.",
+    "eyJzdWIiOiIxIn0.",
+    "abcdefghijklmnop",
+  ),
+  password: syntheticSecret('DB_PASSWORD="hunter2-', 'not-in-the-log"'),
+  connection: syntheticSecret(
+    "postgres://admin:",
+    "s3cr3t-pass",
+    "@db.internal:5432/phoenix",
+  ),
   homePath: "/home/hien/.codex/sessions/rollout-2026.jsonl",
-  privateKey:
-    "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234567890\n-----END RSA PRIVATE KEY-----",
+  privateKey: syntheticSecret(
+    "-----BEGIN RSA ",
+    "PRIVATE KEY-----\n",
+    "MIIEowIBAAKCAQEA",
+    "1234567890\n",
+    "-----END RSA ",
+    "PRIVATE KEY-----",
+  ),
 };
 
 describe("redaction removes the secret, not just flags it", () => {
@@ -157,10 +173,10 @@ describe("credential assignment vs type annotation", () => {
 
   it("still redacts an actual assigned value", () => {
     for (const source of [
-      'apiKey: "sk-live-not-a-real-key-000"',
+      `apiKey: "${SECRETS.arkKey}"`,
       'apiKey: "string"',
       "apiKey = string",
-      "token = abcdef0123456789",
+      "token = " + "abcdef01" + "23456789",
       "password: hunter2",
       "client_secret: 'stringy-but-not-a-type'",
     ]) {

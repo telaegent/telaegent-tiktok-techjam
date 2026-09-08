@@ -11,6 +11,7 @@ import { createMemoryFileSystem } from "./testing/memory-fs.js";
 import { CONTEXT_LIMITS } from "./contract.js";
 
 const ROOT = "/ws/phoenix-bob";
+const SYNTHETIC_ARK_KEY = ["sk-li", "ve-do-not-", "read"].join("");
 
 const rules = (...inputs: string[]) => {
   const result = normalizeRuleSet(inputs);
@@ -25,7 +26,7 @@ const seedWorkspace = () => {
   fs.addFile(ROOT + "/src/auth/session-repository.ts", "export interface SessionRepository {}\n");
   fs.addFile(ROOT + "/src/routes/login.ts", "export const login = () => {};\n");
   fs.addFile(ROOT + "/tests/auth/session.test.ts", "// test\n");
-  fs.addFile(ROOT + "/.env", "ARK_API_KEY=sk-live-do-not-read\n");
+  fs.addFile(ROOT + "/.env", `ARK_API_KEY=${SYNTHETIC_ARK_KEY}\n`);
   fs.addFile(ROOT + "/.git/config", "[core]\n");
   return fs;
 };

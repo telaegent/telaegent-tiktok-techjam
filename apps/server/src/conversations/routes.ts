@@ -12,6 +12,7 @@ import type { ConversationService } from "./service.js";
 const uuid = z.string().uuid();
 const conversationParams = z.object({ conversationId: uuid });
 const draftParams = z.object({ draftId: uuid });
+const clarificationTaskParams = z.object({ taskId: uuid });
 const repositoryId = z.string().refine(isGitHubRepositoryId, "Invalid GitHub repository ID");
 const createDraftBody = z.strictObject({
   githubRepositoryId: repositoryId,
@@ -35,6 +36,8 @@ const createReplyBody = z.strictObject({
     .min(1)
     .max(PROTOCOL_LIMITS.maxPrivateMessageChars)
     .optional(),
+  allowAgentClarification: z.boolean().optional(),
+  dialogueModel: z.string().trim().min(1).max(64).optional(),
 });
 const emptyBody = z.strictObject({}).optional();
 // A run may name a model and an effort. Only the shape of `model` is checked
@@ -60,6 +63,13 @@ const sendBody = z.strictObject({
     .min(1)
     .max(128)
     .regex(/^[A-Za-z0-9_.:-]+$/),
+  allowAgentClarification: z.boolean().optional(),
+  dialogueModel: z.string().trim().min(1).max(64).optional(),
+});
+const continueAgentClarificationBody = z.strictObject({
+  currentStepId: uuid,
+  expectedVersion: z.number().int().min(0),
+  answer: z.string().trim().min(1).max(2_000),
 });
 const messageQuery = z.object({
   githubRepositoryId: repositoryId,
@@ -80,6 +90,7 @@ export interface ConversationRouteDependencies {
     authenticatedUserId: string,
     githubRepositoryId: string,
   ) => readonly AgentProvider[];
+  agentClarificationEnabled?: boolean | undefined;
 }
 
 export function registerConversationRoutes(
@@ -118,6 +129,8 @@ export function registerConversationRoutes(
         })),
       efforts: [...RUNTIME_EFFORTS],
       defaultEffort: DEFAULT_RUNTIME_EFFORT,
+      agentClarificationEnabled:
+        dependencies.agentClarificationEnabled === true,
     };
   });
 
@@ -209,6 +222,93 @@ export function registerConversationRoutes(
     });
     return reply.code(result.replayed ? 200 : 201).send(result);
   });
+
+  app.get("/api/drafts/:draftId/agent-clarification", async (request, reply) => {
+    setPrivateNoStore(reply);
+    const { draftId } = draftParams.parse(request.params);
+    return {
+      task: await dependencies.service.getAgentClarification(
+        await user(request),
+        draftId,
+      ),
+    };
+  });
+
+  app.get(
+    "/api/conversations/:conversationId/agent-clarifications",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const { conversationId } = conversationParams.parse(request.params);
+      const query = draftListQuery.parse(request.query);
+      return {
+        tasks: await dependencies.service.listAgentClarifications({
+          authenticatedUserId: await user(request),
+          conversationId,
+          ...query,
+        }),
+      };
+    },
+  );
+
+  app.post(
+    "/api/agent-clarifications/:taskId/continue",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const { taskId } = clarificationTaskParams.parse(request.params);
+      const body = continueAgentClarificationBody.parse(request.body);
+      return {
+        task: await dependencies.service.continueAgentClarificationTask({
+          authenticatedUserId: await user(request),
+          taskId,
+          ...body,
+        }),
+      };
+    },
+  );
+
+  app.post(
+    "/api/agent-clarifications/:taskId/stop",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const { taskId } = clarificationTaskParams.parse(request.params);
+      emptyBody.parse(request.body);
+      await dependencies.service.stopAgentClarificationTask(
+        await user(request),
+        taskId,
+      );
+      return reply.code(204).send();
+    },
+  );
+
+  app.post(
+    "/api/drafts/:draftId/agent-clarification/continue",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const { draftId } = draftParams.parse(request.params);
+      const body = continueAgentClarificationBody.parse(request.body);
+      return {
+        task: await dependencies.service.continueAgentClarification({
+          authenticatedUserId: await user(request),
+          draftId,
+          ...body,
+        }),
+      };
+    },
+  );
+
+  app.post(
+    "/api/drafts/:draftId/agent-clarification/stop",
+    async (request, reply) => {
+      setPrivateNoStore(reply);
+      const { draftId } = draftParams.parse(request.params);
+      emptyBody.parse(request.body);
+      await dependencies.service.stopAgentClarification(
+        await user(request),
+        draftId,
+      );
+      return reply.code(204).send();
+    },
+  );
 
   app.get("/api/conversations/:conversationId/messages", async (request, reply) => {
     setPrivateNoStore(reply);

@@ -51,6 +51,10 @@ import { SupabaseAuthorizationRpcClient } from "./authorization/supabase-authori
 import { SupabaseOwnedCapabilityGrantRepository } from "./authorization/capability-grant-management.js";
 import { CapabilityRouteAuthorizationService } from "./authorization/capability-route-authorization.js";
 import { SupabaseCapabilityRouteAuthorizationRepository } from "./authorization/supabase-capability-repository.js";
+import { SupabaseCollaborationTaskRepository } from "./authorization/collaboration-tasks.js";
+import { AgentClarificationCoordinator } from "./agent-clarification/coordinator.js";
+import { SupabaseAgentClarificationRepository } from "./agent-clarification/repository.js";
+import { SupabaseAgentClarificationContextLoader } from "./agent-clarification/context-loader.js";
 
 const config = loadConfig();
 // Preserve the inherited Starter Kit only when its legacy Ark credentials are
@@ -286,6 +290,24 @@ if (config.telaegentIdentityProvider === "github") {
         relay,
         scope: capabilityScope,
       });
+    }
+    if (config.enableAgentClarificationLoop && authorizationRpc) {
+      conversationOptions.agentClarification = new AgentClarificationCoordinator(
+        new SupabaseCollaborationTaskRepository(authorizationRpc),
+        new SupabaseAgentClarificationRepository(authorizationRpc),
+        new SupabaseAgentClarificationContextLoader(
+          config.supabaseUrl,
+          config.supabaseSecretKey,
+        ),
+        protocolRuntime.turns,
+        {
+          // Plan section 7.1: both capabilities on one live binding, at
+          // protocol version 2 or better. Absence is not unavailability, so
+          // an older connector simply never sees a dialogue job.
+          supportsCapabilities: (userId, githubRepositoryId) =>
+            relay.supportsCapabilities(userId, githubRepositoryId),
+        },
+      );
     }
   }
 }

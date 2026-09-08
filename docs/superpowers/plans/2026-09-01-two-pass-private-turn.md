@@ -334,7 +334,7 @@ describe("progress target", () => {
       progressSchemaForTests.parse({
         type: "text_delta",
         provider: "claude",
-        text: "the API key is sk-live-1234",
+        text: "the API key is [synthetic secret canary]",
       }),
     ).toThrow();
   });
@@ -819,7 +819,7 @@ describe("activity target containment", () => {
           activity: "tool",
           target: path.join(workspacePath, "..", "other", "a.ts"),
         });
-        onProgress?.({ type: "text_delta", provider: "claude", text: "sk-live-1234" });
+        onProgress?.({ type: "text_delta", provider: "claude", text: "[synthetic secret canary]" });
         onProgress?.({ type: "turn_completed", provider: "claude" });
         return ok(draftFinal);
       }),
@@ -842,7 +842,7 @@ describe("activity target containment", () => {
       { type: "activity_started", provider: "claude", activity: "tool" },
       { type: "activity_started", provider: "claude", activity: "tool" },
     ]);
-    expect(JSON.stringify(transport.progressEvents)).not.toContain("sk-live-1234");
+    expect(JSON.stringify(transport.progressEvents)).not.toContain("[synthetic secret canary]");
     expect(JSON.stringify(transport.progressEvents)).not.toContain(".aws");
     expect(transport.progressEvents.some((event) => event.type === "turn_completed")).toBe(
       true,

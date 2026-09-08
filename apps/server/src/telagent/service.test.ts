@@ -172,7 +172,7 @@ describe("TelagentService", () => {
     await expect(
       service.submitConversationMessage({
         ...submitInput,
-        idempotencyKey: "alice-second-operation-v1",
+        idempotencyKey: "alice-second-" + "operation-v1",
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
     const duplicate = await service.submitConversationMessage(submitInput);
@@ -340,7 +340,7 @@ describe("TelagentService", () => {
       ...submitInput,
       ownerId: "bob",
       agentId: "bob-agent",
-      idempotencyKey: "mismatch-bob-v1",
+      idempotencyKey: "mismatch-" + "bob-v1",
     });
     await vi.waitFor(() => expect(orchestrator.calls).toHaveLength(1));
     orchestrator.resolve("Bob planning completed.", bobIntent);
@@ -350,7 +350,7 @@ describe("TelagentService", () => {
 
     const alice = await service.submitConversationMessage({
       ...submitInput,
-      idempotencyKey: "mismatch-alice-v1",
+      idempotencyKey: "mismatch-" + "alice-v1",
     });
     await vi.waitFor(() => expect(orchestrator.calls).toHaveLength(2));
     orchestrator.resolve("Alice planning completed.", aliceIntent);

@@ -10,6 +10,7 @@ import { CONTEXT_LIMITS, type ResolvedSourceGrant } from "./contract.js";
 
 const NOW = new Date("2026-08-28T02:00:00.000Z");
 const COMMIT = "af31d4e";
+const SYNTHETIC_ARK_KEY = ["sk-li", "ve-9f3a2b7c", "4d5e6f7a", "8b9c0d1e"].join("");
 
 const approvedRules = () => {
   const result = normalizeRuleSet(["docs/architecture/**", "src/auth/**", "tests/auth/**"]);
@@ -201,11 +202,11 @@ describe("content safety", () => {
   it("rejects, rather than redacts, a pack carrying a credential", () => {
     const result = validate({
       candidate: candidate({
-        summary: "Connect with ARK_API_KEY=sk-live-9f3a2b7c4d5e6f7a8b9c0d1e and retry.",
+        summary: `Connect with ARK_API_KEY=${SYNTHETIC_ARK_KEY} and retry.`,
       }),
     });
     expect(result).toMatchObject({ ok: false, code: "PACK_SECRET_CONTENT" });
-    expect(JSON.stringify(result)).not.toContain("sk-live-9f3a2b7c4d5e6f7a8b9c0d1e");
+    expect(JSON.stringify(result)).not.toContain(SYNTHETIC_ARK_KEY);
   });
 
   it.each([

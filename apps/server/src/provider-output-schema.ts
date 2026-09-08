@@ -1,5 +1,27 @@
 import type { AgentProvider, JsonSchemaDocument } from "./runtime-contract.js";
 
+/** Whether a subschema already offers null, so wrapping would only add noise. */
+function permitsNull(schema: unknown): boolean {
+  if (schema === null || typeof schema !== "object" || Array.isArray(schema)) {
+    return false;
+  }
+  const node = schema as Record<string, unknown>;
+  const type = node["type"];
+  if (type === "null") return true;
+  if (Array.isArray(type) && type.includes("null")) return true;
+  for (const key of ["anyOf", "oneOf"] as const) {
+    const branches = node[key];
+    if (Array.isArray(branches) && branches.some(permitsNull)) return true;
+  }
+  return false;
+}
+
+/** Widens a subschema to accept null without disturbing what it already says. */
+function nullableSchema(schema: unknown): unknown {
+  return permitsNull(schema) ? schema : { anyOf: [schema, { type: "null" }] };
+}
+
+
 /** Derive a detached schema for each CLI's supported Structured Outputs subset. */
 export function providerCompatibleSchema(
   provider: AgentProvider,
@@ -33,9 +55,30 @@ export function providerCompatibleSchema(
       typeof converted.properties === "object" &&
       !Array.isArray(converted.properties)
     ) {
-      converted.required = Object.keys(
-        converted.properties as Record<string, unknown>,
+      const properties = converted.properties as Record<string, unknown>;
+      // Listing an optional property as required without also letting it be
+      // null leaves the model no way to decline it, and it will not invent a
+      // refusal -- it invents a value. That is not a hypothetical: with
+      // `peerClarification` forced required, Codex attached a fabricated peer
+      // question to every recipient turn, including the control case whose
+      // whole point is that no question is warranted, and satisfied the
+      // equally-forced `sharedBasisMessageIds` with an empty array. Both read
+      // as the model behaving badly; both were this line.
+      //
+      // So an optional property stays present, as OpenAI demands, and becomes
+      // nullable, which is how "none" is spelled when omission is unavailable.
+      const declared = new Set(
+        Array.isArray(converted.required)
+          ? (converted.required as unknown[]).filter(
+              (name): name is string => typeof name === "string",
+            )
+          : [],
       );
+      for (const [name, schema] of Object.entries(properties)) {
+        if (declared.has(name)) continue;
+        properties[name] = nullableSchema(schema);
+      }
+      converted.required = Object.keys(properties);
     }
     return converted;
   };

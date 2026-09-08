@@ -946,6 +946,15 @@ The rule underneath it:
 Two things this never relaxes: the LLM is not the authorization authority, and
 a final cross-user message still crosses only on the owner's `Send`.
 
+A bounded agent clarification dialogue is a separate task-control channel, not
+a final cross-user message or a shared-conversation entry. It is enabled only
+when both humans opt in for that exact task, is limited to two questions, may
+use only already-approved task context, and has no tools. Its question/answer
+payload is task-private and deleted at task completion, cancellation, or the
+existing 60-minute expiry. Needing new authority or private context pauses for
+the correct human; their answer does not resume automation until they press
+`Continue`. The final prepared response still requires `Send`.
+
 This can be explained very simply in a pitch:
 
 ```text

@@ -124,7 +124,12 @@ test("the packaged connector exposes unavailable providers and can add both on r
 test("the packaged CLI announces the providers that passed its live probes", async () => {
   const contents = await readFile(binPath, "utf8");
   assert.match(contents, /bindings\/\$\{registered\.connectorBindingId\}\/probing/);
-  assert.match(contents, /\{ providers: connectedProviders \}/);
+  // Plan section 7.1: readiness carries the protocol version and capability
+  // list, so the cloud can withhold task-scoped jobs from an older connector
+  // instead of sending an envelope its strict job schema would reject.
+  assert.match(contents, /providers: connectedProviders/);
+  assert.match(contents, /protocolVersion: CONNECTOR_PROTOCOL_VERSION/);
+  assert.match(contents, /capabilities: CONNECTOR_CAPABILITIES/);
   assert.doesNotMatch(
     contents,
     /bindings\/\$\{registered\.connectorBindingId\}\/ready`, \{\}/,

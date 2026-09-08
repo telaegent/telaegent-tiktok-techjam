@@ -25,6 +25,10 @@ import {
   connectorCliUsage,
   parseConnectorCliOptions,
 } from "./connector-cli-options.js";
+import {
+  CONNECTOR_CAPABILITIES,
+  CONNECTOR_PROTOCOL_VERSION,
+} from "./connector-capabilities.js";
 import { CONNECTOR_VERSION } from "./connector-version.js";
 import { assertAllSelectedProvidersConnected, probeConnectorProviders } from "./connector-provider-probes.js";
 import {
@@ -406,7 +410,11 @@ async function main(): Promise<void> {
       serverOrigin,
       credential,
       `/api/connectors/bindings/${registered.connectorBindingId}/ready`,
-      { providers: connectedProviders },
+      {
+        providers: connectedProviders,
+        protocolVersion: CONNECTOR_PROTOCOL_VERSION,
+        capabilities: CONNECTOR_CAPABILITIES,
+      },
       undefined,
       CONTROL_REQUEST_TIMEOUT_MS,
     );

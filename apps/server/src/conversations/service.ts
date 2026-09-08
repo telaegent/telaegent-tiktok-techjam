@@ -16,11 +16,16 @@ import {
 } from "../telagent/protocol/contract.js";
 import { guardTurn, inspectCandidate, type GuardFinding } from "../telagent/protocol/guards.js";
 import {
+  normalizeRecipientOutput,
   recipientOutputSchema,
   senderOutputSchema,
+  withoutNullOptionals,
 } from "../telagent/protocol/schemas.js";
 import type { StartAuthorizedProtocolTurnInput } from "../telagent/protocol/authorized-turn-service.js";
 import type { ConversationRepository } from "./repository.js";
+import type { AgentClarificationCoordinator } from "../agent-clarification/coordinator.js";
+import { MAX_AGENT_CLARIFICATION_QUESTIONS } from "../agent-clarification/contract.js";
+import type { AgentClarificationTask } from "../agent-clarification/repository.js";
 import {
   toPrivateDraftView,
   type PrivateDraft,
@@ -85,6 +90,8 @@ export interface ConversationServiceOptions {
    * capability loop existed.
    */
   followUp?: PrivateDraftFollowUp | undefined;
+  /** Default-absent rollout seam for bilateral task clarification. */
+  agentClarification?: AgentClarificationCoordinator | undefined;
 }
 
 /**
@@ -155,6 +162,7 @@ export class ConversationService {
   private readonly createId: () => string;
   private readonly createTurnId: () => string;
   private readonly followUp: PrivateDraftFollowUp | undefined;
+  private readonly agentClarification: AgentClarificationCoordinator | undefined;
   /**
    * Draft ID to the runtime turn currently executing for it.
    *
@@ -181,6 +189,7 @@ export class ConversationService {
     this.createId = options.createId ?? randomUUID;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.followUp = options.followUp;
+    this.agentClarification = options.agentClarification;
   }
 
   /**
@@ -271,6 +280,8 @@ export class ConversationService {
     incomingMessageId: string;
     ownerGuidance?: string | undefined;
     idempotencyKey: string;
+    allowAgentClarification?: boolean | undefined;
+    dialogueModel?: string | undefined;
   }>): Promise<Readonly<{ draft: PrivateDraftView; replayed: boolean }>> {
     await this.authorize(input, "create_reply");
     const timestamp = this.now().toISOString();
@@ -305,6 +316,22 @@ export class ConversationService {
       idempotencyKey: input.idempotencyKey,
     });
     if (!created) throw new HttpError(409, "Message cannot be replied to");
+    if (
+      input.allowAgentClarification &&
+      this.agentClarification &&
+      (input.dialogueModel === undefined ||
+        isSupportedModel(input.provider, input.dialogueModel))
+    ) {
+      // Consent persistence is fail-closed. The private draft remains usable
+      // if the optional dialogue store is unavailable; no question crosses.
+      await this.agentClarification.activateForRecipient(
+        draftContext(created.draft),
+        {
+          provider: input.provider,
+          ...(input.dialogueModel ? { model: input.dialogueModel } : {}),
+        },
+      ).catch(() => null);
+    }
     return { draft: toPrivateDraftView(created.draft), replayed: created.replayed };
   }
 
@@ -376,6 +403,11 @@ export class ConversationService {
     // seam re-checks it anyway, where the input is untyped.
     await this.authorizeDraft(draft, "run_draft");
 
+    const clarificationTask =
+      draft.role === "recipient" && this.agentClarification
+        ? await this.agentClarification.loadForRecipient(draftContext(draft)).catch(() => null)
+        : null;
+
     const turnId = this.createTurnId();
     const running = await this.repository.markDraftRunning({
       draftId: draft.draftId,
@@ -399,6 +431,18 @@ export class ConversationService {
         role: draft.role,
         correlationId: draft.draftId,
         turnId,
+        ...(isRunnableClarificationTask(clarificationTask, draft.ownerUserId)
+          ? {
+              allowPeerClarification:
+                clarificationTask.questionsUsed < MAX_AGENT_CLARIFICATION_QUESTIONS,
+              taskSession: {
+                taskId: clarificationTask.taskId,
+                peerUserId: clarificationTask.requesterUserId,
+                participantRole: "responder" as const,
+                lane: "private_work" as const,
+              },
+            }
+          : {}),
       });
     } catch (error) {
       this.activeRuntimeTurns.delete(draft.draftId);
@@ -432,7 +476,13 @@ export class ConversationService {
         conversationId: draft.conversationId,
       }).catch(() => false);
     }
-    void this.settleTurn(draft, turnId, started.completion, choice);
+    void this.settleTurn(
+      draft,
+      turnId,
+      started.completion,
+      choice,
+      clarificationTask,
+    );
     return toPrivateDraftView(running);
   }
 
@@ -503,6 +553,7 @@ export class ConversationService {
       updatedAt: this.now().toISOString(),
     });
     if (!updated) throw new HttpError(409, "Private draft cannot be cancelled");
+    await this.endAgentClarification(updated, "cancelled");
     await this.endFollowUp(updated, "cancelled");
     return toPrivateDraftView(updated);
   }
@@ -512,6 +563,8 @@ export class ConversationService {
     draftId: string;
     approvedContent?: string | undefined;
     idempotencyKey: string;
+    allowAgentClarification?: boolean | undefined;
+    dialogueModel?: string | undefined;
   }>): Promise<SendDraftResult> {
     const draft = await this.ownedDraft(input.authenticatedUserId, input.draftId);
     if (draft.state !== "ready" && draft.state !== "sent") {
@@ -552,6 +605,24 @@ export class ConversationService {
       updatedAt: timestamp,
     });
     if (!result) throw new HttpError(409, "Send request conflicts with existing state");
+    if (
+      input.allowAgentClarification &&
+      this.agentClarification &&
+      (input.dialogueModel === undefined ||
+        isSupportedModel(draft.provider, input.dialogueModel))
+    ) {
+      // The shared message is already committed. A consent write may safely
+      // fail closed, but may never roll back or duplicate the Send.
+      await this.agentClarification.grantOriginator({
+        originSharedMessageId: result.message.messageId,
+        actorUserId: input.authenticatedUserId,
+        choice: {
+          provider: draft.provider,
+          ...(input.dialogueModel ? { model: input.dialogueModel } : {}),
+        },
+      }).catch(() => false);
+    }
+    await this.endAgentClarification(draft, "completed");
     await this.endFollowUp(draft, "completed");
     return result;
   }
@@ -602,6 +673,142 @@ export class ConversationService {
     };
   }
 
+  async getAgentClarification(
+    authenticatedUserId: string,
+    draftId: string,
+  ): Promise<AgentClarificationTask | null> {
+    if (!this.agentClarification) return null;
+    const draft = await this.ownedDraft(authenticatedUserId, draftId);
+    await this.authorizeDraft(draft, "read");
+    if (draft.role !== "recipient") return null;
+    return this.agentClarification.loadForRecipient(draftContext(draft));
+  }
+
+  async listAgentClarifications(input: Readonly<{
+    authenticatedUserId: string;
+    githubRepositoryId: string;
+    conversationId: string;
+  }>): Promise<AgentClarificationTask[]> {
+    if (!this.agentClarification) return [];
+    await this.authorize(input, "read");
+    return this.agentClarification.list({
+      actorUserId: input.authenticatedUserId,
+      githubRepositoryId: input.githubRepositoryId,
+      conversationId: input.conversationId,
+    });
+  }
+
+  async continueAgentClarificationTask(input: Readonly<{
+    authenticatedUserId: string;
+    taskId: string;
+    currentStepId: string;
+    expectedVersion: number;
+    answer: string;
+  }>): Promise<AgentClarificationTask> {
+    if (!this.agentClarification) {
+      throw new HttpError(404, "Agent clarification is not available");
+    }
+    const task = await this.agentClarification.status(
+      input.taskId,
+      input.authenticatedUserId,
+    );
+    if (!task || task.expectedUserId !== input.authenticatedUserId) {
+      throw new HttpError(409, "Agent clarification is not waiting for this user");
+    }
+    await this.authorize(
+      {
+        authenticatedUserId: input.authenticatedUserId,
+        githubRepositoryId: task.githubRepositoryId,
+        conversationId: task.conversationId,
+      },
+      "clarify_draft",
+    );
+    const outcome = await this.agentClarification.continueWithHumanAnswer({
+      taskId: input.taskId,
+      actorUserId: input.authenticatedUserId,
+      currentStepId: input.currentStepId,
+      expectedVersion: input.expectedVersion,
+      answer: redactPrivateInput(input.answer),
+    });
+    if (outcome !== "continued") {
+      throw new HttpError(409, "Agent clarification cannot continue");
+    }
+    const updated = await this.agentClarification.status(
+      input.taskId,
+      input.authenticatedUserId,
+    );
+    if (!updated) throw new HttpError(409, "Agent clarification cannot continue");
+    return updated;
+  }
+
+  async stopAgentClarificationTask(
+    authenticatedUserId: string,
+    taskId: string,
+  ): Promise<void> {
+    if (!this.agentClarification) return;
+    const task = await this.agentClarification.status(taskId, authenticatedUserId);
+    if (!task) return;
+    await this.authorize(
+      {
+        authenticatedUserId,
+        githubRepositoryId: task.githubRepositoryId,
+        conversationId: task.conversationId,
+      },
+      "cancel",
+    );
+    if (!(await this.agentClarification.stop(taskId, authenticatedUserId))) {
+      throw new HttpError(409, "Agent clarification cannot be stopped");
+    }
+  }
+
+  async continueAgentClarification(input: Readonly<{
+    authenticatedUserId: string;
+    draftId: string;
+    currentStepId: string;
+    expectedVersion: number;
+    answer: string;
+  }>): Promise<AgentClarificationTask> {
+    if (!this.agentClarification) {
+      throw new HttpError(404, "Agent clarification is not available");
+    }
+    const draft = await this.ownedDraft(input.authenticatedUserId, input.draftId);
+    await this.authorizeDraft(draft, "clarify_draft");
+    const task = await this.agentClarification.loadForRecipient(draftContext(draft));
+    if (!task || task.expectedUserId !== input.authenticatedUserId) {
+      throw new HttpError(409, "Agent clarification is not waiting for this user");
+    }
+    const outcome = await this.agentClarification.continueWithHumanAnswer({
+      taskId: task.taskId,
+      actorUserId: input.authenticatedUserId,
+      currentStepId: input.currentStepId,
+      expectedVersion: input.expectedVersion,
+      answer: redactPrivateInput(input.answer),
+    });
+    if (outcome !== "continued") {
+      throw new HttpError(409, "Agent clarification cannot continue");
+    }
+    const updated = await this.agentClarification.status(
+      task.taskId,
+      input.authenticatedUserId,
+    );
+    if (!updated) throw new HttpError(409, "Agent clarification cannot continue");
+    return updated;
+  }
+
+  async stopAgentClarification(
+    authenticatedUserId: string,
+    draftId: string,
+  ): Promise<void> {
+    if (!this.agentClarification) return;
+    const draft = await this.ownedDraft(authenticatedUserId, draftId);
+    await this.authorizeDraft(draft, "cancel");
+    const task = await this.agentClarification.loadForRecipient(draftContext(draft));
+    if (!task) return;
+    if (!(await this.agentClarification.stop(task.taskId, authenticatedUserId))) {
+      throw new HttpError(409, "Agent clarification cannot be stopped");
+    }
+  }
+
   private async completeTurn(
     draftId: string,
     role: ProtocolRole,
@@ -611,7 +818,7 @@ export class ConversationService {
     const parsed =
       role === "sender"
         ? senderOutputSchema.safeParse(rawOutput)
-        : recipientOutputSchema.safeParse(rawOutput);
+        : recipientOutputSchema.safeParse(normalizeRecipientOutput(rawOutput));
     if (!parsed.success) {
       return this.failTurn(
         draftId,
@@ -619,7 +826,13 @@ export class ConversationService {
         new RuntimeProviderError("INVALID_AGENT_OUTPUT", "Invalid structured output"),
       );
     }
-    const output = parsed.data;
+    // Recipient only, and the reason is the provider wire format: the schema
+    // accepts an explicit null for `peerClarification` and `resourceRequests`
+    // because Structured Outputs forces the model to write one, while
+    // `ProtocolTurnOutput` knows only present or absent. Folding here keeps that
+    // spelling out of `guardTurn` and everything persisted downstream of it.
+    const output: ProtocolTurnOutput =
+      "assistantMessage" in parsed.data ? parsed.data : withoutNullOptionals(parsed.data);
     const guarded = guardTurn(output);
     // Both roles carry one owner-visible private message; only the field name
     // differs. Neither is ever transmitted to the collaborator.
@@ -655,6 +868,7 @@ export class ConversationService {
     draft: PrivateDraft,
     first: Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>,
     choice: Readonly<PrivateRunChoice>,
+    clarificationTask: AgentClarificationTask | null = null,
   ): Promise<Awaited<StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"]>> {
     if (!this.followUp) return first;
     let result = first;
@@ -692,6 +906,18 @@ export class ConversationService {
         role: draft.role,
         correlationId: draft.draftId,
         deliveredResources: delivered,
+        ...(isRunnableClarificationTask(clarificationTask, draft.ownerUserId)
+          ? {
+              allowPeerClarification:
+                clarificationTask.questionsUsed < MAX_AGENT_CLARIFICATION_QUESTIONS,
+              taskSession: {
+                taskId: clarificationTask.taskId,
+                peerUserId: clarificationTask.requesterUserId,
+                participantRole: "responder" as const,
+                lane: "private_work" as const,
+              },
+            }
+          : {}),
       });
       // Cancellation has to follow the work, so point it at this round before
       // awaiting it. The draft's own turn identifier never changes.
@@ -716,6 +942,7 @@ export class ConversationService {
     turnId: string,
     completion: StartedPrivateRuntimeTurn<ProtocolTurnOutput>["completion"],
     choice: Readonly<PrivateRunChoice>,
+    initialClarificationTask: AgentClarificationTask | null,
   ): Promise<void> {
     const draftId = draft.draftId;
     const followUpWait = new AbortController();
@@ -724,12 +951,66 @@ export class ConversationService {
       const first = await completion;
       this.activeRuntimeTurns.set(draftId, null);
       this.throwIfCancellationRequested(draftId);
-      const result = await this.runFollowUpRounds(draft, first, choice);
+      let clarificationTask = initialClarificationTask;
+      let result = await this.runFollowUpRounds(
+        draft,
+        first,
+        choice,
+        clarificationTask,
+      );
+      // At most two questions exist in persistence, and every exchange and
+      // recipient resume spends the shared five-round budget atomically.
+      for (let index = 0; index < 2; index += 1) {
+        if (
+          !this.agentClarification ||
+          !clarificationTask ||
+          draft.role !== "recipient"
+        ) break;
+        const parsed = recipientOutputSchema.safeParse(
+          normalizeRecipientOutput(result.final),
+        );
+        if (!parsed.success || !parsed.data.peerClarification) break;
+        const exchanged = await this.agentClarification.exchange(
+          clarificationTask,
+          parsed.data.peerClarification,
+          { signal: followUpWait.signal },
+        );
+        if (exchanged.outcome !== "resolved") break;
+        clarificationTask = exchanged.task;
+        const started = await this.runtime.start<ProtocolTurnOutput>({
+          authorization: this.authorizationInput(draft),
+          provider: draft.provider,
+          ...(choice.model ? { model: choice.model } : {}),
+          ...(choice.effort ? { effort: choice.effort } : {}),
+          role: draft.role,
+          correlationId: draft.draftId,
+          allowPeerClarification:
+            clarificationTask.questionsUsed < MAX_AGENT_CLARIFICATION_QUESTIONS,
+          clarificationTranscript: clarificationTranscript(clarificationTask),
+          taskSession: {
+            taskId: clarificationTask.taskId,
+            peerUserId: clarificationTask.requesterUserId,
+            participantRole: "responder",
+            lane: "private_work",
+          },
+        });
+        this.activeRuntimeTurns.set(draftId, started.turnId);
+        this.throwIfCancellationRequested(draftId);
+        result = await started.completion;
+        this.activeRuntimeTurns.set(draftId, null);
+        result = await this.runFollowUpRounds(
+          draft,
+          result,
+          choice,
+          clarificationTask,
+        );
+      }
       await this.completeTurn(draftId, draft.role, turnId, result.final);
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe
       // owner-facing state. Raw provider/database errors never enter the draft.
       try {
+        await this.endAgentClarification(draft, "cancelled");
         await this.failTurn(draftId, turnId, error);
       } catch {
         // The HTTP request has already returned 202. A durable adapter reports
@@ -814,6 +1095,60 @@ export class ConversationService {
       status,
     );
   }
+
+  private async endAgentClarification(
+    draft: Readonly<PrivateDraft>,
+    status: "completed" | "cancelled",
+  ): Promise<void> {
+    if (!this.agentClarification || draft.role !== "recipient") return;
+    const task = await this.agentClarification
+      .loadForRecipient(draftContext(draft))
+      .catch(() => null);
+    if (!task) return;
+    if (status === "completed") {
+      await this.agentClarification.complete(task.taskId, draft.ownerUserId);
+    } else {
+      await this.agentClarification.stop(task.taskId, draft.ownerUserId);
+    }
+  }
+}
+
+function draftContext(draft: Readonly<PrivateDraft>) {
+  return {
+    incomingMessageId: draft.incomingMessageId,
+    conversationId: draft.conversationId,
+    githubRepositoryId: draft.githubRepositoryId,
+    ownerUserId: draft.ownerUserId,
+  };
+}
+
+function isRunnableClarificationTask(
+  task: AgentClarificationTask | null,
+  responderUserId: string,
+): task is AgentClarificationTask {
+  return Boolean(
+    task &&
+      task.state === "recipient_running" &&
+      task.expectedLane === "private_work" &&
+      task.expectedUserId === responderUserId,
+  );
+}
+
+function clarificationTranscript(task: AgentClarificationTask) {
+  return task.steps.flatMap((step) => {
+    const questionParticipant: "requester" | "responder" =
+      step.askedByUserId === task.requesterUserId ? "requester" : "responder";
+    const answerParticipant: "requester" | "responder" =
+      step.askedToUserId === task.requesterUserId ? "requester" : "responder";
+    return [
+      ...(step.question
+        ? [{ kind: "question" as const, participant: questionParticipant, text: step.question }]
+        : []),
+      ...(step.answer
+        ? [{ kind: "answer" as const, participant: answerParticipant, text: step.answer }]
+        : []),
+    ];
+  });
 }
 
 /** Obvious credentials never enter durable private-draft storage unchanged. */

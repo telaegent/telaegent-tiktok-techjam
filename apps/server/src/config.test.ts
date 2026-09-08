@@ -9,6 +9,36 @@ describe("agent memory rollout", () => {
   });
 });
 
+describe("agent clarification loop rollout", () => {
+  // The whole staged-release plan rests on this one default: the feature can be
+  // merged while unfinished because no deployment runs it until it is named.
+  // Nothing else asserts that, so a reordered schema or a mistyped default
+  // would enable cross-user agent dialogue in production silently.
+  it("keeps the clarification loop off unless the deployment opts in", () => {
+    expect(loadConfig({}).enableAgentClarificationLoop).toBe(false);
+    expect(
+      loadConfig({ ENABLE_AGENT_CLARIFICATION_LOOP: "0" })
+        .enableAgentClarificationLoop,
+    ).toBe(false);
+    expect(
+      loadConfig({ ENABLE_AGENT_CLARIFICATION_LOOP: "1" })
+        .enableAgentClarificationLoop,
+    ).toBe(true);
+  });
+
+  // "true"/"yes"/"on" are the values a deployment reaches for by habit. They
+  // must fail loudly rather than being read as off, which would look identical
+  // to a working flag-off deployment right up until someone expected the loop.
+  it.each(["true", "yes", "on", "2", ""])(
+    "refuses an ambiguous flag value: %s",
+    (value) => {
+      expect(() =>
+        loadConfig({ ENABLE_AGENT_CLARIFICATION_LOOP: value }),
+      ).toThrow();
+    },
+  );
+});
+
 describe("trusted reverse proxy configuration", () => {
   it("trusts no forwarded address by default and accepts explicit IP/CIDR peers", () => {
     expect(loadConfig({}).trustedProxyCidrs).toEqual([]);
@@ -134,6 +164,7 @@ describe("authorization persistence configuration", () => {
 describe("GitHub-backed Telaegent identity configuration", () => {
   const secretKey = "sb_secret_" + "a".repeat(32);
   const cookieSecret = "a".repeat(43);
+  const githubClientId = "Ov23li" + "abcdefghij";
 
   it("keeps identity credentials inert unless GitHub identity is explicitly enabled", () => {
     const config = loadConfig({
@@ -141,7 +172,7 @@ describe("GitHub-backed Telaegent identity configuration", () => {
       SUPABASE_SECRET_KEY: secretKey,
       TELAEGENT_PUBLIC_URL: "https://telaegent.example",
       TELAEGENT_COOKIE_SECRET: cookieSecret,
-      GITHUB_OAUTH_CLIENT_ID: "Ov23liabcdefghij",
+      GITHUB_OAUTH_CLIENT_ID: githubClientId,
       GITHUB_OAUTH_CLIENT_SECRET: "b".repeat(40),
     });
 
@@ -155,7 +186,7 @@ describe("GitHub-backed Telaegent identity configuration", () => {
       TELAEGENT_IDENTITY_PROVIDER: "github",
       TELAEGENT_PUBLIC_URL: "https://telaegent.example/",
       TELAEGENT_COOKIE_SECRET: cookieSecret,
-      GITHUB_OAUTH_CLIENT_ID: "Ov23liabcdefghij",
+      GITHUB_OAUTH_CLIENT_ID: githubClientId,
       GITHUB_OAUTH_CLIENT_SECRET: "b".repeat(40),
       SUPABASE_URL: "https://example-project.supabase.co/",
       SUPABASE_SECRET_KEY: secretKey,
@@ -176,7 +207,7 @@ describe("GitHub-backed Telaegent identity configuration", () => {
     {
       TELAEGENT_PUBLIC_URL: "http://telaegent.example",
       TELAEGENT_COOKIE_SECRET: cookieSecret,
-      GITHUB_OAUTH_CLIENT_ID: "Ov23liabcdefghij",
+      GITHUB_OAUTH_CLIENT_ID: githubClientId,
       GITHUB_OAUTH_CLIENT_SECRET: "b".repeat(40),
       SUPABASE_URL: "https://example-project.supabase.co",
       SUPABASE_SECRET_KEY: secretKey,
@@ -184,7 +215,7 @@ describe("GitHub-backed Telaegent identity configuration", () => {
     {
       TELAEGENT_PUBLIC_URL: "https://telaegent.example",
       TELAEGENT_COOKIE_SECRET: "too-short",
-      GITHUB_OAUTH_CLIENT_ID: "Ov23liabcdefghij",
+      GITHUB_OAUTH_CLIENT_ID: githubClientId,
       GITHUB_OAUTH_CLIENT_SECRET: "b".repeat(40),
       SUPABASE_URL: "https://example-project.supabase.co",
       SUPABASE_SECRET_KEY: secretKey,

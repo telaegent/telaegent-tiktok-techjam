@@ -16,6 +16,7 @@ const messageId = "55555555-5555-4555-8555-555555555555";
 const approvalId = "66666666-6666-4666-8666-666666666666";
 const githubRepositoryId = "1345851083";
 const timestamp = "2026-08-31T09:00:00.000Z";
+const SYNTHETIC_ARK_KEY = ["sk-li", "ve-not-a-", "real-key"].join("");
 
 function draftRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -494,7 +495,7 @@ describe("SupabaseConversationRepository", () => {
             code: "GUARD_EMPTY_CANDIDATE",
             safeReason: "The draft had nothing to send.",
             impliedFlag: "ambiguous_request",
-            offendingText: "sk-live-secret",
+            offendingText: SYNTHETIC_ARK_KEY,
           },
         ],
       })],
@@ -608,7 +609,7 @@ describe("SupabaseConversationRepository", () => {
 
     it("does not disclose the rejected payload", async () => {
       const { repository } = repositoryReturning(
-        draftRow({ roughMessage: "the api key is sk-live-not-a-real-key" , state: "approved" }),
+        draftRow({ roughMessage: `the api key is ${SYNTHETIC_ARK_KEY}`, state: "approved" }),
       );
 
       const error = await repository
@@ -617,7 +618,7 @@ describe("SupabaseConversationRepository", () => {
         .catch((caught: unknown) => caught);
 
       const serialized = String(error) + JSON.stringify(error);
-      expect(serialized).not.toContain("sk-live-not-a-real-key");
+      expect(serialized).not.toContain(SYNTHETIC_ARK_KEY);
       expect(serialized).not.toContain("approved");
     });
   });

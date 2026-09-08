@@ -136,6 +136,14 @@ const jobSchema = z.strictObject({
   userId: z.string().uuid(),
   githubRepositoryId: z.string().regex(/^[1-9][0-9]{0,18}$/),
   conversationId: idPart,
+  // Plan section 7.2. Additive and optional: a version 1 cloud sends none of
+  // these, and no field here is accepted as routing authority.
+  protocolVersion: z.number().int().min(2).max(16).optional(),
+  taskId: idPart.optional(),
+  peerUserId: idPart.optional(),
+  taskLane: z.enum(["private_work", "clarification_dialogue"]).optional(),
+  participantRole: z.enum(["requester", "responder"]).optional(),
+  stepId: idPart.optional(),
   provider: z.enum(["codex", "claude"]),
   // Optional on the wire on purpose: a job that names no model is a job whose
   // owner did not choose one, and this connector's own configuration decides.
@@ -145,7 +153,7 @@ const jobSchema = z.strictObject({
   // Same story as `model`: absent means the owner chose nothing, and both
   // passes below then fall back to a constant rather than to the CLI default.
   effort: z.enum(RUNTIME_EFFORTS).optional(),
-  purpose: z.enum(["sender_draft", "recipient_answer"]),
+  purpose: z.enum(["sender_draft", "recipient_answer", "clarification_dialogue"]),
   runtimePrompt: z.string().min(1).max(1_048_576).refine((value) => !value.includes("\0")),
   persistedSummary: z.string().max(524_288).refine((value) => !value.includes("\0")),
   sessionMode: z.enum(["continue", "fresh", "ephemeral"]),
@@ -154,6 +162,31 @@ const jobSchema = z.strictObject({
   outputSchemaName: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*\.schema\.json$/),
   correlationId: z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
   maxTurns: z.number().int().min(1).max(3),
+}).superRefine((job, context) => {
+  if (
+    job.purpose === "clarification_dialogue" &&
+    (job.protocolVersion === undefined ||
+      !job.taskId ||
+      !job.peerUserId ||
+      !job.stepId ||
+      !job.participantRole ||
+      job.taskLane !== "clarification_dialogue" ||
+      job.outputSchemaName !== "clarification-dialogue.schema.json")
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Clarification dialogue job scope is invalid",
+    });
+  }
+  if (
+    job.purpose !== "clarification_dialogue" &&
+    job.taskLane === "clarification_dialogue"
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Private work job lane is invalid",
+    });
+  }
 });
 const deliverySchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("job"), job: jobSchema }),
@@ -475,6 +508,10 @@ export class ConnectorWorker {
       githubRepositoryId: this.binding.githubRepositoryId,
       conversationId: job.conversationId,
       provider: job.provider,
+      ...(job.taskId ? { taskId: job.taskId } : {}),
+      ...(job.peerUserId ? { peerUserId: job.peerUserId } : {}),
+      ...(job.taskLane ? { lane: job.taskLane } : {}),
+      ...(job.model ? { model: job.model } : {}),
     };
   }
 
@@ -489,7 +526,13 @@ export class ConnectorWorker {
     job: Readonly<ConnectorJobRequest>,
     signal: AbortSignal,
   ): Promise<ManagedAgentTurnResult> {
-    const investigationNote = await this.investigate(job, signal);
+    // Dialogue is deliberately a separate no-tools lane. Running the normal
+    // repository investigation pass here would silently broaden a bilateral
+    // context-only grant into filesystem authority.
+    const investigationNote =
+      job.purpose === "clarification_dialogue"
+        ? ""
+        : await this.investigate(job, signal);
     return await this.sessions.run(
       this.scope(job),
       this.request(job, investigationNote),

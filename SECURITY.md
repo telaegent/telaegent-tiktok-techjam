@@ -77,13 +77,23 @@ count, bounded requests per round and total transferred bytes, deduplicated
 pending requests, and stops on task completion, user cancellation, no progress,
 repeated denials, or expired scope.
 
-Automatic internal file access never implies automatic replies:
+Automatic internal file access never implies automatic final replies:
 
 | Action | Authority required |
 | --- | --- |
 | Use a resource inside existing authority | may be automatic |
 | Obtain new authority | human approval |
 | Send a cross-user message | human `Send` |
+
+The only automatic cross-user text allowed in P0 is a task-control
+clarification dialogue with active consent from both humans for the exact
+task. It is limited to two questions, no tools, no new authority, and context
+already approved for that task. Its payload is task-private and deleted when
+the task completes, is cancelled, or expires after 60 minutes. A need for a
+new file, permission, secret, cross-project path, or another user's private
+state pauses for a human. Human-supplied context resumes the same bounded task
+only after an explicit **Continue** action. The final reply always remains
+behind the owner's `Send` gate.
 
 Audit every delivered snapshot with resource ID, task ID, recipient, byte
 length, content hash, authorization mode, and timestamp. Never log raw file
@@ -96,6 +106,8 @@ The browser-first product still uses local execution. Telaegent cloud may hold:
 - approved shared messages and compact shared memory
 - project identity, permissions, connector presence, and safe audit events
 - bounded private draft/job payloads while they are being routed
+- bounded task-private clarification payloads until task completion,
+  cancellation, or the existing 60-minute expiry
 
 Telaegent cloud must not hold repository checkouts, GitHub/provider credentials,
 provider home directories, provider sessions, raw local tool output, or hidden

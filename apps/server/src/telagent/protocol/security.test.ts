@@ -31,6 +31,7 @@ import { materializeFixture } from "./fixtures/materialize.js";
 import {
   CROSS_PROJECT_SENTINEL,
   SECRET_SENTINELS,
+  SYNTHETIC_PRIVATE_KEY_MARKERS,
   getFixtureRepo,
 } from "./fixtures/repos.js";
 import { guardTurn, inspectCandidate, reviewPathClaims } from "./guards.js";
@@ -386,9 +387,9 @@ describe("secret values cannot cross the boundary", () => {
 
   it("blocks a PEM private key block", () => {
     const verdict = inspectCandidate(
-      "-----BEGIN RSA PRIVATE KEY-----\n" +
+      SYNTHETIC_PRIVATE_KEY_MARKERS.rsaBegin + "\n" +
         SECRET_SENTINELS.privateKeyBody +
-        "\n-----END RSA PRIVATE KEY-----",
+        "\n" + SYNTHETIC_PRIVATE_KEY_MARKERS.rsaEnd,
     );
     expect(verdict.sendable).toBe(false);
   });
