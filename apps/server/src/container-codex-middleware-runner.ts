@@ -107,6 +107,11 @@ export function buildContainerMiddlewareRunArgs(
       containerSchemaPath,
       "/workspace",
       request.model || config.codexModel,
+      // The image is Linux whatever this host is. Left to default, a Windows
+      // host would ask a Linux container for `windows.sandbox=unelevated` and
+      // would waive the dialogue lane's filesystem denial in the one place it
+      // can actually be enforced.
+      "linux",
     ),
   ];
 }

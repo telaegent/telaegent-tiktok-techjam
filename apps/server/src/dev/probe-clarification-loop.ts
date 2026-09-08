@@ -1341,11 +1341,20 @@ function passed(outcome: CaseOutcome): boolean {
   return last?.outcome === "answered" && outcome.sendable;
 }
 
+/**
+ * @returns whether every case matched what it expected, for the exit code.
+ *
+ * Case verdicts only. A failed provider call is deliberately not a failure
+ * here: the investigation pass is allowed to fail or overrun, and the turn
+ * degrades to the single-pass behaviour it had before that pass existed, so a
+ * run can print a failed call and still be a correct run. `failures` is the
+ * count behind the "as expected" line, which is the verdict a reader acts on.
+ */
 function report(
   outcomes: readonly CaseOutcome[],
   showText: boolean,
   provider: string,
-): void {
+): boolean {
   const lines: string[] = [
     "",
     "AGENT CLARIFICATION LOOP PROBE  (provider=" + provider + ")",
@@ -1490,6 +1499,7 @@ function report(
     "",
   );
   process.stdout.write(lines.join("\n") + "\n");
+  return failures === 0;
 }
 
 /* ========================================================================== *
@@ -1601,7 +1611,11 @@ async function main(): Promise<void> {
     // group is already reached by the terminal's signal.
     await runner.cancelAll?.();
   }
-  report(outcomes, options.showText, options.provider);
+  // A probe that prints FAIL and exits 0 is worse than no probe: it is the
+  // shape every wrapper, CI step and eyeballed terminal reads as success.
+  if (!report(outcomes, options.showText, options.provider)) {
+    process.exitCode = 1;
+  }
 }
 
 await main();

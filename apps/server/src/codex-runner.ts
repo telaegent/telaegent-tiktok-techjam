@@ -260,11 +260,20 @@ export function buildCodexArgs(
   return args;
 }
 
+/**
+ * @param platform Where the `codex` this argv is built for will run, which is
+ * not always where this process runs. The container runner executes a Linux
+ * image from whatever host started the server, and both the sandbox mode and
+ * `enforcesToolDenial()` answer differently per platform -- so a host default
+ * would put `windows.sandbox=unelevated` inside a Linux container and drop the
+ * dialogue lane's containment on a machine that could have enforced it.
+ */
 export function buildCodexMiddlewareArgs(
   request: LocalMiddlewareRunRequest,
   outputSchemaPath: string,
   workspacePath = request.workspacePath,
   model = "",
+  platform: NodeJS.Platform = process.platform,
 ): string[] {
   const args = [
     "exec",
@@ -272,10 +281,10 @@ export function buildCodexMiddlewareArgs(
     // The only runner surface that carries a caller's effort: `RunnerRequest`
     // (the plain `codex exec` path above) has no such field, so it keeps the
     // default.
-    ...closedToolSurface(process.platform, request.effort),
+    ...closedToolSurface(platform, request.effort),
     "-c",
     'approval_policy="never"',
-    ...(request.toolMode === "none"
+    ...(enforcesToolDenial(request, platform)
       ? noToolsPermissionArgs()
       : ["--sandbox", request.sandboxMode]),
     "--skip-git-repo-check",
@@ -299,6 +308,43 @@ export function buildCodexMiddlewareArgs(
     args.push("-");
   }
   return args;
+}
+
+/**
+ * Whether this turn's toollessness is a boundary worth failing the turn over.
+ *
+ * `toolMode: "none"` means two different things at the two call sites that set
+ * it, and the difference decides what an unenforceable host should do. A
+ * drafting pass declares no tools because it does not need them: the pass
+ * before it read the repository and handed this one a note, so denying it
+ * reads guards nothing the investigation pass did not already open. A
+ * clarification turn declares no tools because the lane is defined by not
+ * having repository access -- its answer reaches another person without
+ * passing that person's `Send` gate, and having no tools is the whole reason
+ * that is allowed.
+ *
+ * Only the second is worth an outage. Applying the profile to both is what
+ * took ordinary drafting off Windows: the unelevated sandbox cannot enforce a
+ * denied read and aborts session initialisation rather than run uncontained,
+ * so a pass nobody was protecting failed for a guarantee nobody had asked for.
+ *
+ * Windows is excluded deliberately rather than by omission. There is no way to
+ * enforce this there, so the choice is between the dialogue lane not running on
+ * a developer's machine at all and it running under what contained it before
+ * profiles existed -- an empty workspace, and a turn killed at its first tool
+ * event. The lane ships on Linux, where the profile is real and this returns
+ * true. Treat a Windows run as development and demonstration, never as the
+ * containment the lane is documented to have.
+ */
+export function enforcesToolDenial(
+  request: Pick<LocalMiddlewareRunRequest, "toolMode" | "purpose">,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return (
+    request.toolMode === "none"
+    && request.purpose === "clarification_dialogue"
+    && platform !== "win32"
+  );
 }
 
 export const NO_TOOLS_PERMISSION_PROFILE = "telaegent_no_tools";
@@ -330,10 +376,10 @@ export const NO_TOOLS_PERMISSION_PROFILE = "telaegent_no_tools";
  * --use-legacy-landlock") instead of quietly dropping the denials. On Windows
  * unelevated, which is what `closedToolSurface()` asks for, session
  * initialisation itself aborts: "cannot enforce split filesystem read
- * restrictions directly; refusing to run unsandboxed". That last one means a
- * toolless Codex turn does not run on a Windows dev box at all. That is the
- * honest outcome -- the alternative is a turn that believes it is contained
- * and is not -- and the lane this serves runs on Linux.
+ * restrictions directly; refusing to run unsandboxed". Nothing here degrades
+ * quietly: the question is only ever whether the turn runs, never whether it
+ * ran contained. Which turns should pay that price is decided by
+ * `enforcesToolDenial()` and not here.
  *
  * `--sandbox` must not be passed alongside this, which is the part that is
  * easy to get wrong and impossible to notice. The two are not additive: the

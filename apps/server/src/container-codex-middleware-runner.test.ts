@@ -72,9 +72,12 @@ describe("Container Codex middleware invocation", () => {
     const request: MiddlewareRunRequest = {
       agentId: "bob",
       provider: "codex",
-      purpose: "sender_draft",
+      // The lane the denial is actually for. Drafting also declares no tools
+      // and deliberately does not get the profile, so asserting it here would
+      // assert the opposite of what ships.
+      purpose: "clarification_dialogue",
       workspacePath: "C:\\approved\\workspace",
-      runtimePrompt: "Draft from the note",
+      runtimePrompt: "Answer the peer's question",
       persistedSummary: "Approved context",
       sessionMode: "ephemeral",
       sandboxMode: "read-only",
@@ -108,5 +111,10 @@ describe("Container Codex middleware invocation", () => {
     // The mount stays read-only, but `--sandbox` must not reach codex: it
     // would replace the deny with a built-in that reads the whole container.
     expect(args).not.toContain("--sandbox");
+    // This suite runs on Windows hosts. The image is Linux regardless, and a
+    // builder left to `process.platform` would both ask the container for
+    // `windows.sandbox=unelevated` and waive the denial in the one place that
+    // can enforce it -- passing every assertion above only on a Linux CI box.
+    expect(args).not.toContain("windows.sandbox=unelevated");
   });
 });

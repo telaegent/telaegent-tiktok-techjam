@@ -37,6 +37,20 @@ function noToolsRequest() {
 }
 
 /**
+ * The dialogue lane, which declares no tools as a boundary rather than as an
+ * economy. Same `toolMode` as the drafting pass above and a different answer
+ * from `enforcesToolDenial()`, which is the whole point of the distinction.
+ */
+function clarificationRequest() {
+  return {
+    ...noToolsRequest(),
+    purpose: "clarification_dialogue" as const,
+    runtimePrompt: "Answer the peer's question",
+    correlationId: "dialogue-no-tools",
+  };
+}
+
+/**
  * A Codex child that emits the given JSONL and then closes.
  *
  * `pid` is absent on purpose: process-tree termination cannot reach a child
@@ -393,8 +407,14 @@ describe("Codex runner protocol", () => {
     expect(args).not.toContain("danger-full-access");
   });
 
-  it("denies the filesystem to a turn that declared no tools", () => {
-    const args = buildCodexMiddlewareArgs(noToolsRequest(), "/tmp/draft.schema.json");
+  it("denies the filesystem to a clarification turn", () => {
+    const args = buildCodexMiddlewareArgs(
+      clarificationRequest(),
+      "/tmp/dialogue.schema.json",
+      undefined,
+      "",
+      "linux",
+    );
 
     // `:root` is Codex's token for the whole filesystem, and `deny` outranks
     // every other entry -- "deny beats write, and write beats read" -- so this
@@ -428,10 +448,56 @@ describe("Codex runner protocol", () => {
     // same argv leaked a sentinel outside its `-C` root with the flag present
     // and refused to start without it. This assertion is the whole difference
     // between a control and a comment claiming there is one.
-    const args = buildCodexMiddlewareArgs(noToolsRequest(), "/tmp/draft.schema.json");
+    const args = buildCodexMiddlewareArgs(
+      clarificationRequest(),
+      "/tmp/dialogue.schema.json",
+      undefined,
+      "",
+      "linux",
+    );
 
     expect(args).not.toContain("--sandbox");
     expect(args).toContain(`default_permissions="${NO_TOOLS_PERMISSION_PROFILE}"`);
+  });
+
+  it("leaves the drafting pass alone on every platform", () => {
+    // Drafting declares no tools because it does not need them, not because
+    // anything is being kept from it: the investigation pass immediately before
+    // it read this very workspace and handed this pass the note. Denying it
+    // reads guards nothing and costs the whole turn on a host that cannot
+    // enforce a denial -- which is exactly what took ordinary drafting off
+    // Windows once, flag or no flag.
+    for (const platform of ["linux", "darwin", "win32"] as const) {
+      const args = buildCodexMiddlewareArgs(
+        noToolsRequest(),
+        "/tmp/draft.schema.json",
+        undefined,
+        "",
+        platform,
+      );
+
+      expect(args.some((arg) => arg.startsWith("default_permissions="))).toBe(false);
+      expect(args).toContain("--sandbox");
+    }
+  });
+
+  it("falls back rather than failing when the host cannot enforce a denial", () => {
+    // The Windows unelevated sandbox cannot enforce a denied read and aborts
+    // session initialisation rather than run uncontained, so asking for the
+    // profile there does not buy containment -- it buys no turn at all. The
+    // lane keeps what held before profiles existed: an empty workspace, and a
+    // turn killed at its first tool event. Enforcement is a Linux promise, and
+    // `runtime-contract.ts` says so where callers read it.
+    const args = buildCodexMiddlewareArgs(
+      clarificationRequest(),
+      "/tmp/dialogue.schema.json",
+      undefined,
+      "",
+      "win32",
+    );
+
+    expect(args.some((arg) => arg.startsWith("default_permissions="))).toBe(false);
+    expect(args).toContain("--sandbox");
   });
 
   it("spells the deny in the inline-table form Codex can parse", () => {
@@ -449,8 +515,11 @@ describe("Codex runner protocol", () => {
 
   it("leaves a turn that may read the workspace unrestricted", () => {
     const args = buildCodexMiddlewareArgs(
-      { ...noToolsRequest(), toolMode: "read" as const },
+      { ...clarificationRequest(), toolMode: "read" as const },
       "/tmp/draft.schema.json",
+      undefined,
+      "",
+      "linux",
     );
 
     expect(args.some((arg) => arg.startsWith("permissions."))).toBe(false);
