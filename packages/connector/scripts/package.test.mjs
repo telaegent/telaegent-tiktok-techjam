@@ -125,6 +125,8 @@ test("the packaged CLI announces the providers that passed its live probes", asy
   const contents = await readFile(binPath, "utf8");
   assert.match(contents, /bindings\/\$\{registered\.connectorBindingId\}\/probing/);
   assert.match(contents, /\{ providers: connectedProviders \}/);
+  assert.doesNotMatch(contents, /protocolVersion: CONNECTOR_PROTOCOL_VERSION/);
+  assert.doesNotMatch(contents, /capabilities: CONNECTOR_CAPABILITIES/);
   assert.doesNotMatch(
     contents,
     /bindings\/\$\{registered\.connectorBindingId\}\/ready`, \{\}/,
