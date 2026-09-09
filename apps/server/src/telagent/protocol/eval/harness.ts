@@ -23,7 +23,7 @@ import {
   type RecipientTurnInput,
   type SenderTurnInput,
 } from "../contract.js";
-import type { ProtocolCase } from "../corpus/types.js";
+import type { ProtocolCase, SenderCase } from "../corpus/types.js";
 import { getFormat } from "../formats.js";
 import { guardTurn, type GuardVerdict } from "../guards.js";
 import { getMemoryStrategy } from "../memory.js";
@@ -181,6 +181,19 @@ export function buildTurnInput(
   return input;
 }
 
+/** Reconstructs the sender guard context in the same shape production uses. */
+export function buildSenderGuardContext(testCase: SenderCase): Readonly<{
+  senderIntent: string;
+  senderClarifications: readonly string[];
+}> {
+  return {
+    senderIntent: testCase.ownerInput,
+    senderClarifications: (testCase.privateTurns ?? [])
+      .filter((turn) => turn.speaker === "owner")
+      .map((turn) => turn.text),
+  };
+}
+
 /* ========================================================================== *
  * Single case
  * ========================================================================== */
@@ -219,7 +232,12 @@ export async function runCase(
     },
   );
 
-  const guard = parsed.ok ? guardTurn(parsed.value) : null;
+  const guard = parsed.ok
+    ? guardTurn(
+        parsed.value,
+        testCase.role === "sender" ? buildSenderGuardContext(testCase) : {},
+      )
+    : null;
 
   const score = scoreCase({
     caseId: testCase.id,

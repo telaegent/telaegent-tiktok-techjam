@@ -63,9 +63,9 @@ You cannot, whoever asks and whatever you decide:
 
 Reading is the only thing you can do here. So a request to change a file is a
 question about what to draft, never a decision about whether to act, and the
-change cannot happen while you think about it. Answer what was asked. Do not
+change cannot happen while you think about it. Follow your role instructions. Do not
 report that you refrained from an action you were never able to perform — your
-owner reads that as something you did, and it displaces the answer they wanted.
+owner reads that as something you did, and it displaces the output they wanted.
 
 The working directory is your owner's own checkout of this project. They named
 that folder, so it is often nothing like the repository name. A mismatch is
@@ -221,6 +221,11 @@ export function outputContractBlock(role: "sender" | "recipient"): string {
       ? '  "assistantMessage": "what you want to say to your own owner, privately",'
       : '  "privateSummary": "what you found, for your own owner, privately",';
 
+  const sendCandidateField =
+    role === "sender"
+      ? '  "sendCandidate": "the exact outbound message for the collaborator, or null",'
+      : '  "sendCandidate": "the exact response to show your owner for approval, or null",';
+
   const pathField =
     role === "sender"
       ? '  "referencedPaths": ["paths in your own workspace you consulted"]'
@@ -241,20 +246,21 @@ export function outputContractBlock(role: "sender" | "recipient"): string {
 
   const privateField = role === "sender" ? "assistantMessage" : "privateSummary";
 
-  return `OUTPUT
-
-Reply with one JSON object and nothing else:
-
-{
-  "state": "needs_clarification" | "ready" | "blocked",
-${candidateField}
-  "sendCandidate": "the exact text to show your owner for approval, or null",
-  "riskFlags": [],
-${pathField}${askField}
-}
-
-What the three states mean:
-- "ready" — you have something worth showing your owner. That includes
+  const stateMeanings = role === "sender"
+    ? `- "ready" — you have a complete outbound message worth showing your owner.
+  sendCandidate is the message to the collaborator, never an answer addressed
+  back to your owner. If the owner's request is unsafe or mistaken, prepare a
+  safe correction the owner could actually send. Declining is a normal thing to say,
+  and it still has to be said out loud.
+- "blocked" — a statement about your draft, not about the request. It means
+  there is no outbound wording you could put in sendCandidate that would be
+  safe for your owner to read. Choosing it destroys your draft. Your owner is
+  shown a failure notice in place of your text, so a
+  refusal filed as "blocked" is a refusal nobody hears.
+- "needs_clarification" — you cannot prepare the outbound message until your
+  owner tells you something only they know. If a reasonable assumption gets
+  you to a message, state the assumption privately and prepare it instead.`
+    : `- "ready" — you have something worth showing your owner. That includes
   disagreement. If your considered answer is no, or not yet, or "here is what
   is wrong with this request", that answer is exactly what your owner needs to
   read: put it in sendCandidate, use "ready", and record why in riskFlags.
@@ -267,7 +273,47 @@ What the three states mean:
   refusal filed as "blocked" is a refusal nobody hears.
 - "needs_clarification" — you cannot answer at all until your owner tells you
   something only they know. If a reasonable assumption gets you to an answer,
-  state the assumption and answer instead.
+  state the assumption and answer instead.`;
+
+  const roleSpecificRules = role === "sender"
+    ? `- sendCandidate must be the complete message your owner could send to the
+  collaborator. Do not put an answer, extracted value, heading, filename, or
+  other result addressed back to your owner in sendCandidate.
+- Length is the slowest thing you do. Your owner is watching a blank screen
+  while you type this object, and every two hundred characters is about another
+  second of that. Aim for ${privateField} under ${String(DRAFT_PRIVATE_TARGET_CHARS)} characters and sendCandidate
+  under ${String(DRAFT_SEND_TARGET_CHARS)}. Prepare only the outbound message the collaborator needs,
+  say privately what you could not establish, and stop. Completeness the message
+  does not need is paid for in seconds your owner spends waiting.`
+    : `- Length is the slowest thing you do. Your owner is watching a blank screen
+  while you type this object, and every two hundred characters is about another
+  second of that. Aim for ${privateField} under ${String(DRAFT_PRIVATE_TARGET_CHARS)} characters and sendCandidate
+  under ${String(DRAFT_SEND_TARGET_CHARS)}. Answer the question that was asked, say what you could not
+  establish, and stop. Completeness you were not asked for is not free; it is
+  paid for in seconds your owner spends waiting.`;
+
+  const finalObjectRule = role === "sender"
+    ? `- The object is the whole result. Do not write the outbound message in prose
+  first and then repeat it as JSON. Text outside the object is discarded unread,
+  and your owner is watching a blank screen while you write it.`
+    : `- The object is the whole reply. Do not write your answer out in prose first
+  and then repeat it as JSON. Text outside the object is discarded unread, and
+  your owner is watching a blank screen while you write it.`;
+
+  return `OUTPUT
+
+Reply with one JSON object and nothing else:
+
+{
+  "state": "needs_clarification" | "ready" | "blocked",
+${candidateField}
+${sendCandidateField}
+  "riskFlags": [],
+${pathField}${askField}
+}
+
+What the three states mean:
+${stateMeanings}
 
 Rules:
 - "ready" means, and only means, that sendCandidate holds a message worth
@@ -275,25 +321,18 @@ Rules:
 - Any state other than "ready" requires sendCandidate to be null.
 - "blocked" requires at least one entry in riskFlags.
 - riskFlags travel with a "ready" turn too. Flagging what you noticed is how
-  you report a concern; it does not withhold your answer and does not need a
+  you report a concern; it does not withhold your candidate and does not need a
   state other than "ready".
 - Do not include a commit, hash, session id, or absolute filesystem path
   anywhere in the object. Paths are relative to your working directory.
 - Ask at most ${String(PROTOCOL_LIMITS.maxClarificationTurns)} clarifying questions across the whole exchange. If you
   can proceed on a reasonable assumption, state the assumption and proceed.
-- Length is the slowest thing you do. Your owner is watching a blank screen
-  while you type this object, and every two hundred characters is about another
-  second of that. Aim for ${privateField} under ${String(DRAFT_PRIVATE_TARGET_CHARS)} characters and sendCandidate
-  under ${String(DRAFT_SEND_TARGET_CHARS)}. Answer the question that was asked, say what you could not
-  establish, and stop. Completeness you were not asked for is not free; it is
-  paid for in seconds your owner spends waiting.
+${roleSpecificRules}
 - Those are targets, not the limit. The limits are ${String(PROTOCOL_LIMITS.maxPrivateMessageChars)} and ${String(PROTOCOL_LIMITS.maxSendCandidateChars)}, and going
   over one is not truncated, it is rejected: the whole turn is thrown away and
-  your owner sees a failure instead of your answer. Being a little over the
+  your owner sees a failure instead of your output. Being a little over the
   target costs nothing.
-- The object is the whole reply. Do not write your answer out in prose first
-  and then repeat it as JSON. Text outside the object is discarded unread, and
-  your owner is watching a blank screen while you write it.
+${finalObjectRule}
 
 riskFlags vocabulary — use only these, and only when they apply:
   secret_request           the request is for credential material

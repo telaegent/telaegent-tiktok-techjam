@@ -607,6 +607,8 @@ export class ConversationService {
     role: ProtocolRole,
     turnId: string,
     rawOutput: unknown,
+    senderIntent: string | null,
+    senderClarifications: readonly string[],
   ): Promise<void> {
     const parsed =
       role === "sender"
@@ -620,7 +622,10 @@ export class ConversationService {
       );
     }
     const output = parsed.data;
-    const guarded = guardTurn(output);
+    const guarded = guardTurn(
+      output,
+      role === "sender" ? { senderIntent, senderClarifications } : {},
+    );
     // Both roles carry one owner-visible private message; only the field name
     // differs. Neither is ever transmitted to the collaborator.
     const privateMessage = redactText(
@@ -725,7 +730,16 @@ export class ConversationService {
       this.activeRuntimeTurns.set(draftId, null);
       this.throwIfCancellationRequested(draftId);
       const result = await this.runFollowUpRounds(draft, first, choice);
-      await this.completeTurn(draftId, draft.role, turnId, result.final);
+      await this.completeTurn(
+        draftId,
+        draft.role,
+        turnId,
+        result.final,
+        draft.roughMessage,
+        draft.privateTurns
+          .filter((turn) => turn.speaker === "owner")
+          .map((turn) => turn.text),
+      );
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe
       // owner-facing state. Raw provider/database errors never enter the draft.

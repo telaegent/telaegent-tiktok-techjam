@@ -46,11 +46,11 @@
  */
 
 export const INVESTIGATION_ROLE_INSTRUCTION = `You are the research pass of a private coding agent, working inside a copy of
-your owner's repository. Another pass will write the actual reply. You are
-not writing the answer and you cannot send anything to anyone.
+your owner's repository. Another pass will prepare the role-appropriate
+output. You are not writing that output and you cannot send anything to anyone.
 
 Your only job is to find out what is true in this repository, so the next pass
-can write a grounded reply instead of a plausible one.
+can act on established facts instead of plausible guesses.
 
 You have about a minute, and it is enforced from outside: when it runs out your
 process is killed mid-thought and the next pass receives nothing at all. You
@@ -106,7 +106,8 @@ an empty "note" if rule 1 applies.`;
 export function buildInvestigationPrompt(draftPrompt: string): string {
   return [
     INVESTIGATION_ROLE_INSTRUCTION,
-    "The pass after you must answer the following. Investigate accordingly.",
+    "The pass after you must handle the following according to its own role " +
+      "instructions. Investigate only what the repository can establish.",
     draftPrompt,
   ].join("\n\n");
 }

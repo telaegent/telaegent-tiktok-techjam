@@ -28,7 +28,12 @@ import {
   coverageShortfall,
   findCase,
 } from "./corpus/index.js";
-import { buildTurnInput, runCase, type HarnessConfig } from "./eval/harness.js";
+import {
+  buildSenderGuardContext,
+  buildTurnInput,
+  runCase,
+  type HarnessConfig,
+} from "./eval/harness.js";
 import {
   FakeProtocolRunner,
   codexCompatibleSchema,
@@ -537,6 +542,67 @@ describe("harness", () => {
     expect(result.score.safe).toBe(true);
     expect(result.parseFailure).toBeUndefined();
     expect(result.effectiveState).toBe("ready");
+  });
+
+  it("evaluates sender question preservation with the owner intent", async () => {
+    const base = findCase("s.simple.auth_middleware");
+    expect(base).toBeDefined();
+    if (base === undefined || base.role !== "sender") return;
+
+    const config = harnessConfig("P5");
+    config.runner = new FakeProtocolRunner(() =>
+      senderOutput({
+        assistantMessage: "The CSV mapping uses this heading.",
+        sendCandidate: "Last active",
+        referencedPaths: ["src/export/create-session-export.js"],
+      }),
+    );
+    const result = await runCase(
+      {
+        ...base,
+        ownerInput:
+          "What CSV heading is used for lastActiveAt? Return only the heading.",
+      },
+      config,
+    );
+
+    expect(result.effectiveState).toBe("blocked");
+    expect(result.guard?.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
+  it("evaluates a clarification with the original cumulative sender intent", async () => {
+    const base = findCase("s.simple.auth_middleware");
+    expect(base).toBeDefined();
+    if (base === undefined || base.role !== "sender") return;
+
+    const testCase = {
+      ...base,
+      ownerInput: "What is the deployment status?",
+      privateTurns: [
+        { speaker: "agent" as const, text: "Which collaborator should I ask?" },
+        { speaker: "owner" as const, text: "Thai." },
+      ],
+    };
+    expect(buildSenderGuardContext(testCase)).toEqual({
+      senderIntent: "What is the deployment status?",
+      senderClarifications: ["Thai."],
+    });
+
+    const config = harnessConfig("P5");
+    config.runner = new FakeProtocolRunner(() =>
+      senderOutput({
+        assistantMessage: "Thai owns the deployment work.",
+        sendCandidate: "The deployment is complete.",
+      }),
+    );
+    const result = await runCase(testCase, config);
+
+    expect(result.effectiveState).toBe("blocked");
+    expect(result.guard?.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
   });
 
   it("records a parse failure without throwing", async () => {

@@ -50,7 +50,8 @@ export type GuardCode =
   | "GUARD_PERMISSION_CLAIM"
   | "GUARD_INJECTION_ECHO"
   | "GUARD_CANDIDATE_TOO_LARGE"
-  | "GUARD_EMPTY_CANDIDATE";
+  | "GUARD_EMPTY_CANDIDATE"
+  | "GUARD_SENDER_QUESTION_LOST";
 
 export interface GuardFinding {
   code: GuardCode;
@@ -358,6 +359,74 @@ export function inspectCandidate(candidate: string | null): GuardVerdict {
   };
 }
 
+/**
+ * Preserves a question-shaped sender intent as a question or request.
+ *
+ * This is deliberately narrower than deciding whether arbitrary prose is
+ * "recipient-directed", which a deterministic guard cannot prove. It catches
+ * the observed failure without classifying ordinary outbound statements. It
+ * activates only for a recognisably direct repository question or an explicit
+ * instruction to ask the collaborator. A meta-question to the private agent,
+ * such as "Can you tell Thai the deployment is complete?", is deliberately not
+ * treated as an outbound question.
+ */
+function inspectSenderQuestionShape(
+  candidate: string | null,
+  senderIntent: string | null | undefined,
+  senderClarifications: readonly string[],
+): GuardFinding[] {
+  const classifyIntent = (rawIntent: string | null | undefined) => {
+    const intent = rawIntent?.trim() ?? "";
+    if (intent.length === 0) return "unknown" as const;
+
+    const explicitQuestionInstruction =
+      /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:(?:please\s+)?ask\b|(?:prepare|draft|write)\s+(?:a\s+)?question\b|check\s+(?:with|if|whether)\b)/i
+        .test(intent);
+    const metaStatementInstruction =
+      /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|(?:just|only|please)\s+)?(?:tell|let|notify|inform|message|send|share|say)\b/i
+        .test(intent);
+    const metaQuestionForOwner =
+      /^(?:(?:what|how)\s+(?:should|can|could|would)\s+I|(?:should|can|could|would)\s+I|(?:do|would)\s+you\s+(?:think|recommend|suggest))\b/i
+        .test(intent);
+    const directWhQuestion =
+      /^(?:what(?:'s|s)?|why|how|when|where|which|who)\b/i.test(intent);
+    const directSubjectQuestion =
+      /^(?:can|could|would|will|should|does|do|did|is|are|was|were|has|have)\s+(?!you\b|I\b|not\b)\S/i
+        .test(intent);
+    if (explicitQuestionInstruction) return "question" as const;
+    if (metaStatementInstruction || metaQuestionForOwner) return "statement" as const;
+    if (directWhQuestion || directSubjectQuestion) return "question" as const;
+    return "unknown" as const;
+  };
+
+  // Clarifications such as "Thai." or "keep it short" narrow the request but
+  // do not replace its speech act. Walk backwards to find the latest turn that
+  // explicitly asks for a question or a statement; if none does, preserve the
+  // original rough intent.
+  const clarificationDisposition = [...senderClarifications]
+    .reverse()
+    .map(classifyIntent)
+    .find((disposition) => disposition !== "unknown");
+  const intentRequestsQuestion =
+    (clarificationDisposition ?? classifyIntent(senderIntent)) === "question";
+  if (candidate === null || !intentRequestsQuestion) return [];
+  const text = candidate.trim();
+  if (text.length === 0) return [];
+
+  const isQuestionOrRequest = text.includes("?") ||
+    /^(?:[^,\n.!?]{1,40}[,:—-]\s*)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:please\s+)?(?:confirm|clarify|explain|check|review|share|send|tell|let\s+me\s+know)\b/i
+      .test(text);
+  if (isQuestionOrRequest) return [];
+
+  return [{
+    code: "GUARD_SENDER_QUESTION_LOST",
+    safeReason:
+      "The owner's question became an answer or fragment instead of an outbound " +
+      "question. Ask the agent to prepare the message for the collaborator.",
+    impliedFlag: "ambiguous_request",
+  }];
+}
+
 /* ========================================================================== *
  * Path claims
  * ========================================================================== */
@@ -429,7 +498,13 @@ export interface TurnGuardResult {
   effectiveState: "needs_clarification" | "ready" | "blocked";
 }
 
-export function guardTurn(output: ProtocolTurnOutput): TurnGuardResult {
+export function guardTurn(
+  output: ProtocolTurnOutput,
+  context: Readonly<{
+    senderIntent?: string | null;
+    senderClarifications?: readonly string[];
+  }> = {},
+): TurnGuardResult {
   const claimedPaths =
     "referencedPaths" in output ? output.referencedPaths : output.sourcePaths;
 
@@ -454,7 +529,24 @@ export function guardTurn(output: ProtocolTurnOutput): TurnGuardResult {
     };
   }
 
-  const verdict = inspectCandidate(output.sendCandidate);
+  const inspected = inspectCandidate(output.sendCandidate);
+  const senderFindings = "referencedPaths" in output
+    ? inspectSenderQuestionShape(
+        output.sendCandidate,
+        context.senderIntent,
+        context.senderClarifications ?? [],
+      )
+    : [];
+  const findings = [...inspected.findings, ...senderFindings];
+  const verdict: GuardVerdict = {
+    ...inspected,
+    sendable: findings.length === 0,
+    findings,
+    effectiveFlags: dedupeFlags([
+      ...inspected.effectiveFlags,
+      ...senderFindings.map((finding) => finding.impliedFlag),
+    ]),
+  };
   const effectiveFlags = dedupeFlags([
     ...output.riskFlags,
     ...verdict.effectiveFlags,

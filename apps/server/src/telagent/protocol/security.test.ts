@@ -221,6 +221,204 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
     expect(ready.effectiveState).toBe("blocked");
   });
 
+  it("blocks a bare lookup result from becoming a ready sender message", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "The CSV mapping uses this heading for lastActiveAt.",
+        sendCandidate: "Last active",
+        riskFlags: [],
+        referencedPaths: ["src/export/create-session-export.js"],
+      },
+      {
+        senderIntent:
+          "What CSV heading is used for lastActiveAt? Return only the heading.",
+      },
+    );
+
+    expect(sender.effectiveState).toBe("blocked");
+    expect(sender.verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+    expect(sender.verdict.effectiveFlags).toContain("ambiguous_request");
+  });
+
+  it("also preserves explicit ask-for-the-collaborator intents without punctuation", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "Redis stores the sessions.",
+        sendCandidate: "Redis stores the sessions.",
+        riskFlags: [],
+        referencedPaths: ["src/auth/session.ts"],
+      },
+      { senderIntent: "Ask Thai why auth uses Redis here" },
+    );
+
+    expect(sender.effectiveState).toBe("blocked");
+    expect(sender.verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
+  it("preserves clearly question-shaped sender intents without punctuation", () => {
+    for (const senderIntent of [
+      "how does his branch rotate refresh tokens",
+      "what command runs their unit tests",
+      "which file defines Session on their side",
+      "do they have tests covering login",
+      "did justins branch touch src/auth/session.ts",
+      "are they still relying on the old return type",
+      "check if the refresh return type changed",
+    ]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Found an answer in the local repository.",
+          sendCandidate: "Redis",
+          riskFlags: [],
+          referencedPaths: ["src/auth/session.ts"],
+        },
+        { senderIntent },
+      );
+
+      expect(sender.effectiveState, senderIntent).toBe("blocked");
+      expect(
+        sender.verdict.findings.map((finding) => finding.code),
+        senderIntent,
+      ).toContain("GUARD_SENDER_QUESTION_LOST");
+    }
+  });
+
+  it("keeps the bare-fragment check sender-only", () => {
+    const recipient = guardTurn(
+      {
+        state: "ready",
+        privateSummary: "The requested heading is Last active.",
+        sendCandidate: "Last active",
+        riskFlags: [],
+        sourcePaths: ["src/export/create-session-export.js"],
+      },
+      { senderIntent: "What heading is used?" },
+    );
+
+    expect(recipient.effectiveState).toBe("ready");
+    expect(recipient.verdict.findings.map((finding) => finding.code)).not.toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
+  it("allows question and request forms for a question-shaped sender intent", () => {
+    for (const sendCandidate of [
+      "Can you confirm?",
+      "Could you confirm",
+      "Please review this",
+      "Thai, please confirm the deployment status.",
+      "Thai, could you confirm the deployment status",
+    ]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Prepared for review.",
+          sendCandidate,
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        { senderIntent: "Can Thai confirm the behavior?" },
+      );
+      expect(sender.effectiveState).toBe("ready");
+      expect(sender.verdict.findings.map((finding) => finding.code)).not.toContain(
+        "GUARD_SENDER_QUESTION_LOST",
+      );
+    }
+  });
+
+  it("allows a statement produced from a meta-question to the private agent", () => {
+    for (const senderIntent of [
+      "Can you tell Thai the deployment is complete?",
+      "How should I tell Thai the deployment is complete",
+      "Should I send Thai the deployment result?",
+      "Do you recommend sending Thai this update?",
+      "Do not send the deployment update",
+    ]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Prepared the update for Thai.",
+          sendCandidate: "The deployment is complete.",
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        { senderIntent },
+      );
+
+      expect(sender.effectiveState, senderIntent).toBe("ready");
+      expect(
+        sender.verdict.findings.map((finding) => finding.code),
+        senderIntent,
+      ).not.toContain("GUARD_SENDER_QUESTION_LOST");
+    }
+  });
+
+  it("preserves the original question through a narrowing clarification", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "Thai owns the deployment work.",
+        sendCandidate: "The deployment is complete.",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      {
+        senderIntent: "What is the deployment status?",
+        senderClarifications: ["Thai."],
+      },
+    );
+
+    expect(sender.effectiveState).toBe("blocked");
+    expect(sender.verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
+  it("allows a clarification to explicitly change a question into a statement", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "Prepared the clarified update for Thai.",
+        sendCandidate: "The deployment is complete.",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      {
+        senderIntent: "What is the deployment status?",
+        senderClarifications: [
+          "Thai.",
+          "Just tell Thai that the deployment is complete.",
+        ],
+      },
+    );
+
+    expect(sender.effectiveState).toBe("ready");
+    expect(sender.verdict.findings).toEqual([]);
+  });
+
+  it("does not classify ordinary sender statements without a question intent", () => {
+    for (const sendCandidate of ["LGTM", "Deployment complete", "Thanks!"]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Prepared for review.",
+          sendCandidate,
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        { senderIntent: "send a quick update" },
+      );
+      expect(sender.effectiveState).toBe("ready");
+    }
+  });
+
   it("a model's own risk flags neither block nor unblock anything", () => {
     // Flags are hints for the UI. The guards decide.
     const flaggedButClean = guardTurn({
@@ -322,6 +520,15 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
       expect(prompt).toContain("a\n  refusal filed as \"blocked\" is a refusal nobody hears");
       expect(prompt).toContain("riskFlags travel with a \"ready\" turn too");
     }
+  });
+
+  it("keeps sender output instructions outbound instead of answer-shaped", () => {
+    const prompt = senderSystemPrompt();
+    expect(prompt).toContain("the exact outbound message for the collaborator");
+    expect(prompt).toContain("never an answer addressed\n  back to your owner");
+    expect(prompt).toContain("Do not put an answer, extracted value, heading, filename");
+    expect(prompt).not.toContain("Answer the question that was asked");
+    expect(prompt).not.toContain("Answer what was asked");
   });
 
   it("only the answering role is told it may ask for a file", () => {
