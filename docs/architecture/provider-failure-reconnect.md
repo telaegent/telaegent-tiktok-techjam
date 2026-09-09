@@ -1,8 +1,10 @@
 # Provider failure and reconnect behavior
 
 **Owner handoff:** Phuong to backend and frontend
-**Status:** internal lifecycle and normalized terminal payload are implemented;
-the external HTTP/SSE contract remains to be frozen with Duy and Khoa
+
+**Status:** lifecycle, normalized owner-safe failures, draft polling, explicit
+provider recovery, cancellation, and restart reconciliation are implemented;
+packaged two-machine validation remains open
 
 Provider text must never determine product state. The local connector
 normalizes provider behavior; the backend validates that bounded result,
@@ -57,9 +59,10 @@ also succeed. A failed turn never creates or sends a shared message candidate.
 | `RUNTIME_FAILED` | Failed | Preserve durable context; invalidate session only when runtime integrity is uncertain | `retry`, `dismiss` |
 | `RUNTIME_CANCELLED` | Cancelled | No candidate; clean up the owned process | `dismiss` |
 
-The server, not the browser, selects `allowedActions`. The coordinator now
-produces the internal normalized failure and action payload; its external wire
-shape remains a shared API decision.
+The server, not the browser, selects `allowedActions`. Draft polling exposes
+`state: "runtime_failed"` with only the normalized public code, safe message,
+and retryability/action information. Raw provider, process, credential, path,
+and session details remain local and never enter the browser payload.
 
 ## Missing-session recovery
 
@@ -89,11 +92,10 @@ policy and remains the source for later rehydration.
 
 ## Backend restart
 
-Production persistence must ensure durable conversations and terminal turn
-records survive. The current coordinator keeps lifecycle status in memory only;
-database-backed terminal records belong to the shared transport/persistence
-integration. After a restart, an in-flight turn without a confirmed durable
-terminal record must become visibly failed or expired; the backend must never
-fabricate completion. Provider session references are never recovered by the
-cloud backend. The connector may reuse them only if its owner scope and
-binding remain valid.
+Durable conversations and draft states survive a backend restart; active relay
+registrations and provider processes do not. Production startup lists only
+fully scoped `agent_working` drafts and reconciles them to an owner-visible
+`runtime_failed` state explaining that nothing was sent. The backend never
+fabricates completion or resumes the dead process. Provider session references
+are never recovered by the cloud backend; a connector may reuse one only when
+its owner scope and binding remain valid.

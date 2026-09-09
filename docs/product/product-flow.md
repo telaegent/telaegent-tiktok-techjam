@@ -35,8 +35,10 @@ Human approval can be *narrowed and reused* within one task, never widened. See
 2. User opens the exact local repository root and runs `tlg connect`. The CLI
    uses the user's local GitHub CLI identity to verify access, then displays the
    canonical root and GitHub `owner/name` for confirmation.
-3. The connector detects the user's locally authenticated Claude Code, Codex,
-   or both, and the user selects which available provider to connect.
+3. The connector shows Claude Code and Codex setup status before authorizing the
+   machine. The user selects one or both, may fix local setup and check again,
+   and each selected provider must pass a real relay probe before it is
+   advertised as available.
 4. On first use, the CLI opens a short-lived Telaegent browser approval page and
    stores the resulting machine credential in the operating-system credential
    vault.
@@ -46,7 +48,7 @@ Human approval can be *narrowed and reused* within one task, never widened. See
 6. Telaegent identifies other users who independently proved access to the same repository ID.
 7. User requests a project-scoped collaborator connection; the recipient accepts or declines once, until revoked.
 8. Sender types a rough request. It remains private and does not enter shared chat.
-9. Sender's local private agent may inspect the sender's own local project workspace, review bounded approved conversation context, ask clarification, flag risk, and prepare a send candidate.
+9. Sender's local private agent may inspect the sender's own local project workspace, review bounded approved conversation context, ask clarification, flag risk, and prepare a send candidate. The deterministic guard evaluates the original rough request plus cumulative owner clarifications so a request to ask the collaborator cannot silently turn into an answer addressed back to the owner.
 10. Sender chooses Send, Edit, or No. Only explicit Send can append the candidate to the shared conversation.
 11. Recipient sees the approved request. Recipient's local connector dispatches it only to the recipient's local private agent, which may inspect only the registered local project workspace and prepare an answer candidate.
 12. The recipient agent may need files it does not own. It asks the sender's connector for them. The first request for a file the sender has not granted for this task pauses for the sender to choose Deny, Allow once, or Allow for this task. A file already granted for this task, to this peer, read-only, then resolves automatically by opaque resource ID without interrupting the sender again.
@@ -74,8 +76,9 @@ The system must never show raw secret values merely to ask whether they may be s
 
 Full specification in [canonical build plan section 8](canonical-build-plan.md).
 Task/grant contracts, the resource broker and the bounded autonomous loop are
-built. The owner still answers a scope request through the API rather than the
-approval dialog, which is not built yet.
+built. The browser presents the scope request and lets the owner choose Deny,
+Allow once, or Allow for this task; it also lists active grants and can revoke
+one individually.
 
 Agents may collaborate autonomously, but only inside authority a human already
 granted:
@@ -114,7 +117,7 @@ stay on each developer's machine. Telaegent cloud owns the browser product,
 identity, project permissions, routing, approvals, shared conversations,
 presence, safe audit, and compact shared memory.
 
-The connector opens an outbound HTTPS/WebSocket connection. No LAN, peer-to-peer
+The connector opens outbound HTTPS long polls. No LAN, peer-to-peer
 link, inbound developer-machine port, cloud-hosted provider CLI, or cloud repo
 checkout is part of the architecture.
 
@@ -130,15 +133,24 @@ Durable shared state:
 - task IDs, opaque resource IDs and safe resource metadata, and capability
   grant/expiry/revocation events
 
-Private/local state:
+Owner-private cloud state:
+
+- rough drafts, clarification turns, candidate state, and normalized failures
+- exact approval records committed atomically with the approved message append
+
+Local-only state:
 
 - GitHub/provider credentials and provider home directories
 - repository checkout, local tool output, and provider sessions
 - canonical local paths and the resource-ID mapping behind them
-- rough drafts and clarification turns
 - raw provider streams and temporary tool output
 
 Provider sessions accelerate work but never replace Telaegent's durable shared conversation.
+
+Newly completed private-agent output and newly arrived peer messages may reveal
+with a short typewriter animation. Loaded or recovered history is immediately
+readable, peer-message animations are queued in order, and reduced-motion
+preferences disable the effect. This presentation never affects durable state.
 
 ## Claims we do not make
 

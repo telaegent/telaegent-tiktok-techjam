@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> Telaegent has an end-to-end connector proof: each developer's machine proves repository access through that developer's own GitHub CLI and holds an outbound job connection while approved messages cross through the shared project conversation. The new short-lived browser authorization flow is merged and CI-validated, but is not a production claim until its migration, connector `0.2.3` package, and two-machine acceptance run are complete.
+> Telaegent has an end-to-end connector proof: each developer's machine proves repository access through that developer's own GitHub CLI and holds an outbound job connection while approved messages cross through the shared project conversation. The short-lived browser authorization flow is merged and CI-validated, and connector `0.2.3` is published on npm. Production migration verification and the signed-in two-machine acceptance run remain release gates.
 
 A deployed control plane runs at **<https://telaegent.live>**. It serves the browser product and the API from one origin; agents still run on each developer's own machine through the connector below.
 
@@ -115,12 +115,12 @@ The minimum execution isolation unit is **user × repository**. The cloud select
 | Agent execution | Local connector binding per user × repository |
 | Coding providers | Locally authenticated Claude Code CLI and/or Codex CLI |
 
-The cloud host runs only the control plane and connector relay. A publishable
-connector package, outbound transport, local binding enforcement, and provider
-probes exist in the source tree. Browser-authorized machine credentials are
-implemented and merged; production migration, registry publication, secure
-update delivery, and the signed-in two-machine acceptance run remain release
-gates.
+The cloud host runs only the control plane and connector relay. Connector
+`0.2.3` is published on npm with outbound transport, local binding enforcement,
+browser-authorized machine credentials, repository revalidation, and provider
+probes. Production migration verification, secure update policy, release
+automation configuration, and the signed-in two-machine acceptance run remain
+release gates.
 
 ## Connect a repository
 
@@ -161,15 +161,20 @@ use `tlg auth logout` to revoke the remembered machine authorization itself.
 
 Provider sessions make work faster, but they are private working caches - not Telaegent's source of truth. When a session is lost or a user switches provider, a new session should be rehydrated from compact durable project memory and recent approved turns.
 
-## Research before broad implementation
+## Implemented evidence and remaining validation
 
-The product direction is frozen; the final implementation plan intentionally waits for evidence on:
+The product direction is frozen and the main vertical slice is implemented.
+Automated coverage now exercises local GitHub proof, safe repository
+registration and revocation, Claude/Codex detection and live-probe contracts,
+device authorization, outbound long polling, user × repository isolation,
+provider sessions, bounded protocol output, private-draft recovery, and the
+human-gated message path.
 
-- local GitHub CLI proof, safe repository registration, and revocation;
-- local Claude Code and Codex authentication detection, session behavior, and live connection probes;
-- connector authentication, outbound transport, user × repository binding, reconnect, cost, and latency;
-- the smallest safe, provider-neutral context and structured-output contract;
-- private-draft retention and recovery behavior.
+The remaining work is operational and adversarial validation: deploy and
+verify the latest migration, complete the signed-in two-machine packaged run,
+configure protected npm release automation and update policy, measure live
+latency/cost, and probe revocation and local isolation beyond the deterministic
+test suite.
 
 The source tree also preserves an inherited Starter Kit and earlier Telaegent work, including legacy ModelArk/Volcengine and fixed conflict/ContextPack/Phoenix flows. Those are retained for historical reference and build continuity, not as the canonical architecture. See [`unused-code/`](unused-code/README.md) for retired standalone material.
 
@@ -221,7 +226,7 @@ dependencies, builds the application, and reports every missing external
 static prerequisite. It never hides provider, GitHub, or Supabase sign-in, and
 never mistakes installed/configured for live-ready. The connector command
 performs the real repository/provider/relay probe.
-Use connector `0.2.2` or newer for this flow.
+Use connector `0.2.3` or newer for this flow.
 
 See [the cross-platform setup guide](docs/setup.md) for full two-user connector
 setup, exact environment values, diagnostics, and the boundary between

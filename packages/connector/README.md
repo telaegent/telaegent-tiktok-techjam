@@ -8,7 +8,7 @@ an outbound connection to the Telaegent control plane.
 Install the CLI once:
 
 ```bash
-npm install --global @telaegent/connector
+npm install --global @telaegent/connector@0.2.3
 ```
 
 Then open a terminal at the exact root of the repository you want to connect:

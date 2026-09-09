@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the target architecture from the [canonical product plan](../product/high-level-plan.md). The local connector, outbound relay, browser device authorization, repository proof, provider probes, and human-gated message path are implemented and covered by CI. Production deployment of the revised migration, connector `0.2.1` publication, and the signed-in two-machine acceptance run remain release gates. The inherited Starter Kit and earlier prototypes remain in the tree as legacy scaffold.
+This document describes the target architecture from the [canonical product plan](../product/high-level-plan.md). The local connector, outbound relay, browser device authorization, repository proof, provider probes, human-gated message path, and capability approval/revocation path are implemented and covered by CI. Connector `0.2.3` is published on npm. Production migration verification, protected release automation, and the signed-in two-machine acceptance run remain release gates. The inherited Starter Kit and earlier prototypes remain in the tree as legacy scaffold.
 
 ## Product topology
 
@@ -84,6 +84,12 @@ incoming shared message -> recipient private agent -> recipient approval -> shar
 
 Only approved content belongs to the shared conversation. Provider sessions are caches; Supabase-backed Telaegent conversation state is durable memory.
 
+The browser animates only newly completed private-agent output and genuinely
+new peer messages. Existing or recovered history renders immediately, incoming
+message reveals are serialized, and `prefers-reduced-motion` disables the
+typewriter presentation. Animation is presentation only; it never changes
+message ordering, persistence, approval, or delivery state.
+
 ## Capability-scoped resource requests
 
 Specified in [canonical build plan section 8](../product/canonical-build-plan.md).
@@ -92,9 +98,9 @@ enforcement, the scope-expansion queue, the bounded autonomous rounds and the
 owner-facing approval screen are implemented: a scope request is answered in
 the browser, with Deny, Allow once and Allow for this task.
 
-Not yet built: inspecting and individually revoking a grant that was already
-allowed. Once "Allow for this task" is given, the owner can see the decision
-but cannot withdraw that one grant short of the task expiring.
+Owners can inspect active grants and revoke one individually. Revocation is
+propagated to the relay and connector-local reference monitor; a queued or
+stale cloud assertion for that grant is stripped or denied before a file read.
 
 A recipient's agent often needs a file it does not own. The request path keeps
 the cloud out of the decision:
@@ -131,18 +137,19 @@ P0 does not require a GitHub App. The connector uses the developer's existing lo
 
 Collaborator discovery uses mutual proof: both Telaegent users independently connected the same stable GitHub repository ID. It does not depend on one user having permission to enumerate every repository collaborator.
 
-## Unresolved gates
+## Remaining release and product gates
 
-- connector update policy and signed-in two-machine release validation
-- local Claude Code/Codex probing and supported non-interactive invocation
-- WebSocket versus long-poll job delivery and reconnect semantics
-- local user x repository workspace/provider-session isolation
-- private-draft retention
-- capability-grant storage, expiry, and revocation semantics
-- resource-ID stability across a task when the underlying file changes
-- follow-up round, request, and byte limits that stay useful without stalling
-- safe repository metadata refresh/branch policy
-- polling versus SSE versus Supabase Realtime
-- measured latency and cost
+- production deployment and verification of the latest device-authorization
+  migration
+- protected npm release automation, provenance policy, and connector update
+  policy
+- signed-in two-machine packaged validation across Claude-only, Codex-only,
+  dual-provider, reconnect, revocation, and partial-provider-failure paths
+- private-draft retention policy
+- resource-ID behavior when a file is renamed or deleted during a task
+- safe branch/worktree metadata policy beyond the current periodic proof refresh
+- durable relay/redelivery across a control-plane restart
+- measured live latency, cost, and adversarial isolation/revocation evidence
 
-Do not freeze these through code before the owner briefs' experiments are complete.
+These are not permission to replace the implemented architecture with cloud
+provider execution, LAN workers, or LLM-decided authorization.

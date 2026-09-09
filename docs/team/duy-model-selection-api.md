@@ -1,7 +1,7 @@
 # Model and effort selection — API for the frontend
 
 **For:** Duy · **From:** Phuong (server/runtime) · **Date:** 2026-09-06
-**Status:** implemented on `feat/model-selection`, not yet merged
+**Status:** implemented and merged on `main`
 **Scope:** two additions to the existing API. Nothing already shipped changes.
 
 ---
