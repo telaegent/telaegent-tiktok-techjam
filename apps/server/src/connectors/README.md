@@ -58,10 +58,12 @@ legacy shared API token is not connector authentication.
 
 The npm artifact is built from the canonical compiled connector with
 `npm run connector:package`; it does not contain a second implementation.
-Until `0.2.1` is published, source-checkout developers run
-`npm run connector:connect -- connect . --url http://localhost:3000`. The
-ignored `connector.env` and browser-issued `--pair` path remain compatibility
-and recovery mechanisms, not normal onboarding.
+Connector `0.2.2` is the minimum supported production release; `0.2.1` sent
+unreleased readiness fields that the production server rejects. Source-checkout
+developers run
+`npm run connector:connect -- connect . --url http://localhost:3000`. The ignored
+`connector.env` and browser-issued `--pair` path remain compatibility and recovery
+mechanisms, not normal onboarding.
 
 By default, the connector detects locally authenticated providers before it
 begins browser authorization. It always shows both CLIs with their local setup
