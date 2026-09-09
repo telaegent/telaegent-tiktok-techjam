@@ -2899,6 +2899,10 @@ html[data-theme="dark"] .app-rail button > img {
   background: var(--surface);
 }
 
+.project-list-empty {
+  margin-top: 18px;
+}
+
 .api-state.error,
 .private-runtime-error {
   border-color: color-mix(in srgb, var(--caution) 42%, var(--line));
