@@ -320,6 +320,49 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
     );
   });
 
+  it("preserves the original question through a narrowing clarification", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "Thai owns the deployment work.",
+        sendCandidate: "The deployment is complete.",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      {
+        senderIntent: "What is the deployment status?",
+        senderClarifications: ["Thai."],
+      },
+    );
+
+    expect(sender.effectiveState).toBe("blocked");
+    expect(sender.verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
+  it("allows a clarification to explicitly change a question into a statement", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "Prepared the clarified update for Thai.",
+        sendCandidate: "The deployment is complete.",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      {
+        senderIntent: "What is the deployment status?",
+        senderClarifications: [
+          "Thai.",
+          "Just tell Thai that the deployment is complete.",
+        ],
+      },
+    );
+
+    expect(sender.effectiveState).toBe("ready");
+    expect(sender.verdict.findings).toEqual([]);
+  });
+
   it("does not classify ordinary sender statements without a question intent", () => {
     for (const sendCandidate of ["LGTM", "Deployment complete", "Thanks!"]) {
       const sender = guardTurn(

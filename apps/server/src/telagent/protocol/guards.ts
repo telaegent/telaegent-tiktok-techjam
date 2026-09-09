@@ -373,25 +373,42 @@ export function inspectCandidate(candidate: string | null): GuardVerdict {
 function inspectSenderQuestionShape(
   candidate: string | null,
   senderIntent: string | null | undefined,
+  senderClarifications: readonly string[],
 ): GuardFinding[] {
-  const intent = senderIntent?.trim() ?? "";
-  const explicitQuestionInstruction =
-    /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:(?:please\s+)?ask\b|(?:prepare|draft|write)\s+(?:a\s+)?question\b|check\s+with\b)/i
-      .test(intent);
-  const metaStatementInstruction =
-    /^(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:tell|let|notify|inform|message|send|share|say)\b/i
-      .test(intent);
-  const metaQuestionForOwner =
-    /^(?:(?:what|how)\s+(?:should|can|could|would)\s+I|(?:should|can|could|would)\s+I|(?:do|would)\s+you\s+(?:think|recommend|suggest))\b/i
-      .test(intent);
-  const directWhQuestion =
-    /\b(?:what|why|how|when|where|which|who)\b[^?]*\?/i.test(intent);
-  const directSubjectQuestion =
-    /^(?:can|could|would|will|should|does|do|did|is|are|was|were|has|have)\s+(?!you\b|I\b)[^?]*\?/i
-      .test(intent);
-  const intentRequestsQuestion = explicitQuestionInstruction ||
-    (!metaStatementInstruction && !metaQuestionForOwner &&
-      (directWhQuestion || directSubjectQuestion));
+  const classifyIntent = (rawIntent: string | null | undefined) => {
+    const intent = rawIntent?.trim() ?? "";
+    if (intent.length === 0) return "unknown" as const;
+
+    const explicitQuestionInstruction =
+      /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:(?:please\s+)?ask\b|(?:prepare|draft|write)\s+(?:a\s+)?question\b|check\s+with\b)/i
+        .test(intent);
+    const metaStatementInstruction =
+      /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|(?:just|only|please)\s+)?(?:tell|let|notify|inform|message|send|share|say)\b/i
+        .test(intent);
+    const metaQuestionForOwner =
+      /^(?:(?:what|how)\s+(?:should|can|could|would)\s+I|(?:should|can|could|would)\s+I|(?:do|would)\s+you\s+(?:think|recommend|suggest))\b/i
+        .test(intent);
+    const directWhQuestion =
+      /\b(?:what|why|how|when|where|which|who)\b[^?]*\?/i.test(intent);
+    const directSubjectQuestion =
+      /^(?:can|could|would|will|should|does|do|did|is|are|was|were|has|have)\s+(?!you\b|I\b)[^?]*\?/i
+        .test(intent);
+    if (explicitQuestionInstruction) return "question" as const;
+    if (metaStatementInstruction || metaQuestionForOwner) return "statement" as const;
+    if (directWhQuestion || directSubjectQuestion) return "question" as const;
+    return "unknown" as const;
+  };
+
+  // Clarifications such as "Thai." or "keep it short" narrow the request but
+  // do not replace its speech act. Walk backwards to find the latest turn that
+  // explicitly asks for a question or a statement; if none does, preserve the
+  // original rough intent.
+  const clarificationDisposition = [...senderClarifications]
+    .reverse()
+    .map(classifyIntent)
+    .find((disposition) => disposition !== "unknown");
+  const intentRequestsQuestion =
+    (clarificationDisposition ?? classifyIntent(senderIntent)) === "question";
   if (candidate === null || !intentRequestsQuestion) return [];
   const text = candidate.trim();
   if (text.length === 0) return [];
@@ -483,7 +500,10 @@ export interface TurnGuardResult {
 
 export function guardTurn(
   output: ProtocolTurnOutput,
-  context: Readonly<{ senderIntent?: string | null }> = {},
+  context: Readonly<{
+    senderIntent?: string | null;
+    senderClarifications?: readonly string[];
+  }> = {},
 ): TurnGuardResult {
   const claimedPaths =
     "referencedPaths" in output ? output.referencedPaths : output.sourcePaths;
@@ -511,7 +531,11 @@ export function guardTurn(
 
   const inspected = inspectCandidate(output.sendCandidate);
   const senderFindings = "referencedPaths" in output
-    ? inspectSenderQuestionShape(output.sendCandidate, context.senderIntent)
+    ? inspectSenderQuestionShape(
+        output.sendCandidate,
+        context.senderIntent,
+        context.senderClarifications ?? [],
+      )
     : [];
   const findings = [...inspected.findings, ...senderFindings];
   const verdict: GuardVerdict = {

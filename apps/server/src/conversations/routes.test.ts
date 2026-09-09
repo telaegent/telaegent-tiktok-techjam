@@ -972,7 +972,7 @@ describe("canonical conversation API", () => {
     await app.close();
   });
 
-  it("uses the latest owner clarification when guarding a completed sender turn", async () => {
+  it("allows an owner clarification to explicitly change the sender speech act", async () => {
     const test = harness();
     const firstTurn = test.queueTurn();
     const secondTurn = test.queueTurn();
@@ -1047,6 +1047,86 @@ describe("canonical conversation API", () => {
     const ready = await test.service.getDraft(OWNER, draftId);
     expect(ready.sendCandidate).toBe("The deployment is complete.");
     expect(ready.guardFindings).toEqual([]);
+    await app.close();
+  });
+
+  it("keeps the original question intent after a narrowing clarification", async () => {
+    const test = harness();
+    const firstTurn = test.queueTurn();
+    const secondTurn = test.queueTurn();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${CONVERSATION}/drafts`,
+      headers: { "x-test-user": OWNER },
+      payload: {
+        githubRepositoryId: REPOSITORY,
+        provider: "codex",
+        roughMessage: "What is the deployment status?",
+      },
+    });
+    const draftId = created.json().draft.draftId as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+    firstTurn.resolve({
+      provider: "codex",
+      final: {
+        state: "needs_clarification",
+        assistantMessage: "Which collaborator should I ask?",
+        sendCandidate: null,
+        riskFlags: ["ambiguous_request"],
+        referencedPaths: [],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 20,
+    });
+    await expect.poll(() => test.service.getDraft(OWNER, draftId).then((draft) => draft.state)).toBe(
+      "needs_clarification",
+    );
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/messages`,
+      headers: { "x-test-user": OWNER },
+      payload: { content: "Thai." },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+    secondTurn.resolve({
+      provider: "codex",
+      final: {
+        state: "ready",
+        assistantMessage: "Thai owns the deployment work.",
+        sendCandidate: "The deployment is complete.",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 20,
+    });
+
+    await expect.poll(() => test.service.getDraft(OWNER, draftId).then((draft) => draft.state)).toBe(
+      "blocked",
+    );
+    const blocked = await test.service.getDraft(OWNER, draftId);
+    expect(blocked.sendCandidate).toBeNull();
+    expect(blocked.guardFindings).toEqual([
+      expect.objectContaining({ code: "GUARD_SENDER_QUESTION_LOST" }),
+    ]);
     await app.close();
   });
 
