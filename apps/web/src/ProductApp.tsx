@@ -1247,7 +1247,7 @@ function ProjectsScreen({
             </div>
           )}
           {!loading && !error && grouped.active.length === 0 && (
-            <div className="api-state">
+            <div className="api-state project-list-empty">
               <strong>No active repositories</strong>
               <p>
                 Run the local connector from the intended Git repository root,
