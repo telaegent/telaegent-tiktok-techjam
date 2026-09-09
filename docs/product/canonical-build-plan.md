@@ -133,7 +133,7 @@ tlg connect
 or:
 
 ```bash
-npm install --global @telaegent/connector
+npm install --global @telaegent/connector@0.2.3
 tlg connect
 ```
 
@@ -664,6 +664,10 @@ Prove these first:
 15. Final cross-user reply still requires owner's **Send**.
 
 If these work, the core Telaegent architecture works.
+
+All fifteen paths now have deterministic implementation and automated coverage;
+connector `0.2.3` is published. The remaining proof is the signed-in,
+two-machine packaged acceptance run against the production migration and relay.
 
 ---
 

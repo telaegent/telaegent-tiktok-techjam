@@ -15,6 +15,14 @@ Browser-first does not mean cloud agent execution. Telaegent cloud is the
 coordination plane and message relay; it does not host provider CLIs or user
 repository checkouts.
 
+**Implementation checkpoint — 2026-09-09:** the connector, device
+authorization, repository proof/revalidation, provider probes, outbound
+long-poll relay, symmetric private drafts, human-gated shared messages,
+capability approval/revocation, and restart reconciliation are implemented and
+covered by CI. Connector `0.2.3` is published on npm. Production migration
+verification, protected release automation, and the signed-in two-machine
+packaged acceptance run remain gates rather than completed claims.
+
 
 **Status:** New canonical high-level product direction  
 **Scope:** Product idea, user experience, trust model, and high-level architecture only  
@@ -129,10 +137,10 @@ The connector transport is outbound long-polling. The control plane does not
 provision provider runtimes. The previous browser-issued pairing path, local
 repository proof, job delivery and the human-gated message flow have been
 exercised against the live deployment. The `tlg connect` device-authorization
-replacement and `tlg disconnect` are merged on `main` and validated by the
-cross-platform, fresh-PostgreSQL, package and container CI checks. They still
-require production migration deployment, npm publication and the signed-in
-two-machine acceptance run before they become a production claim.
+replacement and `tlg disconnect` are merged on `main`, connector `0.2.3` is
+published, and cross-platform, fresh-PostgreSQL, package and container CI checks
+pass. Production migration verification and the signed-in two-machine packaged
+run are still required before this becomes a production claim.
 
 ---
 
@@ -1262,30 +1270,36 @@ The core product is much smaller:
 
 ---
 
-## 24. Important open decisions
+## 24. Settled mechanics and remaining decisions
 
-These are intentionally left unresolved until the implementation plan is written.
+The main P0 mechanics below are now implemented. The remaining items are
+product, operations, or live-validation decisions; they must not be used to
+reopen the canonical cloud/local trust boundary.
 
 ### 24.1 Local GitHub proof mechanics
 
-Current direction: use the developer's existing local Git/GitHub CLI state and
-register only safe repository metadata.
+Implemented: use the developer's existing local Git/GitHub CLI state, require
+the exact canonical repository root, resolve a stable numeric GitHub repository
+ID, register only allowlisted safe metadata, refresh proof every five minutes
+and after reconnect, and suspend/revoke only the affected binding without
+uploading a local path.
 
-Still to validate:
+Still to validate or decide:
 
-- exact stable repository-ID proof from a selected local remote
 - organization SSO / restricted-organization behavior
-- handling repositories without a GitHub remote
-- revalidation and revocation while the connector is offline
-- safe repository registration without uploading local paths
+- product handling for repositories without a GitHub remote
+- controlled live private/internal/collaborator-not-owner evidence
+- long-term proof/idempotency-record retention
 
 A GitHub App is **not required for the P0 architecture**, though it remains a possible future production authorization model.
 
 ### 24.2 Provider connection mechanics
 
-The product behavior is clear — connect once, verify with a live local CLI call,
-and publish safe availability state — but connector packaging and local
-provider/session binding should be designed separately.
+The published connector supports Claude Code, Codex, or both; explicit
+selection, check-again recovery, partial-provider success, live relay probes,
+provider-scoped sessions, and safe availability state are implemented. Still
+open are the packaged two-machine acceptance run, signed update policy, and
+protected automated npm publication.
 
 ### 24.3 Private-agent transcript retention
 
@@ -1317,20 +1331,19 @@ let one become an argument for the other.
 
 The policy is settled in [canonical build plan section 8](canonical-build-plan.md):
 automatic access requires same task, same peer, same exact resource, read-only,
-an unexpired grant, and safe resolution inside the registered project. What the
-implementation plan still has to decide:
+an unexpired grant, and safe resolution inside the registered project. The
+task/grant persistence, scope-expansion UI, local resource registry and file
+broker, bounded follow-up rounds and bytes, active-grant list, and individual
+revocation propagation are implemented.
 
-- where a task's initial grant comes from: whether the sender attaches files
-  when sending, or the first request is always a prompt
-- where capability grants live, and how expiry and revocation propagate to a
-  connector that was offline when the owner revoked
-- whether a resource ID stays stable when the file is renamed or deleted, not
-  only when its contents change
-- the actual follow-up round, per-round request, and total-byte limits, and how
-  the UI explains hitting one
-- how a task ends, since task-scoped grants expire with it
-- whether the owner gets a running view of what has been auto-served, and how
-  they revoke mid-task
+Still to decide or validate:
+
+- whether an initial grant can be attached when sending or the first resource
+  request always prompts
+- resource-ID behavior when a file is renamed or deleted
+- the final product definition of task closure and retention
+- how much delivered-resource audit detail is durably exposed to owners
+- live revocation behavior across a disconnected connector
 
 ---
 
@@ -1396,13 +1409,14 @@ Using local GitHub CLI avoids a Telaegent-held GitHub credential. The connector
 may call `gh` locally, but it returns only safe identity/repository proof and
 never credential files, token-bearing output, or local paths.
 
-### 25.10 Connector authentication and local binding are major gates
+### 25.10 Connector authentication and local binding remain critical boundaries
 
 The product requires each user's local Claude Code/Codex identity and selected
 repository to be bound to the correct opaque connector registration without
 leaking local state or accepting arbitrary work.
 
-Before broad implementation, prove:
+The implementation and deterministic tests now cover the following contract;
+the signed-in packaged two-machine run remains the live proof:
 
 ```text
 register connector once

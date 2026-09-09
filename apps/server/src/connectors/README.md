@@ -1,14 +1,12 @@
 # Cloud-to-local connector seam
 
-> **Status: first sender pipeline implemented; broader connector product still
-> pending.** The cloud now has a bounded long-poll `ConnectorJobRelay`, dedicated
-> revocable connector credentials, repository-proof binding activation, safe
-> progress/result routes, cancellation, and a connector-side reference monitor.
-> With Supabase authorization and conversation persistence enabled, the browser
-> sender-draft API is composed through a durable context loader and this relay.
-> Do not describe the complete two-user collaboration product as end to end yet:
-> recipient-job orchestration, polished connector setup, and deployed live proof
-> remain open.
+> **Status: connector and symmetric private-turn pipeline implemented.** The
+> cloud has a bounded long-poll `ConnectorJobRelay`, dedicated revocable device-
+> authorized credentials, repository-proof binding activation and refresh,
+> safe progress/result routes, cancellation, and a connector-side reference
+> monitor. Sender and recipient drafts both use the durable conversation context
+> loader and relay. Connector `0.2.3` is published; production migration
+> verification and the signed-in two-machine packaged proof remain open.
 
 Canonical cloud orchestration dispatches an authorized, bounded, path-free job
 through `ConnectorTurnExecutor`. A job contains an opaque connector binding,
@@ -58,7 +56,7 @@ legacy shared API token is not connector authentication.
 
 The npm artifact is built from the canonical compiled connector with
 `npm run connector:package`; it does not contain a second implementation.
-Connector `0.2.2` is the minimum supported production release; `0.2.1` sent
+Connector `0.2.3` is the minimum supported production release; `0.2.1` sent
 unreleased readiness fields that the production server rejects. Source-checkout
 developers run
 `npm run connector:connect -- connect . --url http://localhost:3000`. The ignored
@@ -125,8 +123,8 @@ ready binding from durable authorization state. Revoked, suspended, stale, and
 unavailable bindings fail closed. This costs one bounded status lookup per
 binding recovery, not one database call per poll.
 
-The `@telaegent/connector` artifact and cross-platform CLI are implemented, but
-the 0.2 registry publication and a two-machine packaged live proof remain
+The `@telaegent/connector` artifact and cross-platform CLI are implemented, and
+version `0.2.3` is published on npm. A two-machine packaged live proof remains
 release work. `tlg connect` creates the future bearer locally, sends only its
 hash, and uses a short-lived browser approval. One database transaction
 activates that precommitted hash, so a lost success response can be retried
@@ -135,7 +133,8 @@ recovery window at the authorization deadline. Anonymous creation and token
 polling have separate verified-IP limits. The bearer never enters browser
 state, the cloud, clipboard, shell history, or process arguments and is
 persisted only in the operating-system credential vault. Installer/update
-signing and durable presence telemetry remain follow-up work.
+signing, protected automated publication, and durable presence telemetry remain
+follow-up work.
 
 ## Resource requests (loop closed end to end)
 

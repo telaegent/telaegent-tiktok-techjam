@@ -1,7 +1,9 @@
 # Local connector execution requirements
 
 **Owner handoff:** Phuong to Thai and Khoa
-**Status:** required boundary; connector mechanism remains open
+
+**Status:** implemented and covered by deterministic connector/runtime tests;
+signed-in two-machine and adversarial production validation remain open
 
 This contract describes what a private Claude Code or Codex turn needs from
 the local connector. Telaegent cloud authorizes and routes bounded work; it
@@ -125,6 +127,9 @@ Provider session loss deletes/recreates only local cache. It must not delete
 the durable approved Telaegent conversation.
 
 ## Acceptance checks
+
+The repository's automated suites cover the following contracts. They are not
+a substitute for the remaining packaged two-machine acceptance run.
 
 - a connector reconnects to the same authorized opaque binding;
 - Repo A jobs cannot resolve Repo B or paths outside the registered workspace;

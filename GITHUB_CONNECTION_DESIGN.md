@@ -1,7 +1,7 @@
 # Telaegent GitHub Connection Design
 
 **Status:** Canonical hackathon decision  
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-09
 **Scope:** Local GitHub identity, repository proof, connector binding,
 collaborator verification, revalidation, and revocation
 
@@ -124,7 +124,7 @@ user, project, repository, purpose, expiry, and integrity.
 
 ## 5. Repository discovery
 
-P0 may begin from `telaegent connect .`, which avoids uploading or enumerating
+P0 begins from `tlg connect` at the exact repository root, which avoids uploading or enumerating
 the developer's entire repository list. If a local repository picker is added,
 the connector may use the authenticated-user repository API through local
 `gh api`; `gh repo list` alone is not a universal list of accessible repos.
@@ -216,31 +216,33 @@ GitHub CLI custody must not be revived as the product onboarding path.
 
 ## 11. Implementation checklist
 
-- [ ] Implement `telaegent connect .` or equivalent.
-- [ ] Authenticate connector-to-cloud without exposing local credentials.
-- [ ] Verify `gh auth status` locally.
+- [x] Implement `tlg connect` at the exact repository root.
+- [x] Authenticate connector-to-cloud without exposing local credentials.
+- [x] Verify `gh auth status` locally.
 - [x] Bind the connector's local GitHub numeric identity to the authenticated
       Telaegent account before repository registration.
 - [x] Accept the same strict local proof contract for public, private, and
       internal repositories.
-- [ ] Resolve normalized remote and stable numeric GitHub repository ID locally.
-- [ ] Register safe repository/branch/commit metadata only.
-- [ ] Store an opaque cloud connector binding with presence state.
-- [ ] Store the binding-to-workspace mapping only on the developer machine.
-- [ ] Detect and live-probe local Claude Code/Codex.
-- [ ] Implement outbound WebSocket or long-poll delivery.
-- [ ] Sign/validate, expire, acknowledge, cancel, and deduplicate bounded jobs.
-- [ ] Revalidate project/repository access before execution when required.
-- [ ] Test two users with the same repository ID.
-- [ ] Test unauthorized user and Repo A -> Repo B denial.
-- [ ] Test offline/reconnect/revoked connector behavior.
-- [ ] Test that no path, token, credential file, or repository content appears in
+- [x] Resolve normalized remote and stable numeric GitHub repository ID locally.
+- [x] Register safe repository/branch/commit metadata only.
+- [x] Store an opaque cloud connector binding with presence state.
+- [x] Store the binding-to-workspace mapping only on the developer machine.
+- [x] Detect and live-probe local Claude Code/Codex.
+- [x] Implement outbound long-poll delivery and bounded reconnect backoff.
+- [x] Validate, expire, acknowledge, cancel, and deduplicate bounded jobs.
+- [x] Revalidate project/repository access periodically and after transport recovery.
+- [x] Test two users with the same repository ID in deterministic/SQL contracts.
+- [x] Test unauthorized user and Repo A -> Repo B denial.
+- [x] Test offline/reconnect/revoked connector behavior.
+- [x] Test that no path, token, credential file, or repository content appears in
       cloud registration, logs, or job payloads.
+- [ ] Complete the signed-in packaged two-machine acceptance run.
+- [ ] Define and verify signed update/protected automated publication policy.
 
 ## 12. Demo script
 
 ```text
-1. Phuong signs into Telaegent and runs `telaegent connect .` locally.
+1. Phuong signs into Telaegent and runs `tlg connect` at the repository root.
 2. The connector verifies Phuong's local GitHub identity and repository ID.
 3. It detects and probes Phuong's locally authenticated Codex.
 4. Justin independently registers the same repository ID and local Claude Code.

@@ -45,7 +45,7 @@ is 660 agent turns.
 Useful flags: `--formats P3,P5`, `--memory M5`, `--cases r.secret`, and
 `--metadata full|no-revision|repository-only` for metadata ablations.
 
-## Four things to know before changing anything here
+## Five things to know before changing anything here
 
 **The layers each assume the one above failed.** Schema, then guards, then the
 human. A `blocked` state from the model does not skip the guards, and clean
@@ -63,6 +63,15 @@ its exemptions before its detection, so commits and digests survive.
 them out of `git grep` and out of secret scanners, and gives the leakage scanner
 an exact string to match — which cannot false-negative the way a regex can. If
 you add a fixture secret, add it to `SECRET_SENTINELS` the same way.
+
+**Sender intent is cumulative and guard-enforced.** Sender prompts require
+`sendCandidate` to contain the message for the collaborator, not an answer to
+the owner. The deterministic completion guard evaluates the original rough
+request plus every owner clarification and preserves the latest explicit
+question/statement disposition. Narrowing fragments do not erase the original
+request. When a collaborator-directed question becomes a lookup result or
+owner-directed answer, the guard downgrades it with
+`GUARD_SENDER_QUESTION_LOST`; this check applies only to sender turns.
 
 ## Adding a case
 

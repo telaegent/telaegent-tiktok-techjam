@@ -206,11 +206,17 @@ the result. Pages contain at most 50 projects, are non-cacheable, and expose no
 local path, credential, remote URL, repository contents, provider session, or
 private draft.
 
-## Still open
+## Remaining work
 
-- connector packaging, secure local credential storage, signed updates, and reconnect/backoff;
-- local `gh`/`git` parsing implementation and controlled live experiments;
-- safe repository metadata refresh and branch/worktree policy;
-- retention/pruning policy for accepted proof idempotency records.
-- controlled live experiments covering private, internal, organization, and
-  collaborator-not-owner repositories.
+Connector packaging, operating-system credential-vault storage, allowlisted
+local `gh`/`git` parsing, periodic proof refresh, and reconnect/backoff are
+implemented. Connector `0.2.3` is published.
+
+Still open:
+
+- signed update and protected automated publication policy;
+- branch/worktree policy beyond the current exact-root confirmation and safe
+  branch/commit refresh;
+- retention/pruning policy for accepted proof idempotency records;
+- signed-in two-machine acceptance and controlled live experiments covering
+  private, internal, organization, SSO, and collaborator-not-owner repositories.

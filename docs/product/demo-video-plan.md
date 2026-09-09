@@ -260,8 +260,11 @@ in a backend, runtime, data, or infrastructure path rather than only in the UI.
 A server or connector log next to the browser is the cheapest proof it is not a
 UI mock, even if it is ugly.
 
-**Re-authorize immediately before rolling.** The repository proof expires after
-15 minutes with no renewal. It will die mid-take otherwise.
+**Start both connectors and verify live readiness immediately before rolling.**
+The running connector refreshes its 15-minute repository authorization lease
+every five minutes and after transport recovery, but the demo still needs both
+foreground connector processes online and both selected providers to pass their
+live probes.
 
 **Scrub the terminal before filming it.** No secret may appear in source, Git
 history, logs, traces, screenshots, browser storage, or demo output. A `.env`

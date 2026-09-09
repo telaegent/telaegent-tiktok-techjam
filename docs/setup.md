@@ -93,11 +93,11 @@ legacy runtime POC.
 
 ## Start a connector
 
-Normal users do not need a Telaegent source checkout. After the release owner
-publishes `@telaegent/connector`, install it once:
+Normal users do not need a Telaegent source checkout. Connector `0.2.3` is the
+current published release; install that exact version once:
 
 ```text
-npm install --global @telaegent/connector
+npm install --global @telaegent/connector@0.2.3
 ```
 
 Open a terminal at the exact repository root and run:
@@ -157,10 +157,9 @@ this Telaegent checkout (replace the example path with the intended repo root):
 npm run connector:connect -- connect D:\secret --provider both
 ```
 
-Release this fix as connector **0.2.3** and publish that package before deploying
-the browser that pins it. Connector `0.2.1` was built from an unreleased branch
-and is incompatible with production's `/ready` contract. Update existing
-installations to `0.2.3`. Before calling the deployment verified, run the Windows
+Connector **0.2.3** is published and is the version pinned by the browser.
+Connector `0.2.1` is incompatible with production's `/ready` contract. Update
+existing installations to `0.2.3`. Before calling the deployment verified, run the Windows
 acceptance flow: Codex only →
 both → Claude only on the same repository, a failed Claude probe while Codex
 remains usable, and a new Claude private draft followed by human Send. Confirm
@@ -176,15 +175,15 @@ binding and revoke repository-scoped runtime authority while preserving shared
 project history and collaborator trust. `tlg auth status` inspects remembered
 machine authorization; `tlg auth logout` revokes and removes it.
 
-The package is built with `npm run connector:package`. Publishing is gated by
-repository checks, package inspection, a two-machine signed-in acceptance run,
-the protected `connector-release` GitHub environment, and npm trusted
-publishing with provenance. Before enabling the workflow, an administrator must
-create `connector-release`, require reviewers, add a custom deployment-branch
-policy containing exactly `main`, and configure npm trusted publishing for
-`telaegent/telaegent-tiktok-techjam`, `publish-connector.yml`, and the
-`connector-release` environment. The workflow fails closed if the environment
-or either protection rule is missing, and it refuses every ref except `main`.
+The package is built with `npm run connector:package`. Version `0.2.3` is
+available from npm, but the protected automated publication path is not enabled
+yet: the repository currently has no `connector-release` environment. Before
+using that workflow, an administrator must create the environment, require
+reviewers, add a custom deployment-branch policy containing exactly `main`, and
+configure npm trusted publishing for `telaegent/telaegent-tiktok-techjam`,
+`publish-connector.yml`, and `connector-release`. The workflow fails closed if
+the environment or either protection rule is missing, and it refuses every ref
+except `main`.
 
 ### Source-checkout development fallback
 

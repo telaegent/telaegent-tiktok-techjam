@@ -7,7 +7,11 @@
 3. Inspect the current branch and working tree; preserve teammate changes.
 4. State whether the work is research, documentation, legacy maintenance, or authorized implementation.
 
-The current guide freezes product direction but intentionally defers the implementation plan. Do not add speculative cloud execution code: Telaegent cloud coordinates, while the local connector executes GitHub and provider CLI work.
+The canonical build plan freezes product direction and the main vertical slice
+is implemented. New work must preserve its boundaries and distinguish verified
+code/tests from remaining live release evidence. Do not add speculative cloud
+execution code: Telaegent cloud coordinates, while the local connector executes
+GitHub and provider CLI work.
 
 ## Current workstreams
 
@@ -16,7 +20,9 @@ The current guide freezes product direction but intentionally defers the impleme
 - Hien owns protocol and security evaluation.
 - Thai owns cloud infrastructure and connector-to-cloud networking research.
 
-These are research/design responsibilities, not permanent code ownership. Shared contracts should be frozen only after the assigned experiments.
+These are research/design responsibilities, not permanent code ownership.
+Existing shared contracts are implemented and tested; changes to them require
+the relevant owners and must preserve the canonical trust boundaries.
 
 ## Product invariants
 

@@ -192,6 +192,8 @@ takes the time from the database rather than the caller, and returns a single
 exist. `supabase/tests/capability_route_functions_test.sql` proves this.
 
 The scope-expansion API and UI, the server path that calls
-`consume_capability_grant`, the bounded multi-round loop, and resource transfer
-are still unimplemented. Do not describe these contracts as a working autonomous
-capability loop.
+`consume_capability_grant`, the bounded multi-round loop, resource transfer,
+active-grant listing, and individual revocation are implemented. The cloud
+still routes rather than authorizes: the connector re-checks the exact grant
+and local resource immediately before every read, including after a revocation
+arrives while work is queued.

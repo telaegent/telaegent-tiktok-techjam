@@ -37,9 +37,10 @@ The agent may recommend a safe alternative such as environment-variable names or
 Specified in [canonical build plan section 8](docs/product/canonical-build-plan.md).
 The task/grant records, fail-closed cloud routing contract, binding-scoped
 connector-local registry, file broker, resource delivery, scope-expansion API,
-and bounded follow-up rounds are implemented. The owner-facing approval screen
-and two-machine live-provider validation are still open, so this is not yet an
-end-to-end product claim.
+bounded follow-up rounds, owner-facing approval screen, grant list, and
+individual grant revocation are implemented. The signed-in two-machine
+live-provider validation is still open, so this is not yet an end-to-end
+production claim.
 
 The governing rule:
 
@@ -185,8 +186,9 @@ Do not claim:
 - perfect local sandboxing across every supported provider/tool
 - that a fresh shell creates a fresh identity/session
 - that provider terms permit every connector-driven automation pattern
-- that capability-scoped collaboration is end-to-end proven; its approval UI
-  and two-machine live-provider validation remain open
+- that capability-scoped collaboration is production-proven; its automated
+  path and approval UI are implemented, but two-machine live-provider
+  validation remains open
 
 Use controlled demo accounts and repositories until connector authentication,
 local isolation, retention, revocation, and provider-policy questions are
@@ -195,13 +197,14 @@ resolved.
 The current long-poll queue and binding-presence map are process-local. An
 authenticated connector can restore its durable ready binding after a cloud
 restart, but queued jobs are not durably redelivered across that restart.
-Connector publication has a fail-closed GitHub Actions path for npm trusted
-publishing with provenance. It accepts only `main` and verifies that the
-`connector-release` environment has required reviewers and a custom `main`
-deployment policy before reaching the publish step. Creating that environment,
-configuring the exact npm trusted publisher, real publication, the signed-in
-two-machine acceptance run, update policy, and production operational review
-remain release gates rather than completed claims.
+Connector `0.2.3` is published on npm. The repository also contains a
+fail-closed GitHub Actions path for npm trusted publishing with provenance. It
+accepts only `main` and verifies that the `connector-release` environment has
+required reviewers and a custom `main` deployment policy before reaching the
+publish step. That environment and trusted publisher are not yet configured in
+this repository, so the published package does not by itself prove the release
+workflow. Protected automated publication, the signed-in two-machine acceptance
+run, update policy, and production operational review remain release gates.
 
 Repository registration accepts only a strict, fresh proof from an
 authenticated local connector. The connector obtains repository identity,

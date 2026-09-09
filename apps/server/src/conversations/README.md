@@ -66,6 +66,14 @@ approval, shared message, and draft state in one transaction. Human-edited
 content is passed through the deterministic protocol guard again immediately
 before that transaction.
 
+For sender drafts, the completion guard receives the original rough request and
+every owner clarification. It walks backward for the latest explicit question
+or statement while preserving the original speech act across narrowing replies
+such as a teammate name or “keep it short.” A question for the collaborator
+cannot become ready as a lookup result or owner-directed answer; the owner sees
+`GUARD_SENDER_QUESTION_LOST` and must ask the agent to prepare the outbound
+message again. Recipient answers are unaffected by this sender-only check.
+
 Persistence is selected only through `CONVERSATION_PERSISTENCE`. It defaults to
 `memory`, which is intended for tests and local composition and does not survive
 a restart. `supabase` selects the durable adapter, whose ten RPCs each run as a
@@ -79,6 +87,11 @@ The module is registered by the production bootstrap, which composes the
 seam the factory's own default is used, and it fails closed with 401 on every
 route. Silently treating the legacy shared app token or a browser header as a
 user identity would destroy the owner-private boundary.
+
+At production startup, durable drafts left in `agent_working` by a previous
+process are reconciled to a safe `runtime_failed` state scoped to their owner,
+repository, and conversation. The dead process cannot be resumed and no message
+is fabricated or sent; the owner may start a new draft.
 
 `listMessages` has no cursor, so the durable adapter reads a bounded transcript
 and asks for one message beyond it, so a conversation that has outgrown the
