@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NO_TOOLS_PERMISSION_PROFILE } from "./codex-runner.js";
 import { loadConfig } from "./config.js";
 import { buildContainerMiddlewareRunArgs } from "./container-codex-middleware-runner.js";
 import type { MiddlewareRunRequest } from "./runtime-contract.js";
@@ -51,5 +52,69 @@ describe("Container Codex middleware invocation", () => {
     expect(args).not.toContain("secret-that-must-not-appear-in-argv");
     expect(args).not.toContain("Summarize approved sources");
     expect(args).not.toContain("danger-full-access");
+  });
+
+  it("mounts the directory the caller names, not the one on the request", () => {
+    // A turn that declared no tools is pointed at an empty directory instead
+    // of the repository. Inside the container a shell still reaches the image
+    // and /codex-home, so the mount is not the enforcement -- the permission
+    // profile is. It removes the thing worth reaching for and keeps the
+    // repository path out of argv the model could read back.
+    const config = loadConfig({
+      NODE_ENV: "test",
+      ARK_API_KEY: "k",
+      ARK_MODEL: "ep-test",
+      CODEX_HOME: "C:\\runtime\\codex-home",
+      RUNTIME_PROVIDER: "container",
+      CONTAINER_RUNTIME_IMAGE: "runtime:test",
+      RUNTIME_INSTANCE_ID: "test-instance",
+    });
+    const request: MiddlewareRunRequest = {
+      agentId: "bob",
+      provider: "codex",
+      // The lane the denial is actually for. Drafting also declares no tools
+      // and deliberately does not get the profile, so asserting it here would
+      // assert the opposite of what ships.
+      purpose: "clarification_dialogue",
+      workspacePath: "C:\\approved\\workspace",
+      runtimePrompt: "Answer the peer's question",
+      persistedSummary: "Approved context",
+      sessionMode: "ephemeral",
+      sandboxMode: "read-only",
+      networkMode: "none",
+      outputSchemaName: "sender-turn.schema.json",
+      correlationId: "corr-no-tools",
+      maxTurns: 1,
+      toolMode: "none",
+    };
+    const args = buildContainerMiddlewareRunArgs(
+      request,
+      config,
+      "C:\\temp\\schema.json",
+      "C:\\temp\\telagent-notools-abc",
+    );
+
+    expect(args).toContain(
+      "type=bind,src=C:\\temp\\telagent-notools-abc,dst=/workspace,readonly",
+    );
+    expect(args.join(" ")).not.toContain("C:\\approved\\workspace");
+    // The container runner shares the local runner's argv builder, so the
+    // deny reaches the codex inside the container too. Asserted here because
+    // the two runners are free to drift and only one of them is where a
+    // toolless turn actually ships.
+    expect(args).toContain(
+      `default_permissions="${NO_TOOLS_PERMISSION_PROFILE}"`,
+    );
+    expect(args).toContain(
+      `permissions.${NO_TOOLS_PERMISSION_PROFILE}.filesystem={":root"="deny"}`,
+    );
+    // The mount stays read-only, but `--sandbox` must not reach codex: it
+    // would replace the deny with a built-in that reads the whole container.
+    expect(args).not.toContain("--sandbox");
+    // This suite runs on Windows hosts. The image is Linux regardless, and a
+    // builder left to `process.platform` would both ask the container for
+    // `windows.sandbox=unelevated` and waive the denial in the one place that
+    // can enforce it -- passing every assertion above only on a Linux CI box.
+    expect(args).not.toContain("windows.sandbox=unelevated");
   });
 });

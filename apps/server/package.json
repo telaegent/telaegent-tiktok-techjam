@@ -12,6 +12,7 @@
     "smoke:authorization:supabase": "node --env-file-if-exists=../../.env --env-file-if-exists=../web/.env.local --import tsx src/dev/smoke-supabase-authorization.ts",
     "connector:connect": "npm run build && node dist/connectors/cli.js",
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
+    "regenerate:protocol-schemas": "tsx scripts/regenerate-protocol-schemas.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "node dist/index.js",
@@ -20,7 +21,8 @@
     "eval:claude": "tsx src/telagent/protocol/eval/cli.ts --runner claude",
     "eval:codex": "tsx src/telagent/protocol/eval/cli.ts --runner codex",
     "eval:deepseek": "tsx src/telagent/protocol/eval/cli.ts --runner deepseek",
-    "probe:capability-ask": "tsx src/dev/probe-capability-ask.ts"
+    "probe:capability-ask": "tsx src/dev/probe-capability-ask.ts",
+    "probe:clarification-loop": "tsx src/dev/probe-clarification-loop.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

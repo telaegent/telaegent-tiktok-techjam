@@ -87,6 +87,22 @@ function codexActivity(itemType: unknown): RuntimeActivity | null {
   }
 }
 
+/**
+ * Whether an event is the model reaching for a tool.
+ *
+ * `codexActivity` already names every tool surface the CLI reports, so this
+ * asks the same question the progress feed asks and cannot drift from it: a
+ * new tool type that earns an activity label is a new tool type this refuses.
+ */
+function isToolUseEvent(event: Record<string, unknown>): boolean {
+  if (event.type !== "item.started" && event.type !== "item.completed") {
+    return false;
+  }
+  const item = event.item;
+  if (!item || typeof item !== "object") return false;
+  return codexActivity((item as Record<string, unknown>).type) !== null;
+}
+
 interface ActiveCodexProcess {
   child: ChildProcess;
   cancelled: boolean;
@@ -102,6 +118,7 @@ interface CodexProcessRequest {
   workspacePath: string;
   threadId: string | null;
   args: string[];
+  noTools?: boolean;
 }
 
 interface CodexProcessResult extends RunnerResult {
@@ -199,6 +216,13 @@ export function closedToolSurface(
 ): string[] {
   return [
     "--ignore-user-config",
+    // The warning above says `-c` accepts an unknown key silently, so a key a
+    // Codex release renames or drops becomes a policy that stopped applying
+    // without ever saying so. `--strict-config` makes that a startup error
+    // instead. Measured against 0.153.4: every key below is recognised, and
+    // `-c tools.shell=false` -- a key that sounds real and is not -- exits
+    // before any API call rather than being accepted and ignored.
+    "--strict-config",
     ...(platform === "win32" ? ["-c", "windows.sandbox=unelevated"] : []),
     "-c",
     "mcp_servers={}",
@@ -236,11 +260,20 @@ export function buildCodexArgs(
   return args;
 }
 
+/**
+ * @param platform Where the `codex` this argv is built for will run, which is
+ * not always where this process runs. The container runner executes a Linux
+ * image from whatever host started the server, and both the sandbox mode and
+ * `enforcesToolDenial()` answer differently per platform -- so a host default
+ * would put `windows.sandbox=unelevated` inside a Linux container and drop the
+ * dialogue lane's containment on a machine that could have enforced it.
+ */
 export function buildCodexMiddlewareArgs(
   request: LocalMiddlewareRunRequest,
   outputSchemaPath: string,
   workspacePath = request.workspacePath,
   model = "",
+  platform: NodeJS.Platform = process.platform,
 ): string[] {
   const args = [
     "exec",
@@ -248,11 +281,12 @@ export function buildCodexMiddlewareArgs(
     // The only runner surface that carries a caller's effort: `RunnerRequest`
     // (the plain `codex exec` path above) has no such field, so it keeps the
     // default.
-    ...closedToolSurface(process.platform, request.effort),
+    ...closedToolSurface(platform, request.effort),
     "-c",
     'approval_policy="never"',
-    "--sandbox",
-    request.sandboxMode,
+    ...(enforcesToolDenial(request, platform)
+      ? noToolsPermissionArgs()
+      : ["--sandbox", request.sandboxMode]),
     "--skip-git-repo-check",
     "-C",
     workspacePath,
@@ -276,10 +310,147 @@ export function buildCodexMiddlewareArgs(
   return args;
 }
 
+/**
+ * Whether this turn's toollessness is a boundary worth failing the turn over.
+ *
+ * `toolMode: "none"` means two different things at the two call sites that set
+ * it, and the difference decides what an unenforceable host should do. A
+ * drafting pass declares no tools because it does not need them: the pass
+ * before it read the repository and handed this one a note, so denying it
+ * reads guards nothing the investigation pass did not already open. A
+ * clarification turn declares no tools because the lane is defined by not
+ * having repository access -- its answer reaches another person without
+ * passing that person's `Send` gate, and having no tools is the whole reason
+ * that is allowed.
+ *
+ * Only the second is worth an outage. Applying the profile to both is what
+ * took ordinary drafting off Windows: the unelevated sandbox cannot enforce a
+ * denied read and aborts session initialisation rather than run uncontained,
+ * so a pass nobody was protecting failed for a guarantee nobody had asked for.
+ *
+ * Windows is excluded deliberately rather than by omission. There is no way to
+ * enforce this there, so the choice is between the dialogue lane not running on
+ * a developer's machine at all and it running under what contained it before
+ * profiles existed -- an empty workspace, and a turn killed at its first tool
+ * event. The lane ships on Linux, where the profile is real and this returns
+ * true. Treat a Windows run as development and demonstration, never as the
+ * containment the lane is documented to have.
+ */
+export function enforcesToolDenial(
+  request: Pick<LocalMiddlewareRunRequest, "toolMode" | "purpose">,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return (
+    request.toolMode === "none"
+    && request.purpose === "clarification_dialogue"
+    && platform !== "win32"
+  );
+}
+
+export const NO_TOOLS_PERMISSION_PROFILE = "telaegent_no_tools";
+
+/**
+ * Denies the filesystem, and the network, to a turn that declared no tools.
+ *
+ * Codex has no `--tools ""`, so for a long time this runner had nothing to
+ * pass and `toolMode: "none"` was enforced only by killing the turn after a
+ * tool had already started. It does have permission profiles, which are a
+ * different and much better thing: `FileSystemAccessMode` is `read` | `write`
+ * | `deny` per path, `:root` names the whole filesystem, and on Linux the
+ * resolved profile is handed to `codex-linux-sandbox` and enforced by
+ * bubblewrap and seccomp. The command dies at `execvp` rather than running.
+ *
+ * This holds under escalation, which is the part that makes it worth relying
+ * on. `unsandboxed_execution_allowed()` returns false whenever a policy
+ * carries any denied read, and it is consulted before the branch that honours
+ * `bypass_sandbox` -- so an approval, an execpolicy `allow`, and a
+ * `RequireEscalated` command all stay sandboxed with the denials intact.
+ * Codex's own comment: "bypassing the sandbox would silently grant those
+ * reads, so escalation must keep the command sandboxed".
+ *
+ * It fails closed everywhere it cannot be enforced, which was measured rather
+ * than assumed. Where bubblewrap cannot start -- a container without user
+ * namespaces -- the command fails instead of running unsandboxed. The legacy
+ * Landlock backend refuses these profiles outright ("permission profiles
+ * requiring direct runtime enforcement are incompatible with
+ * --use-legacy-landlock") instead of quietly dropping the denials. On Windows
+ * unelevated, which is what `closedToolSurface()` asks for, session
+ * initialisation itself aborts: "cannot enforce split filesystem read
+ * restrictions directly; refusing to run unsandboxed". Nothing here degrades
+ * quietly: the question is only ever whether the turn runs, never whether it
+ * ran contained. Which turns should pay that price is decided by
+ * `enforcesToolDenial()` and not here.
+ *
+ * `--sandbox` must not be passed alongside this, which is the part that is
+ * easy to get wrong and impossible to notice. The two are not additive: the
+ * flag resolves to a built-in profile and replaces `default_permissions`
+ * outright, so the deny is dropped without a warning and the turn reads
+ * everything under `:read-only`. Measured -- the same argv leaked a sentinel
+ * outside its `-C` root with the flag and refused to start without it. Losing
+ * `sandboxMode` costs this path nothing: the profile denies reads and writes
+ * both, and no mode it could name is stricter.
+ */
+export function noToolsPermissionArgs(): string[] {
+  return [
+    "-c",
+    `permissions.${NO_TOOLS_PERMISSION_PROFILE}.filesystem={":root"="deny"}`,
+    "-c",
+    `permissions.${NO_TOOLS_PERMISSION_PROFILE}.network={enabled=false}`,
+    "-c",
+    `default_permissions="${NO_TOOLS_PERMISSION_PROFILE}"`,
+  ];
+}
+
+/**
+ * What an empty workspace tells a model that arrives expecting a repository.
+ *
+ * Codex reads `AGENTS.md` from its `-C` root, so this is the one channel that
+ * reaches the model without touching prompt construction on the cloud side.
+ * It is a courtesy, not the control: `noToolsPermissionArgs()` denies the
+ * filesystem and `parseCodexEventLine` refuses the turn, and this only lowers
+ * how often either has to fire.
+ *
+ * Measured against 0.153.4 on an empty workspace. Ordinary drafting prompts
+ * never reached for a tool either way. A prompt that explicitly asked for an
+ * absolute path outside the workspace spawned PowerShell without this file,
+ * and returned a structured "I was not given that" with it.
+ */
+export const NO_TOOLS_WORKSPACE_NOTICE = [
+  "# Turn policy",
+  "",
+  "This turn has no tools. Do not run commands, read files, or search the web.",
+  "There is no repository here and nothing on this machine is readable.",
+  "Answer only from the prompt you were given. If it does not contain what you",
+  "need, say so in the structured output instead of trying to find it.",
+  "",
+].join("\n");
+
+/**
+ * @param noTools Enforce `toolMode: "none"` for this turn.
+ *
+ * This is the second of two layers, and the weaker one. Prevention lives in
+ * `noToolsPermissionArgs()`: the turn runs under a permission profile that
+ * denies `:root`, so a command dies in the sandbox before it runs and Codex
+ * refuses to start at all where that cannot be enforced.
+ *
+ * This layer still earns its place, because the profile governs what a command
+ * can reach and not whether one was attempted. `web_search` is not a
+ * filesystem read; a future tool need not be either. So the first tool event
+ * kills the process through the same path a malformed line takes, before the
+ * tool's output is ever parsed back into the model's context, and the turn
+ * fails instead of returning an answer built from something it was told not to
+ * read. A caller who declared no tools gets a turn with no tools or no turn.
+ *
+ * The claim this comment used to make -- that Codex could not be given a
+ * toolless turn -- was measured on Windows with `windows.sandbox=unelevated`,
+ * which this runner passes itself, and on `--sandbox read-only`, which governs
+ * writes and never governed reads. Neither was the control it was read as.
+ */
 export function parseCodexEventLine(
   line: string,
   parsed: ParsedEvents,
   onProgress?: RuntimeProgressSink,
+  noTools = false,
 ): void {
   let event: Record<string, unknown>;
   try {
@@ -288,6 +459,14 @@ export function parseCodexEventLine(
     throw new RuntimeProviderError(
       "INVALID_AGENT_OUTPUT",
       "Codex returned an invalid event stream",
+    );
+  }
+
+  if (noTools && isToolUseEvent(event)) {
+    throw new RuntimeProviderError(
+      "UNSUPPORTED_RUNTIME_POLICY",
+      "Codex used a tool in a turn that declared none",
+      { phase: "event_stream" },
     );
   }
 
@@ -534,8 +713,25 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       path.join(tmpdir(), "telagent-schema-"),
     );
     const schemaPath = path.join(schemaDirectory, "output.schema.json");
+    // A toolless turn is not pointed at the repository at all. This is not
+    // what contains it -- `noToolsPermissionArgs()` denies `:root` in the
+    // sandbox, and the `noTools` refusal below backs that up -- but it removes
+    // the thing worth reaching for and the paths that would name it, so a
+    // clarification turn ends by answering rather than by being stopped.
+    const noTools = request.toolMode === "none";
+    const emptyWorkspace = noTools
+      ? await this.dependencies.mkdtemp(path.join(tmpdir(), "telagent-notools-"))
+      : null;
+    const workspacePath = emptyWorkspace ?? request.workspacePath;
     try {
       throwIfRuntimeCancelled(signal);
+      if (emptyWorkspace) {
+        await this.dependencies.writeFile(
+          path.join(emptyWorkspace, "AGENTS.md"),
+          NO_TOOLS_WORKSPACE_NOTICE,
+          { encoding: "utf8", mode: 0o600 },
+        );
+      }
       await this.dependencies.writeFile(
         schemaPath,
         JSON.stringify(providerCompatibleSchema("codex", outputSchema)),
@@ -548,13 +744,14 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       const result = await this.runProcess(
         {
           agentId: request.agentId,
-          workspacePath: request.workspacePath,
+          workspacePath,
           threadId:
             request.sessionMode === "continue" ? request.sessionId ?? null : null,
+          noTools,
           args: buildCodexMiddlewareArgs(
             request,
             schemaPath,
-            request.workspacePath,
+            workspacePath,
             // The owner's choice for this turn, falling back to the
             // deployment-wide default. `closedToolSurface()` passes
             // `--ignore-user-config`, so whatever ends up here is the only
@@ -588,6 +785,9 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
       };
     } finally {
       await this.dependencies.rm(schemaDirectory, { recursive: true, force: true });
+      if (emptyWorkspace) {
+        await this.dependencies.rm(emptyWorkspace, { recursive: true, force: true });
+      }
     }
   }
 
@@ -674,7 +874,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         stdout = lines.pop() ?? "";
         for (const line of lines) {
           try {
-            parseCodexEventLine(line, parsed, onProgress);
+            parseCodexEventLine(line, parsed, onProgress, request.noTools);
           } catch (error) {
             parseFailure = error as RuntimeProviderError;
             this.terminate(active);
@@ -704,7 +904,7 @@ export class CodexRunner implements AgentRunner, MiddlewareProviderRunner {
         throw classifyProviderFailure("codex", error, { phase: "spawn" });
       }
       if (stdout.trim() && !parseFailure) {
-        parseCodexEventLine(stdout.trim(), parsed, onProgress);
+        parseCodexEventLine(stdout.trim(), parsed, onProgress, request.noTools);
       }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {

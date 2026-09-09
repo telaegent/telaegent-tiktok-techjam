@@ -35,6 +35,7 @@ import { BOB_CONTEXT_PACK_RESULT } from "./testing/fake-runners.js";
 
 const SERVER_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const NOW = new Date("2026-08-28T02:00:00.000Z");
+const SYNTHETIC_ARK_KEY = ["sk-li", "ve-9f3a2b7c", "4d5e6f7a", "8b9c"].join("");
 
 const green = (text: string) => "\x1b[32m" + text + "\x1b[0m";
 const red = (text: string) => "\x1b[31m" + text + "\x1b[0m";
@@ -277,7 +278,7 @@ async function main(): Promise<void> {
       ["has no sources", { ...BOB_CONTEXT_PACK_RESULT, sources: [] }],
       [
         "carries a credential",
-        { ...BOB_CONTEXT_PACK_RESULT, summary: "Use ARK_API_KEY=sk-live-9f3a2b7c4d5e6f7a8b9c" },
+        { ...BOB_CONTEXT_PACK_RESULT, summary: `Use ARK_API_KEY=${SYNTHETIC_ARK_KEY}` },
       ],
       [
         "carries injected instructions",

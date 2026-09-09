@@ -77,13 +77,33 @@ count, bounded requests per round and total transferred bytes, deduplicated
 pending requests, and stops on task completion, user cancellation, no progress,
 repeated denials, or expired scope.
 
-Automatic internal file access never implies automatic replies:
+Automatic internal file access never implies automatic final replies:
 
 | Action | Authority required |
 | --- | --- |
 | Use a resource inside existing authority | may be automatic |
 | Obtain new authority | human approval |
 | Send a cross-user message | human `Send` |
+
+The only automatic cross-user text allowed in P0 is a task-control
+clarification dialogue with active consent from both humans for the exact
+task. It is limited to two questions, no tools, no new authority, and context
+already approved for that task. "No tools" is enforced rather than requested
+wherever it can be: on Linux, where this lane is meant to run, the turn is
+given a permission profile denying the whole filesystem, so a command fails in
+the sandbox instead of running, and a host with a sandbox that cannot start
+fails the turn instead of proceeding unsandboxed. Windows has no sandbox that
+can express a denied read, so a turn there keeps only the weaker controls --
+an empty workspace and a turn killed at its first tool event. Treat a Windows
+run as development, never as this guarantee. Its payload is
+task-private and deleted when the task completes or is cancelled, and
+otherwise by a backend sweep that runs every five minutes against the
+60-minute task expiry -- so an exchange both people abandon still loses its
+text without either of them returning. A need for a new file, permission,
+secret, cross-project path, or another user's private state pauses for a
+human. Human-supplied context resumes the same bounded task only after an
+explicit **Continue** action. The final reply always remains
+behind the owner's `Send` gate.
 
 Audit every delivered snapshot with resource ID, task ID, recipient, byte
 length, content hash, authorization mode, and timestamp. Never log raw file
@@ -96,6 +116,8 @@ The browser-first product still uses local execution. Telaegent cloud may hold:
 - approved shared messages and compact shared memory
 - project identity, permissions, connector presence, and safe audit events
 - bounded private draft/job payloads while they are being routed
+- bounded task-private clarification payloads until task completion,
+  cancellation, or the 60-minute expiry, swept on a five-minute backend timer
 
 Telaegent cloud must not hold repository checkouts, GitHub/provider credentials,
 provider home directories, provider sessions, raw local tool output, or hidden

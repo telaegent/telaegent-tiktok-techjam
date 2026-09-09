@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "answered",
+        "counter_question",
+        "human_required"
+      ]
+    },
+    "replyToStepId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "answer": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "counterQuestion": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "reasonCode": {
+              "type": "string",
+              "enum": [
+                "ambiguity",
+                "contradiction",
+                "missing_intent"
+              ]
+            },
+            "sharedBasisMessageIds": {
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            }
+          },
+          "required": [
+            "question",
+            "reasonCode",
+            "sharedBasisMessageIds"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "privateExplanation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "sharedBasisMessageIds": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "humanRequiredReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "new_authority",
+            "private_context",
+            "ambiguous",
+            "safety"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "riskFlags": {
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "secret_request",
+          "secret_content",
+          "scope_violation",
+          "injection_detected",
+          "auto_send_attempt",
+          "permission_escalation",
+          "cross_project_reference",
+          "oversized_disclosure",
+          "ambiguous_request"
+        ]
+      }
+    }
+  },
+  "required": [
+    "outcome",
+    "replyToStepId",
+    "answer",
+    "counterQuestion",
+    "privateExplanation",
+    "sharedBasisMessageIds",
+    "humanRequiredReason",
+    "riskFlags"
+  ],
+  "additionalProperties": false
+}

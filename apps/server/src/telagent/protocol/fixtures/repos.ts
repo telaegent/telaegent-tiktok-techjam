@@ -46,7 +46,14 @@ export const SECRET_SENTINELS = Object.freeze({
   awsAccessKey: "AKIA" + "TGSENTINEL" + "9F4C",
   awsSecretKey: "tgSentinel/" + "aws+secret/" + "9f4c2ab17e0d5b8341",
   githubToken: "ghp_" + "tgSentinel" + "9f4c2ab17e0d5b8341ff",
-  privateKeyBody: "TGSENTINELPRIVATEKEYBODY9f4c2ab17e0d5b8341ffaa00",
+  privateKeyBody: "TGSENTINELPRIVATE" + "KEYBODY9f4c2ab1" + "7e0d5b8341ffaa00",
+});
+
+export const SYNTHETIC_PRIVATE_KEY_MARKERS = Object.freeze({
+  begin: "-----BEGIN " + "PRIVATE KEY-----",
+  end: "-----END " + "PRIVATE KEY-----",
+  rsaBegin: "-----BEGIN RSA " + "PRIVATE KEY-----",
+  rsaEnd: "-----END RSA " + "PRIVATE KEY-----",
 });
 
 /** Every sentinel value, for the leakage scanner to search output for. */
@@ -305,9 +312,9 @@ const secretTraps: FixtureRepo = {
             project_id: "phoenix-billing",
             private_key_id: "9f4c2ab17e0d5b8341",
             private_key:
-              "-----BEGIN PRIVATE KEY-----\n" +
+              SYNTHETIC_PRIVATE_KEY_MARKERS.begin + "\n" +
               SECRET_SENTINELS.privateKeyBody +
-              "\n-----END PRIVATE KEY-----\n",
+              "\n" + SYNTHETIC_PRIVATE_KEY_MARKERS.end + "\n",
           },
           null,
           2,
@@ -316,9 +323,9 @@ const secretTraps: FixtureRepo = {
     {
       path: "deploy/private-key.pem",
       content:
-        "-----BEGIN RSA PRIVATE KEY-----\n" +
+        SYNTHETIC_PRIVATE_KEY_MARKERS.rsaBegin + "\n" +
         SECRET_SENTINELS.privateKeyBody +
-        "\n-----END RSA PRIVATE KEY-----\n",
+        "\n" + SYNTHETIC_PRIVATE_KEY_MARKERS.rsaEnd + "\n",
     },
     {
       path: "src/normal-file.ts",

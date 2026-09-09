@@ -10,6 +10,7 @@ import type { StartedPrivateRuntimeTurn } from "../private-runtime-turn-coordina
 import { RuntimeProviderError } from "../runtime-errors.js";
 import { REPOSITORY_ACCESS_MAX_AGE_MS } from "../repository-proof/lifetime.js";
 import type { AgentProvider } from "../runtime-contract.js";
+import type { AgentClarificationCoordinator } from "../agent-clarification/coordinator.js";
 import { createConfiguredConversationRepository } from "./conversation-repository-factory.js";
 import type { ConversationRepository } from "./repository.js";
 import type {
@@ -108,6 +109,7 @@ export interface ConversationApiFactoryOptions {
    * crosses, and nothing is asserted on anyone's behalf.
    */
   followUp?: PrivateDraftFollowUp | undefined;
+  agentClarification?: AgentClarificationCoordinator | undefined;
 }
 
 /**
@@ -132,7 +134,12 @@ export function createConversationApi(
     options.repository ?? createConfiguredConversationRepository(config),
     new AuthorizedConversationAccess(authorizer),
     options.runtime ?? new ConnectorUnavailableDraftRuntime(),
-    options.followUp ? { followUp: options.followUp } : {},
+    {
+      ...(options.followUp ? { followUp: options.followUp } : {}),
+      ...(options.agentClarification
+        ? { agentClarification: options.agentClarification }
+        : {}),
+    },
   );
   return {
     service,
@@ -141,5 +148,6 @@ export function createConversationApi(
     ...(options.availableProviders
       ? { availableProviders: options.availableProviders }
       : {}),
+    agentClarificationEnabled: Boolean(options.agentClarification),
   };
 }

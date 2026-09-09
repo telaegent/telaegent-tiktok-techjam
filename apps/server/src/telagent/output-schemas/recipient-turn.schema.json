@@ -54,61 +54,108 @@
       }
     },
     "resourceRequests": {
-      "maxItems": 16,
-      "type": "array",
-      "items": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "const": "resource"
+      "anyOf": [
+        {
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "resource"
+                  },
+                  "resourceId": {
+                    "type": "string",
+                    "pattern": "^resource_[A-Za-z0-9_-]{16,120}$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "kind",
+                  "resourceId",
+                  "reason"
+                ],
+                "additionalProperties": false
               },
-              "resourceId": {
-                "type": "string",
-                "pattern": "^resource_[A-Za-z0-9_-]{16,120}$"
-              },
-              "reason": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2000
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "hint"
+                  },
+                  "hint": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "kind",
+                  "hint",
+                  "reason"
+                ],
+                "additionalProperties": false
               }
-            },
-            "required": [
-              "kind",
-              "resourceId",
-              "reason"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "const": "hint"
-              },
-              "hint": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              },
-              "reason": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2000
-              }
-            },
-            "required": [
-              "kind",
-              "hint",
-              "reason"
-            ],
-            "additionalProperties": false
+            ]
           }
-        ]
-      }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "peerClarification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "reasonCode": {
+              "type": "string",
+              "enum": [
+                "ambiguity",
+                "contradiction",
+                "missing_intent"
+              ]
+            },
+            "sharedBasisMessageIds": {
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            }
+          },
+          "required": [
+            "question",
+            "reasonCode",
+            "sharedBasisMessageIds"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

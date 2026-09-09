@@ -710,6 +710,16 @@ Three things that must stay true no matter how the loop is implemented:
 3. An automatic round consumes existing authority. Obtaining new authority is a
    human decision, and the final cross-user message still needs `Send`.
 
+The agent clarification extension uses the same rule with a narrower lane.
+Both humans opt in for one task; dialogue jobs have no tools, may use only the
+approved task context, and may create at most two parent-linked questions. All
+jobs after the initial recipient job spend the task's existing follow-up
+rounds. Keep private-work and dialogue provider sessions separate. Store their
+exact session pointers only in connector memory, and rehydrate from approved
+Telaegent context after restart. The short-lived dialogue payload expires with
+the task and is deleted on every terminal path. A human-required step remains
+paused until its owner explicitly presses Continue.
+
 ---
 
 # 18. Audit / observability

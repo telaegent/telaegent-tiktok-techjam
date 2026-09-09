@@ -27,14 +27,25 @@ const correlationIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const privateTurnPurposes = new Set<RunPurpose>([
   "sender_draft",
   "recipient_answer",
+  "clarification_dialogue",
 ]);
 const sessionModes = new Set<SessionMode>(["continue", "fresh", "ephemeral"]);
 const providers = new Set<AgentProvider>(["codex", "claude"]);
 
 export type PrivateConversationTurnPurpose = Extract<
   RunPurpose,
-  "sender_draft" | "recipient_answer"
+  "sender_draft" | "recipient_answer" | "clarification_dialogue"
 >;
+
+export interface TaskSessionScope {
+  taskId: string;
+  peerUserId: string;
+  lane: "private_work" | "clarification_dialogue";
+  /** Derived from the task by the backend, never accepted as routing authority. */
+  participantRole: "requester" | "responder";
+  /** Present only for a reserved clarification step. */
+  stepId?: string | undefined;
+}
 
 /**
  * A turn already assembled by trusted backend conversation orchestration.
@@ -84,6 +95,10 @@ export interface AuthorizedPrivateRuntimeTurnInput {
   effort?: RuntimeEffort | undefined;
   /** Optional backend-owned turn ID already claimed in durable draft state. */
   turnId?: string;
+  /** Backend-derived task identity. Never accepted from a browser job body. */
+  sessionScope?: Readonly<TaskSessionScope> | undefined;
+  /** Backend-only task-state check repeated after connector queueing. */
+  revalidate?: (() => void | Promise<void>) | undefined;
 }
 
 export interface AuthorizedPrivateRuntimeTurnPolicy {
@@ -138,6 +153,18 @@ export class AuthorizedPrivateRuntimeTurnStarter {
       githubRepositoryId: authorized.githubRepositoryId,
       conversationId: input.authorization.conversationId,
       provider: input.provider,
+      ...(input.sessionScope
+        ? {
+            taskId: input.sessionScope.taskId,
+            peerUserId: input.sessionScope.peerUserId,
+            lane: input.sessionScope.lane,
+            participantRole: input.sessionScope.participantRole,
+            ...(input.sessionScope.stepId
+              ? { stepId: input.sessionScope.stepId }
+              : {}),
+          }
+        : {}),
+      ...(input.model ? { model: input.model } : {}),
     };
 
     // Explicit construction is a security boundary. Do not spread caller data:
@@ -173,6 +200,7 @@ export class AuthorizedPrivateRuntimeTurnStarter {
           "runtime_binding_unavailable",
         );
       }
+      await input.revalidate?.();
     }, input.turnId);
   }
 }
@@ -239,10 +267,35 @@ function validateInput(
       (typeof input.model !== "string" ||
         !isSupportedModel(input.provider, input.model))) ||
     (input.effort !== undefined &&
-      (typeof input.effort !== "string" || !isSupportedEffort(input.effort)))
+      (typeof input.effort !== "string" || !isSupportedEffort(input.effort))) ||
+    !validTaskSessionScope(input)
   ) {
     throw new InvalidPrivateRuntimeTurnError();
   }
+}
+
+function validTaskSessionScope(
+  input: Readonly<AuthorizedPrivateRuntimeTurnInput>,
+): boolean {
+  const scope = input.sessionScope;
+  if (!scope) return input.turn.purpose !== "clarification_dialogue";
+  if (
+    !correlationIdPattern.test(scope.taskId) ||
+    !correlationIdPattern.test(scope.peerUserId) ||
+    scope.peerUserId === input.authorization.authenticatedUserId ||
+    (scope.participantRole !== "requester" &&
+      scope.participantRole !== "responder") ||
+    (scope.stepId !== undefined && !correlationIdPattern.test(scope.stepId))
+  ) {
+    return false;
+  }
+  // A dialogue turn must carry its reserved step, and a private work turn must
+  // never claim one: that is what keeps the two lanes from sharing a session.
+  return input.turn.purpose === "clarification_dialogue"
+    ? scope.lane === "clarification_dialogue" &&
+        scope.stepId !== undefined &&
+        input.turn.outputSchemaName === "clarification-dialogue.schema.json"
+    : scope.lane === "private_work" && scope.stepId === undefined;
 }
 
 function validBoundedText(value: unknown, maximumBytes: number, allowEmpty: boolean): boolean {

@@ -19,6 +19,7 @@ export type PublicRuntimeErrorCode = RuntimeErrorCode | "RUNTIME_CANCELLED";
 export type RunPurpose =
   | "sender_draft"
   | "recipient_answer"
+  | "clarification_dialogue"
   | "plan_intent"
   | "implement"
   | "status"
@@ -28,6 +29,7 @@ export type RunPurpose =
   | "revise_plan";
 
 export type SessionMode = "continue" | "fresh" | "ephemeral";
+export type ProviderSessionLane = "private_work" | "clarification_dialogue";
 export type MiddlewareSandboxMode = "read-only" | "workspace-write";
 export type NetworkMode = "none" | "default";
 export type JsonSchemaDocument = Record<string, unknown>;
@@ -57,11 +59,43 @@ export interface MiddlewareRunRequest {
    * failed turn, because it spends its whole turn budget reading and never
    * returns structured output. `none` removes the temptation structurally.
    *
-   * Honoured by the Claude runner. Codex has no equivalent: its built-in tool
-   * surface cannot be closed without `--disable`, which `closedToolSurface`
-   * documents as unsafe across releases. Like `maxTurns`, this is a bound the
-   * two runners do not share -- safe, because the sandbox is read-only and the
-   * workspace is pinned either way, but do not read it as symmetry.
+   * Both runners honour it; they cannot honour it the same way. Claude spells
+   * it in argv (`--tools ""`) and the CLI obeys, on every platform and at no
+   * cost. Codex has no such switch -- its only file access is spawning a
+   * shell, and its `tools` config table holds one key, `web_search` -- so the
+   * runner refuses the turn at its first tool event, before the tool's output
+   * is parsed back into the model's context.
+   *
+   * **How hard that is depends on the lane, and this field does not say which
+   * lane you are in.** `purpose` does. A `clarification_dialogue` turn is the
+   * one whose toollessness is a boundary rather than an economy, and only that
+   * turn additionally runs under a permission profile mapping `:root` to
+   * `deny`: the command dies in the sandbox rather than running, and escalation
+   * cannot lift it, because Codex keeps a policy carrying denied reads
+   * sandboxed even for a command it would otherwise trust. Every other pass
+   * gets the refusal and not the profile. See `enforcesToolDenial()`, which is
+   * the single place that decides, and read it before assuming this field alone
+   * contains anything.
+   *
+   * That asymmetry is deliberate rather than partial. A drafting pass is handed
+   * its evidence by an investigation pass that just read the same workspace
+   * with tools, so denying the second pass reads protects nothing -- while
+   * costing the entire turn on a host that cannot enforce a denial. Applying
+   * the profile to both is what once took ordinary drafting off Windows.
+   *
+   * Do not read `sandboxMode` as any part of this. `read-only` governs writes,
+   * not reads: it means read everything and write nothing, and a Codex run
+   * pinned to an empty `-C` workspace was measured reading an absolute path
+   * outside it. A pinned workspace is obscurity, not containment.
+   *
+   * Enforcing a denied read needs a real sandbox, which is a Linux promise and
+   * not a universal one. Where a sandbox exists and cannot start -- a container
+   * without user namespaces -- the turn fails closed, loudly, before the model
+   * is called. Where none can exist, Windows unelevated being the case that
+   * matters, the dialogue lane runs with the refusal and the empty workspace
+   * and without the profile. That is a development and demonstration posture,
+   * never the containment this lane is documented to have; ship the lane on
+   * Linux.
    */
   toolMode?: "none" | "read" | undefined;
 

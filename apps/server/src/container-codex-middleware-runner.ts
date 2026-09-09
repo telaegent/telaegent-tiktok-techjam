@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type { AppConfig } from "./config.js";
 import { isArkConfigured } from "./config.js";
 import {
+  NO_TOOLS_WORKSPACE_NOTICE,
   buildCodexMiddlewareArgs,
   parseCodexEventLine,
   type ParsedEvents,
@@ -46,12 +47,13 @@ export function buildContainerMiddlewareRunArgs(
   request: LocalMiddlewareRunRequest,
   config: AppConfig,
   hostSchemaPath: string,
+  workspacePath: string = request.workspacePath,
 ): string[] {
   const name = containerName(request.agentId + "-middleware", config.runtimeInstanceId);
   const engineName = config.containerEngine.split(/[\\/]/).at(-1)?.toLowerCase();
   const workspaceMount =
     "type=bind,src=" +
-    request.workspacePath +
+    workspacePath +
     ",dst=/workspace" +
     (request.sandboxMode === "read-only" ? ",readonly" : "");
   return [
@@ -105,6 +107,11 @@ export function buildContainerMiddlewareRunArgs(
       containerSchemaPath,
       "/workspace",
       request.model || config.codexModel,
+      // The image is Linux whatever this host is. Left to default, a Windows
+      // host would ask a Linux container for `windows.sandbox=unelevated` and
+      // would waive the dialogue lane's filesystem denial in the one place it
+      // can actually be enforced.
+      "linux",
     ),
   ];
 }
@@ -162,8 +169,31 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
     }
     const startedAt = Date.now();
     const schemaDirectory = await mkdtemp(path.join(tmpdir(), "telagent-schema-"));
+    // Same shape as the local runner: a turn that declared no tools is not
+    // pointed at the repository at all, and the mount is not what enforces
+    // that -- inside the container a shell still reaches /codex-home and the
+    // image itself, so obscurity is all a mount can buy. The deny-everything
+    // permission profile in `buildCodexMiddlewareArgs` is the control, and
+    // `noTools` below backs it up.
+    //
+    // Enforcing it here needs bubblewrap, which needs user namespaces the
+    // engine may not grant under `--cap-drop ALL`. Codex fails the turn rather
+    // than running unsandboxed, so this degrades to an outage and never to an
+    // unnoticed read. See the deployment note on `toolMode` in the contract.
+    const noTools = request.toolMode === "none";
+    const emptyWorkspace = noTools
+      ? await mkdtemp(path.join(tmpdir(), "telagent-notools-"))
+      : null;
+    const workspacePath = emptyWorkspace ?? request.workspacePath;
     try {
       throwIfRuntimeCancelled(signal);
+      if (emptyWorkspace) {
+        await writeFile(
+          path.join(emptyWorkspace, "AGENTS.md"),
+          NO_TOOLS_WORKSPACE_NOTICE,
+          { encoding: "utf8", mode: 0o600 },
+        );
+      }
       const hostSchemaPath = path.join(schemaDirectory, "output.schema.json");
       await writeFile(hostSchemaPath, JSON.stringify(outputSchema), {
         encoding: "utf8",
@@ -173,9 +203,14 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
 
       const child = spawn(
         this.config.containerEngine,
-        buildContainerMiddlewareRunArgs(request, this.config, hostSchemaPath),
+        buildContainerMiddlewareRunArgs(
+          request,
+          this.config,
+          hostSchemaPath,
+          workspacePath,
+        ),
         {
-          cwd: request.workspacePath,
+          cwd: workspacePath,
           env: this.childEnvironment(),
           stdio: ["pipe", "pipe", "pipe"],
           shell: false,
@@ -215,6 +250,7 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
       let stdout = "";
       let stderr = "";
       let totalBytes = 0;
+      let parseFailure: RuntimeProviderError | null = null;
       const consume = (chunk: Buffer, target: "stdout" | "stderr") => {
         totalBytes += chunk.byteLength;
         if (totalBytes > this.config.codexMaxOutputBytes) {
@@ -226,7 +262,15 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
           stdout += chunk.toString("utf8");
           const lines = stdout.split(/\r?\n/);
           stdout = lines.pop() ?? "";
-          for (const line of lines) parseCodexEventLine(line, parsed);
+          for (const line of lines) {
+            try {
+              parseCodexEventLine(line, parsed, undefined, noTools);
+            } catch (error) {
+              parseFailure = error as RuntimeProviderError;
+              void this.removeContainer(active);
+              return;
+            }
+          }
         } else {
           stderr += chunk.toString("utf8");
           if (stderr.length > 16_384) stderr = stderr.slice(-16_384);
@@ -250,7 +294,13 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
         } catch (error) {
           throw classifyProviderFailure("codex", error);
         }
-        if (stdout.trim()) parseCodexEventLine(stdout.trim(), parsed);
+        if (stdout.trim() && !parseFailure) {
+          try {
+            parseCodexEventLine(stdout.trim(), parsed, undefined, noTools);
+          } catch (error) {
+            parseFailure = error as RuntimeProviderError;
+          }
+        }
         if (active.cancelled) throw new RunCancelledError();
         if (active.timedOut) {
           throw new RuntimeProviderError("RUNTIME_TIMEOUT", "Codex runtime timed out");
@@ -260,6 +310,13 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
             "RUNTIME_OUTPUT_LIMIT",
             "Codex output exceeded the configured limit",
           );
+        }
+        if (parseFailure) {
+          const failure = parseFailure as RuntimeProviderError;
+          throw new RuntimeProviderError(failure.code, failure.message, {
+            phase: "event_stream",
+            exitCode,
+          });
         }
         if (exitCode !== 0) {
           throw classifyProviderFailure(
@@ -300,6 +357,9 @@ export class ContainerCodexMiddlewareRunner implements MiddlewareProviderRunner 
       }
     } finally {
       await rm(schemaDirectory, { recursive: true, force: true });
+      if (emptyWorkspace) {
+        await rm(emptyWorkspace, { recursive: true, force: true });
+      }
     }
   }
 

@@ -441,6 +441,15 @@ Stop on:
 
 Automatic internal file access does **not** mean automatic cross-user replies.
 
+The one narrow task-control exception is a bounded clarification dialogue when
+both participants explicitly opt in for the same task. It may exchange at most
+two questions, use only context already approved for that task, and use no
+tools or new resource authority. Its short-lived task-private payload is
+deleted when the task completes, is cancelled, or expires. A request for new
+authority or private context pauses for the relevant human, and resumes only
+after that human supplies input and explicitly chooses **Continue**. This
+exception never authorizes the final answer.
+
 ```text
 agent works autonomously inside granted scope
         ↓

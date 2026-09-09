@@ -27,6 +27,7 @@
 import { z } from "zod";
 
 import { connectorResourceRequestSchema } from "../../connectors/resource-request.js";
+import { peerClarificationSchema } from "../../agent-clarification/contract.js";
 import { redactText } from "../redaction.js";
 import {
   PROTOCOL_LIMITS,
@@ -153,9 +154,41 @@ export const recipientOutputSchema = z
     resourceRequests: z
       .array(connectorResourceRequestSchema)
       .max(PROTOCOL_LIMITS.maxResourceRequests)
-      .optional(),
+      .nullish(),
+    /**
+     * Plan section 7.3, and null is as good as absent here.
+     *
+     * Omission is the natural way to say "no question", but it is not always
+     * available: OpenAI Structured Outputs requires every declared property to
+     * be present, so `providerCompatibleSchema` hands Codex a document in
+     * which this key is mandatory and nullable. A model obeying that document
+     * says "none" by writing null, and the parser has to hear it -- rejecting
+     * null would mean punishing the model for following the schema we wrote.
+     */
+    peerClarification: peerClarificationSchema.nullish(),
   })
-  .superRefine(applyStateInvariants);
+  .superRefine((value, context) => {
+    applyStateInvariants(value, context);
+    if (!value.peerClarification) return;
+    // Plan section 7.3. A peer question is mutually exclusive with both a
+    // proposed reply and a resource ask: access needs go through the existing
+    // capability path and human approval, never through the peer's agent.
+    if (value.state !== "needs_clarification" || value.sendCandidate !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["peerClarification"],
+        message:
+          "A peer clarification requires needs_clarification state and no send candidate",
+      });
+    }
+    if (value.resourceRequests && value.resourceRequests.length > 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["peerClarification"],
+        message: "A peer clarification cannot coexist with resource requests",
+      });
+    }
+  });
 
 /* ========================================================================== *
  * Parse results
@@ -266,6 +299,82 @@ export function parseSenderOutput(raw: string): ProtocolParseResult<SenderTurnOu
   return { ok: true, value: parsed.data };
 }
 
+/**
+ * Drops a peer question that arrived stapled to a finished turn.
+ *
+ * Plan section 7.3 makes `peerClarification` exclusive with a send candidate and
+ * with resource requests, and `recipientOutputSchema` enforces that. The rule is
+ * not expressible in the JSON Schema the model is given -- `z.toJSONSchema` can
+ * say the field is optional and nothing more -- so a provider that fills in
+ * every optional property it is offered breaks it on every turn.
+ *
+ * That is not hypothetical. Codex failed all three `probe-clarification-loop`
+ * cases this way, each time emitting `state: "ready"` with a complete
+ * sendCandidate AND a peerClarification beside it. The question was vestigial:
+ * the model had already answered, and the schema violation threw away a good
+ * reply over a field the model had no reason to populate.
+ *
+ * So the conflict is resolved here rather than failing the turn, and it resolves
+ * against the question every time. A model that produced a sendable reply has
+ * said the turn is finished; a model that asked for resources has an access need
+ * that goes through the capability path and human approval, never through a
+ * peer. In both readings the clarification is the half with nothing behind it.
+ *
+ * Deliberately a separate step and not part of the schema, and deliberately not
+ * folded into `parseRecipientOutput`. Everything downstream, including values
+ * this server constructs itself, still has to obey the invariant. The eval
+ * harness parses strictly on purpose: its whole job is to score whether the
+ * prompt produces conforming output, and a parser that quietly repaired the
+ * violation would report a prompt problem as solved. Only the live conversation
+ * path -- where the alternative is discarding a reply someone is waiting on --
+ * calls this.
+ */
+export function normalizeRecipientOutput(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const value = raw as Record<string, unknown>;
+  const clarification = value["peerClarification"];
+  if (clarification === undefined || clarification === null) return raw;
+
+  const requests = value["resourceRequests"];
+  const candidate = value["sendCandidate"];
+  const conflicted =
+    value["state"] !== "needs_clarification"
+    || (candidate !== null && candidate !== undefined)
+    || (Array.isArray(requests) && requests.length > 0);
+  if (!conflicted) return raw;
+
+  const normalized: Record<string, unknown> = { ...value };
+  delete normalized["peerClarification"];
+  return normalized;
+}
+
+/**
+ * Folds an explicit null on the two optional fields back to absent.
+ *
+ * Null here is a wire artefact, not a domain state. OpenAI Structured Outputs
+ * requires every declared property to appear in `required`, so
+ * `providerCompatibleSchema` hands Codex a document where these keys are
+ * mandatory and nullable, and a model obeying that document says "none" by
+ * writing null. `RecipientTurnOutput` deliberately does not carry that
+ * spelling: plan section 7.3 knows only present or absent, and everything
+ * written against it -- the exclusivity invariant, the coordinator, the eval
+ * harness -- reads absence, not emptiness. Translating once here keeps a
+ * provider encoding from becoming a third state every consumer has to know
+ * about, which is what widening the contract type to `| null` would have cost.
+ *
+ * Every caller of `recipientOutputSchema.safeParse` goes through this.
+ */
+export function withoutNullOptionals(
+  value: z.infer<typeof recipientOutputSchema>,
+): RecipientTurnOutput {
+  const { resourceRequests, peerClarification, ...rest } = value;
+  return {
+    ...rest,
+    ...(resourceRequests == null ? {} : { resourceRequests }),
+    ...(peerClarification == null ? {} : { peerClarification }),
+  };
+}
+
 export function parseRecipientOutput(raw: string): ProtocolParseResult<RecipientTurnOutput> {
   const extracted = extractJsonObject(raw);
   if (!extracted.ok) return extracted;
@@ -274,7 +383,7 @@ export function parseRecipientOutput(raw: string): ProtocolParseResult<Recipient
   if (!parsed.success) {
     return { ok: false, code: "SCHEMA_MISMATCH", issues: toIssues(parsed.error) };
   }
-  return { ok: true, value: parsed.data };
+  return { ok: true, value: withoutNullOptionals(parsed.data) };
 }
 
 /* ========================================================================== *

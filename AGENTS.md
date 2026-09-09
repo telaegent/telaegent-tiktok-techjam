@@ -48,6 +48,9 @@ claim.
   do not grant direct repository or runtime access.
 - Every cross-user message is prepared privately and crosses only after the
   owning human chooses `Send`; editing or rejecting must remain possible.
+  Task-scoped agent clarification is task control, not a message: it carries
+  no draft across, grants no authority, and the reply it unblocks still
+  crosses only on `Send`.
 - GitHub CLI, Claude Code, Codex, repositories, credentials, tools, and
   provider sessions run locally on each developer's machine. Telaegent cloud
   must never launch them or store their credentials.

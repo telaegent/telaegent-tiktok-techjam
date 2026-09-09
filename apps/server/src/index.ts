@@ -51,6 +51,10 @@ import { SupabaseAuthorizationRpcClient } from "./authorization/supabase-authori
 import { SupabaseOwnedCapabilityGrantRepository } from "./authorization/capability-grant-management.js";
 import { CapabilityRouteAuthorizationService } from "./authorization/capability-route-authorization.js";
 import { SupabaseCapabilityRouteAuthorizationRepository } from "./authorization/supabase-capability-repository.js";
+import { SupabaseCollaborationTaskRepository } from "./authorization/collaboration-tasks.js";
+import { AgentClarificationCoordinator } from "./agent-clarification/coordinator.js";
+import { SupabaseAgentClarificationRepository } from "./agent-clarification/repository.js";
+import { SupabaseAgentClarificationContextLoader } from "./agent-clarification/context-loader.js";
 
 const config = loadConfig();
 // Preserve the inherited Starter Kit only when its legacy Ark credentials are
@@ -287,6 +291,24 @@ if (config.telaegentIdentityProvider === "github") {
         scope: capabilityScope,
       });
     }
+    if (config.enableAgentClarificationLoop && authorizationRpc) {
+      conversationOptions.agentClarification = new AgentClarificationCoordinator(
+        new SupabaseCollaborationTaskRepository(authorizationRpc),
+        new SupabaseAgentClarificationRepository(authorizationRpc),
+        new SupabaseAgentClarificationContextLoader(
+          config.supabaseUrl,
+          config.supabaseSecretKey,
+        ),
+        protocolRuntime.turns,
+        {
+          // Plan section 7.1: both capabilities on one live binding, at
+          // protocol version 2 or better. Absence is not unavailability, so
+          // an older connector simply never sees a dialogue job.
+          supportsCapabilities: (userId, githubRepositoryId) =>
+            relay.supportsCapabilities(userId, githubRepositoryId),
+        },
+      );
+    }
   }
 }
 
@@ -308,6 +330,51 @@ if (reconciledDrafts > 0) {
   console.warn("PRIVATE_DRAFTS_RECONCILED", reconciledDrafts);
 }
 
+// The bilateral exchanges those drafts were waiting on. Their driver is an
+// in-process loop, so a restart leaves the rows advancing-forever; without this
+// the owner is offered an answer box for a question nothing will ever read.
+// No-op unless the clarification loop is enabled.
+const reconciledClarifications =
+  await conversationApi.service.reconcileAgentClarifications();
+if (reconciledClarifications > 0) {
+  console.warn("AGENT_CLARIFICATIONS_RECONCILED", reconciledClarifications);
+}
+
+/**
+ * How often clarification text past its task lifetime is deleted.
+ *
+ * The task lifetime is 60 minutes and the payload rows carry that expiry, so
+ * this interval is the slack on top of it: text is gone within an hour plus at
+ * most this, rather than whenever somebody happens to open the next exchange.
+ * Five minutes is cheap -- the sweep is one indexed delete that usually matches
+ * nothing -- and small enough that the documented retention stays honest.
+ *
+ * SINGLE WRITER, like the reconcilers above: harmless if a second replica
+ * sweeps too, since the delete is idempotent and scoped by time, not by owner.
+ */
+const clarificationSweepIntervalMs = 5 * 60_000;
+
+const sweepClarificationPayloads = async () => {
+  try {
+    const swept = await conversationApi.service.sweepExpiredClarificationPayloads();
+    if (swept > 0) console.warn("AGENT_CLARIFICATION_PAYLOADS_SWEPT", swept);
+  } catch (error) {
+    // Deliberately not fatal after startup. A failed sweep is text held longer
+    // than promised, which is worth an operator's attention and is not worth
+    // taking a serving process down for; the next tick tries again.
+    console.error("AGENT_CLARIFICATION_SWEEP_FAILED", error);
+  }
+};
+
+// Once now, because a process that has been down through an expiry window has
+// text to delete before it serves anything.
+await sweepClarificationPayloads();
+const clarificationSweep = setInterval(() => {
+  void sweepClarificationPayloads();
+}, clarificationSweepIntervalMs);
+// Never a reason on its own to keep the process alive.
+clarificationSweep.unref();
+
 const app = await createApp(
   config,
   service,
@@ -322,6 +389,7 @@ const app = await createApp(
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");
+  clearInterval(clarificationSweep);
   await app.close();
   // Only the legacy local playground constructs a provider runner in this
   // process; the cloud control plane never does. When one exists its children

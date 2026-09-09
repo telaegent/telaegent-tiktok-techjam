@@ -16,6 +16,13 @@ import type {
   ResourceExchangeResponse,
 } from "./resource-exchange.js";
 
+import {
+  CONNECTOR_CAPABILITIES,
+  CONNECTOR_PROTOCOL_VERSION,
+  type ConnectorAdvertisement,
+  type ConnectorCapability,
+} from "./connector-capabilities.js";
+
 export type ConnectorDelivery =
   | { kind: "job"; job: Readonly<ConnectorJobRequest> }
   | { kind: "cancel"; jobId: string }
@@ -27,6 +34,9 @@ interface RegisteredBinding {
   lastSeenAt: number;
   /** Providers that passed this connector's live local probe. */
   providers: AgentProvider[];
+  /** Explicitly advertised; an older connector safely negotiates version 1. */
+  protocolVersion: number;
+  capabilities: ConnectorCapability[];
 }
 
 interface PendingJob {
@@ -235,6 +245,8 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
       githubRepositoryId,
       lastSeenAt: this.now(),
       providers: sameRegistration ? [...existing.providers] : [],
+      protocolVersion: sameRegistration ? existing.protocolVersion : 1,
+      capabilities: sameRegistration ? [...existing.capabilities] : [],
     });
   }
 
@@ -284,12 +296,17 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
     principal: Readonly<ConnectorPrincipal>,
     connectorBindingId: string,
     providers?: readonly AgentProvider[],
+    advertisement: Readonly<ConnectorAdvertisement> = {},
   ): void {
     this.assertBindingOwner(principal, connectorBindingId);
     const registration = this.bindings.get(connectorBindingId)!;
     if (providers !== undefined) {
       registration.providers = [...new Set(providers)];
     }
+    // Re-advertised on every readiness beat, so a downgraded connector loses
+    // the capability instead of keeping a stale one.
+    registration.protocolVersion = advertisement.protocolVersion ?? 1;
+    registration.capabilities = [...new Set(advertisement.capabilities ?? [])];
     if (registration.providers.length === 0) {
       throw new RuntimeProviderError(
         "RUNTIME_UNAVAILABLE",
@@ -297,6 +314,33 @@ export class LongPollConnectorJobRelay implements ConnectorJobRelay {
       );
     }
     registration.lastSeenAt = this.now();
+  }
+
+  /**
+   * Capability checks fail closed for old, missing, or stale connectors, and
+   * every required capability must be present on the same binding.
+   */
+  supportsCapabilities(
+    authenticatedUserId: string,
+    githubRepositoryId: string,
+    required: readonly ConnectorCapability[] = CONNECTOR_CAPABILITIES,
+    minimumProtocolVersion = CONNECTOR_PROTOCOL_VERSION,
+  ): boolean {
+    for (const [bindingId, registration] of this.bindings) {
+      if (
+        registration.principal.authenticatedUserId === authenticatedUserId &&
+        registration.githubRepositoryId === githubRepositoryId &&
+        registration.protocolVersion >= minimumProtocolVersion &&
+        required.every((capability) =>
+          registration.capabilities.includes(capability),
+        ) &&
+        (this.now() - registration.lastSeenAt <= this.presenceTimeoutMs ||
+          this.jobIdByBinding.has(bindingId))
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Browser-safe live provider inventory for one owning user and repository. */

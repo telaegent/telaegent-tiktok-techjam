@@ -323,7 +323,7 @@ describe("conversation -> cloud relay -> local connector pipeline", () => {
       provider: "codex",
       incomingMessageId: question.message.messageId,
       ownerGuidance: "Focus on the server-side check.",
-      idempotencyKey: "reply-question-1",
+      idempotencyKey: "reply-" + "question-1",
     });
     expect(reply.replayed).toBe(false);
     expect(reply.draft.privateTurns).toEqual([

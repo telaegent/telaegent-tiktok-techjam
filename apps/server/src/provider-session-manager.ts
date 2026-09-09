@@ -5,6 +5,7 @@ import type {
   MiddlewareRunRequest,
   NormalizedRunResult,
   RuntimeProgressSink,
+  ProviderSessionLane,
 } from "./runtime-contract.js";
 import { RuntimeProviderError } from "./runtime-errors.js";
 import { throwIfRuntimeCancelled } from "./runtime-cancellation.js";
@@ -15,6 +16,21 @@ export interface ProviderSessionScope {
   githubRepositoryId: GitHubRepositoryId;
   conversationId: string;
   provider: AgentProvider;
+  /**
+   * Task-local isolation for agent collaboration. Legacy private drafts omit
+   * these fields and retain their original conversation-scoped key.
+   */
+  taskId?: string | undefined;
+  peerUserId?: string | undefined;
+  lane?: ProviderSessionLane | undefined;
+  /** A model switch must never resume a cache created by another model. */
+  model?: string | undefined;
+  /**
+   * Job envelope identity (plan section 7.2). Derived by the backend from the
+   * task, never key material: two steps of one task share a session.
+   */
+  participantRole?: "requester" | "responder" | undefined;
+  stepId?: string | undefined;
 }
 
 export interface ProviderSessionRecord extends ProviderSessionScope {
@@ -250,12 +266,34 @@ export class ProviderSessionManager {
   }
 
   private validateScope(scope: ProviderSessionScope): void {
-    for (const value of [scope.userId, scope.conversationId]) {
+    for (const value of [
+      scope.userId,
+      scope.conversationId,
+      scope.taskId,
+      scope.peerUserId,
+      scope.model,
+      scope.stepId,
+    ]) {
+      if (value === undefined) continue;
       if (!validScopePart.test(value)) {
         throw new Error("Provider session scope is invalid");
       }
     }
     if (!isGitHubRepositoryId(scope.githubRepositoryId)) {
+      throw new Error("Provider session scope is invalid");
+    }
+    if (
+      scope.lane !== undefined &&
+      scope.lane !== "private_work" &&
+      scope.lane !== "clarification_dialogue"
+    ) {
+      throw new Error("Provider session scope is invalid");
+    }
+    if (
+      scope.participantRole !== undefined &&
+      scope.participantRole !== "requester" &&
+      scope.participantRole !== "responder"
+    ) {
       throw new Error("Provider session scope is invalid");
     }
   }
@@ -283,7 +321,11 @@ function sessionKey(scope: ProviderSessionScope): string {
     scope.userId,
     scope.githubRepositoryId,
     scope.conversationId,
+    scope.taskId ?? "legacy-task",
+    scope.peerUserId ?? "legacy-peer",
+    scope.lane ?? "private_work",
     scope.provider,
+    scope.model ?? "default-model",
   ].join("\u0000");
 }
 

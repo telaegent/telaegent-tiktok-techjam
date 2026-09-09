@@ -9,6 +9,7 @@ import type { ConnectorCredentialService } from "./connector-credentials.js";
 import type { ConnectorPairingService } from "./connector-pairing.js";
 import type { ConnectorDeviceAuthorizationService } from "./connector-device-authorization.js";
 import { CONNECTOR_DEVICE_TOKEN_RATE_LIMIT_PER_MINUTE } from "./connector-device-authorization-policy.js";
+import { CONNECTOR_CAPABILITIES } from "./connector-capabilities.js";
 import type { LongPollConnectorJobRelay } from "./long-poll-job-relay.js";
 import type { ConnectorPrincipal } from "../repository-proof/contract.js";
 import { TURN_STATES } from "../telagent/protocol/contract.js";
@@ -121,6 +122,13 @@ const readyBodySchema = z.strictObject({
     .min(1)
     .max(2)
     .refine((providers) => new Set(providers).size === providers.length)
+    .optional(),
+  // Plan section 7.1: additive negotiation. Absent means an older connector,
+  // which stays fully usable for every job that existed before version 2.
+  protocolVersion: z.number().int().min(1).max(16).optional(),
+  capabilities: z
+    .array(z.enum(CONNECTOR_CAPABILITIES))
+    .max(CONNECTOR_CAPABILITIES.length)
     .optional(),
 });
 const failureDetailSchema = z.strictObject({
@@ -502,9 +510,14 @@ export function registerConnectorTransportRoutes(
       setPrivateNoStore(reply);
       const principal = await dependencies.resolveConnectorPrincipal(request);
       const { connectorBindingId } = bindingParamsSchema.parse(request.params);
-      const { providers } = readyBodySchema.parse(request.body);
+      const { providers, protocolVersion, capabilities } = readyBodySchema.parse(
+        request.body,
+      );
       await ensureRegisteredRepository(dependencies, principal, connectorBindingId);
-      dependencies.relay.markBindingReady(principal, connectorBindingId, providers);
+      dependencies.relay.markBindingReady(principal, connectorBindingId, providers, {
+        ...(protocolVersion === undefined ? {} : { protocolVersion }),
+        ...(capabilities === undefined ? {} : { capabilities }),
+      });
       dependencies.pairings?.markLive(
         principal.authenticatedUserId,
         principal.connectorInstanceId,

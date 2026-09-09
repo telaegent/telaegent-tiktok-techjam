@@ -65,6 +65,32 @@ export interface StartAuthorizedProtocolTurnInput {
    * of another person's source.
    */
   deliveredResources?: readonly DeliveredResourceBlock[] | undefined;
+  /** Set only after bilateral task consent is loaded by backend orchestration. */
+  allowPeerClarification?: boolean | undefined;
+  clarificationTranscript?: readonly Readonly<{
+    kind: "question" | "answer";
+    participant: "requester" | "responder";
+    text: string;
+  }>[] | undefined;
+  taskSession?: Readonly<{
+    taskId: string;
+    peerUserId: string;
+    lane: "private_work";
+    participantRole: "requester" | "responder";
+  }> | undefined;
+}
+
+export interface StartAuthorizedClarificationDialogueInput {
+  authorization: Readonly<AuthorizePrivateRuntimeInput>;
+  provider: AgentProvider;
+  model?: string | undefined;
+  effort?: RuntimeEffort | undefined;
+  taskId: string;
+  peerUserId: string;
+  participantRole: "requester" | "responder";
+  stepId: string;
+  runtimePrompt: string;
+  revalidate: () => void | Promise<void>;
 }
 
 export interface AuthorizedProtocolTurnServiceOptions {
@@ -245,6 +271,12 @@ export class AuthorizedProtocolTurnService {
       ...(input.deliveredResources?.length
         ? { deliveredResources: input.deliveredResources }
         : {}),
+      ...(input.allowPeerClarification
+        ? { allowPeerClarification: true }
+        : {}),
+      ...(input.clarificationTranscript?.length
+        ? { clarificationTranscript: input.clarificationTranscript }
+        : {}),
       ...(this.options.memoryProfile
         ? { memoryProfile: this.options.memoryProfile }
         : {}),
@@ -257,7 +289,40 @@ export class AuthorizedProtocolTurnService {
       ...(input.model ? { model: input.model } : {}),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...(input.taskSession ? { sessionScope: input.taskSession } : {}),
     };
     return this.starter.start<T>(starterInput);
+  }
+
+  /**
+   * Dedicated no-tools lane for a single already-reserved clarification step.
+   * It intentionally bypasses the repository-aware protocol context renderer:
+   * the caller supplies only the approved shared/task context projection.
+   */
+  async startClarificationDialogue<T = unknown>(
+    input: Readonly<StartAuthorizedClarificationDialogueInput>,
+  ): Promise<StartedPrivateRuntimeTurn<T>> {
+    return this.starter.start<T>({
+      authorization: input.authorization,
+      provider: input.provider,
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
+      turn: {
+        purpose: "clarification_dialogue",
+        runtimePrompt: input.runtimePrompt,
+        persistedSummary: "Task-scoped clarification dialogue",
+        sessionMode: "continue",
+        outputSchemaName: "clarification-dialogue.schema.json",
+        correlationId: input.stepId,
+      },
+      sessionScope: {
+        taskId: input.taskId,
+        peerUserId: input.peerUserId,
+        lane: "clarification_dialogue",
+        participantRole: input.participantRole,
+        stepId: input.stepId,
+      },
+      revalidate: input.revalidate,
+    });
   }
 }

@@ -84,6 +84,15 @@ incoming shared message -> recipient private agent -> recipient approval -> shar
 
 Only approved content belongs to the shared conversation. Provider sessions are caches; Supabase-backed Telaegent conversation state is durable memory.
 
+A task may also have short-lived clarification dialogue state. It is separate
+from shared messages and private-work provider sessions: the cloud routes one
+no-tools step at a time between dedicated participant dialogue lanes, records
+a parent-linked chain with a maximum depth of two, and consumes the task's
+existing follow-up budget after the initial recipient job. Both participants
+must have active per-task grants. Waiting for the peer is a cloud task state,
+never an occupied connector job. Payload is deleted at terminal state or the
+task's 60-minute expiry; provider session IDs remain connector memory only.
+
 ## Capability-scoped resource requests
 
 Specified in [canonical build plan section 8](../product/canonical-build-plan.md).

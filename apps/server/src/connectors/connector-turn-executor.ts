@@ -5,11 +5,13 @@ import type {
   ProviderSessionScope,
 } from "../provider-session-manager.js";
 import type { PrivateTurnExecutor } from "../private-runtime-turn-coordinator.js";
+import { CONNECTOR_PROTOCOL_VERSION } from "./connector-capabilities.js";
 import type {
   AgentProvider,
   MiddlewareSandboxMode,
   NetworkMode,
   RunPurpose,
+  ProviderSessionLane,
   RuntimeProgressSink,
   SessionMode,
 } from "../runtime-contract.js";
@@ -51,6 +53,16 @@ export interface ConnectorJobRequest {
   userId: string;
   githubRepositoryId: string;
   conversationId: string;
+  /**
+   * Plan section 7.2. Safe identifiers only, and present only for connectors
+   * that advertised protocol version 2; an older connector never sees them.
+   */
+  protocolVersion?: number | undefined;
+  taskId?: string | undefined;
+  peerUserId?: string | undefined;
+  taskLane?: ProviderSessionLane | undefined;
+  participantRole?: "requester" | "responder" | undefined;
+  stepId?: string | undefined;
   provider: AgentProvider;
   /**
    * Which model of `provider` the connector should run, or absent.
@@ -157,6 +169,18 @@ export class ConnectorTurnExecutor
         userId: scope.userId,
         githubRepositoryId: scope.githubRepositoryId,
         conversationId: scope.conversationId,
+        ...(scope.taskId
+          ? {
+              protocolVersion: CONNECTOR_PROTOCOL_VERSION,
+              taskId: scope.taskId,
+              ...(scope.peerUserId ? { peerUserId: scope.peerUserId } : {}),
+              ...(scope.lane ? { taskLane: scope.lane } : {}),
+              ...(scope.participantRole
+                ? { participantRole: scope.participantRole }
+                : {}),
+              ...(scope.stepId ? { stepId: scope.stepId } : {}),
+            }
+          : {}),
         provider: scope.provider,
         ...(request.model ? { model: request.model } : {}),
         ...(request.effort ? { effort: request.effort } : {}),

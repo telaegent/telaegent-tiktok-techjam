@@ -22,6 +22,7 @@
  */
 
 import type { ConnectorResourceRequest } from "../../connectors/resource-request.js";
+import type { PeerClarification } from "../../agent-clarification/contract.js";
 import { TELAGENT_LIMITS } from "../constants.js";
 
 /* ========================================================================== *
@@ -153,6 +154,12 @@ export interface RecipientTurnOutput {
    * nothing here reaches a file.
    */
   resourceRequests?: ConnectorResourceRequest[] | undefined;
+  /**
+   * A narrow question for the other participant's no-tools dialogue lane.
+   * It is only actionable when deterministic task orchestration confirms both
+   * per-task grants; absent remains the ordinary production shape.
+   */
+  peerClarification?: PeerClarification | undefined;
 }
 
 export type ProtocolTurnOutput = SenderTurnOutput | RecipientTurnOutput;
