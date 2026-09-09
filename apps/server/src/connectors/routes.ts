@@ -200,6 +200,7 @@ export const connectorTransportRoutes = new Set([
   "/api/connectors/device-authorizations/token",
   "/api/connectors/repositories/:githubRepositoryId/disconnect",
   "/api/connectors/installations/:connectorInstanceId/status",
+  "/api/connectors/bindings/:connectorBindingId/probing",
   "/api/connectors/bindings/:connectorBindingId/probe",
   "/api/connectors/bindings/:connectorBindingId/ready",
   "/api/connectors/session",
