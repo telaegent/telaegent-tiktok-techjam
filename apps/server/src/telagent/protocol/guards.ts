@@ -50,7 +50,8 @@ export type GuardCode =
   | "GUARD_PERMISSION_CLAIM"
   | "GUARD_INJECTION_ECHO"
   | "GUARD_CANDIDATE_TOO_LARGE"
-  | "GUARD_EMPTY_CANDIDATE";
+  | "GUARD_EMPTY_CANDIDATE"
+  | "GUARD_SENDER_QUESTION_LOST";
 
 export interface GuardFinding {
   code: GuardCode;
@@ -358,6 +359,43 @@ export function inspectCandidate(candidate: string | null): GuardVerdict {
   };
 }
 
+/**
+ * Preserves a question-shaped sender intent as a question or request.
+ *
+ * This is deliberately narrower than deciding whether arbitrary prose is
+ * "recipient-directed", which a deterministic guard cannot prove. It catches
+ * the observed failure without classifying ordinary outbound statements: when
+ * the owner's rough input contains a question or explicitly says to ask the
+ * collaborator, the candidate must retain a question mark or use an explicit
+ * request form. A bare lookup result such as `Last active` satisfies neither
+ * and cannot become ready.
+ */
+function inspectSenderQuestionShape(
+  candidate: string | null,
+  senderIntent: string | null | undefined,
+): GuardFinding[] {
+  const intentRequestsQuestion = senderIntent !== null && senderIntent !== undefined &&
+    (senderIntent.includes("?") ||
+      /^\s*(?:(?:please\s+)?ask|(?:prepare|draft|write)\s+(?:a\s+)?question|check\s+with)\b/i
+        .test(senderIntent));
+  if (candidate === null || !intentRequestsQuestion) return [];
+  const text = candidate.trim();
+  if (text.length === 0) return [];
+
+  const isQuestionOrRequest = text.includes("?") ||
+    /^(?:please\s+)?(?:confirm|clarify|explain|check|review|share|send|tell|let\s+me\s+know)\b/i
+      .test(text);
+  if (isQuestionOrRequest) return [];
+
+  return [{
+    code: "GUARD_SENDER_QUESTION_LOST",
+    safeReason:
+      "The owner's question became an answer or fragment instead of an outbound " +
+      "question. Ask the agent to prepare the message for the collaborator.",
+    impliedFlag: "ambiguous_request",
+  }];
+}
+
 /* ========================================================================== *
  * Path claims
  * ========================================================================== */
@@ -429,7 +467,10 @@ export interface TurnGuardResult {
   effectiveState: "needs_clarification" | "ready" | "blocked";
 }
 
-export function guardTurn(output: ProtocolTurnOutput): TurnGuardResult {
+export function guardTurn(
+  output: ProtocolTurnOutput,
+  context: Readonly<{ senderIntent?: string | null }> = {},
+): TurnGuardResult {
   const claimedPaths =
     "referencedPaths" in output ? output.referencedPaths : output.sourcePaths;
 
@@ -454,7 +495,20 @@ export function guardTurn(output: ProtocolTurnOutput): TurnGuardResult {
     };
   }
 
-  const verdict = inspectCandidate(output.sendCandidate);
+  const inspected = inspectCandidate(output.sendCandidate);
+  const senderFindings = "referencedPaths" in output
+    ? inspectSenderQuestionShape(output.sendCandidate, context.senderIntent)
+    : [];
+  const findings = [...inspected.findings, ...senderFindings];
+  const verdict: GuardVerdict = {
+    ...inspected,
+    sendable: findings.length === 0,
+    findings,
+    effectiveFlags: dedupeFlags([
+      ...inspected.effectiveFlags,
+      ...senderFindings.map((finding) => finding.impliedFlag),
+    ]),
+  };
   const effectiveFlags = dedupeFlags([
     ...output.riskFlags,
     ...verdict.effectiveFlags,

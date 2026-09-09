@@ -635,6 +635,69 @@ describe("canonical conversation API", () => {
     await app.close();
   });
 
+  it("does not mark an answer-shaped sender result ready for a question intent", async () => {
+    const test = harness();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${CONVERSATION}/drafts`,
+      headers: { "x-test-user": OWNER },
+      payload: {
+        githubRepositoryId: REPOSITORY,
+        provider: "codex",
+        roughMessage:
+          "What CSV heading is used for lastActiveAt? Return only the heading.",
+      },
+    });
+    const draftId = created.json().draft.draftId as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+    test.completion.resolve({
+      provider: "codex",
+      final: {
+        state: "ready",
+        assistantMessage: "The CSV mapping uses this heading for lastActiveAt.",
+        sendCandidate: "Last active",
+        riskFlags: [],
+        referencedPaths: ["src/export/create-session-export.js"],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 20,
+    });
+
+    await expect.poll(async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/drafts/${draftId}`,
+        headers: { "x-test-user": OWNER },
+      });
+      return response.json().draft.state;
+    }).toBe("blocked");
+
+    const blocked = await app.inject({
+      method: "GET",
+      url: `/api/drafts/${draftId}`,
+      headers: { "x-test-user": OWNER },
+    });
+    expect(blocked.json().draft).toMatchObject({
+      sendCandidate: null,
+      guardFindings: [
+        expect.objectContaining({ code: "GUARD_SENDER_QUESTION_LOST" }),
+      ],
+    });
+    await app.close();
+  });
+
   it("completes the round trip: an approved message opens the recipient's own gated draft", async () => {
     const test = harness();
     const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {

@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { INVESTIGATION_ROLE_INSTRUCTION, buildInvestigationPrompt } from "./investigate.js";
 
 describe("investigation prompt", () => {
-  it("tells the agent it cannot send and is not writing the answer", () => {
+  it("tells the agent it cannot send or write the role-specific output", () => {
     expect(INVESTIGATION_ROLE_INSTRUCTION).toMatch(/cannot send/i);
-    expect(INVESTIGATION_ROLE_INSTRUCTION).toMatch(/not writing the answer/i);
+    expect(INVESTIGATION_ROLE_INSTRUCTION).toMatch(/not writing that output/i);
+    expect(INVESTIGATION_ROLE_INSTRUCTION).not.toMatch(/actual reply|grounded reply/i);
   });
 
   it("forbids copying secret values into the note", () => {
@@ -15,6 +16,7 @@ describe("investigation prompt", () => {
     const prompt = buildInvestigationPrompt("Teammate asks: how does session refresh work?");
     expect(prompt).toContain("how does session refresh work?");
     expect(prompt).toContain(INVESTIGATION_ROLE_INSTRUCTION);
+    expect(prompt).not.toContain("must answer the following");
   });
 
   it("is stable for the same input", () => {

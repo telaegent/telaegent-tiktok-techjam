@@ -221,6 +221,96 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
     expect(ready.effectiveState).toBe("blocked");
   });
 
+  it("blocks a bare lookup result from becoming a ready sender message", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "The CSV mapping uses this heading for lastActiveAt.",
+        sendCandidate: "Last active",
+        riskFlags: [],
+        referencedPaths: ["src/export/create-session-export.js"],
+      },
+      {
+        senderIntent:
+          "What CSV heading is used for lastActiveAt? Return only the heading.",
+      },
+    );
+
+    expect(sender.effectiveState).toBe("blocked");
+    expect(sender.verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+    expect(sender.verdict.effectiveFlags).toContain("ambiguous_request");
+  });
+
+  it("also preserves explicit ask-for-the-collaborator intents without punctuation", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "Redis stores the sessions.",
+        sendCandidate: "Redis stores the sessions.",
+        riskFlags: [],
+        referencedPaths: ["src/auth/session.ts"],
+      },
+      { senderIntent: "Ask Thai why auth uses Redis here" },
+    );
+
+    expect(sender.effectiveState).toBe("blocked");
+    expect(sender.verdict.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
+  it("keeps the bare-fragment check sender-only", () => {
+    const recipient = guardTurn(
+      {
+        state: "ready",
+        privateSummary: "The requested heading is Last active.",
+        sendCandidate: "Last active",
+        riskFlags: [],
+        sourcePaths: ["src/export/create-session-export.js"],
+      },
+      { senderIntent: "What heading is used?" },
+    );
+
+    expect(recipient.effectiveState).toBe("ready");
+    expect(recipient.verdict.findings.map((finding) => finding.code)).not.toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
+  it("allows question and request forms for a question-shaped sender intent", () => {
+    for (const sendCandidate of ["Can you confirm?", "Please review this"]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Prepared for review.",
+          sendCandidate,
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        { senderIntent: "Can Thai confirm the behavior?" },
+      );
+      expect(sender.effectiveState).toBe("ready");
+    }
+  });
+
+  it("does not classify ordinary sender statements without a question intent", () => {
+    for (const sendCandidate of ["LGTM", "Deployment complete", "Thanks!"]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Prepared for review.",
+          sendCandidate,
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        { senderIntent: "send a quick update" },
+      );
+      expect(sender.effectiveState).toBe("ready");
+    }
+  });
+
   it("a model's own risk flags neither block nor unblock anything", () => {
     // Flags are hints for the UI. The guards decide.
     const flaggedButClean = guardTurn({
@@ -322,6 +412,15 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
       expect(prompt).toContain("a\n  refusal filed as \"blocked\" is a refusal nobody hears");
       expect(prompt).toContain("riskFlags travel with a \"ready\" turn too");
     }
+  });
+
+  it("keeps sender output instructions outbound instead of answer-shaped", () => {
+    const prompt = senderSystemPrompt();
+    expect(prompt).toContain("the exact outbound message for the collaborator");
+    expect(prompt).toContain("never an answer addressed\n  back to your owner");
+    expect(prompt).toContain("Do not put an answer, extracted value, heading, filename");
+    expect(prompt).not.toContain("Answer the question that was asked");
+    expect(prompt).not.toContain("Answer what was asked");
   });
 
   it("only the answering role is told it may ask for a file", () => {
