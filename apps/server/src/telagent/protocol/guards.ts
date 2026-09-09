@@ -364,26 +364,40 @@ export function inspectCandidate(candidate: string | null): GuardVerdict {
  *
  * This is deliberately narrower than deciding whether arbitrary prose is
  * "recipient-directed", which a deterministic guard cannot prove. It catches
- * the observed failure without classifying ordinary outbound statements: when
- * the owner's rough input contains a question or explicitly says to ask the
- * collaborator, the candidate must retain a question mark or use an explicit
- * request form. A bare lookup result such as `Last active` satisfies neither
- * and cannot become ready.
+ * the observed failure without classifying ordinary outbound statements. It
+ * activates only for a recognisably direct repository question or an explicit
+ * instruction to ask the collaborator. A meta-question to the private agent,
+ * such as "Can you tell Thai the deployment is complete?", is deliberately not
+ * treated as an outbound question.
  */
 function inspectSenderQuestionShape(
   candidate: string | null,
   senderIntent: string | null | undefined,
 ): GuardFinding[] {
-  const intentRequestsQuestion = senderIntent !== null && senderIntent !== undefined &&
-    (senderIntent.includes("?") ||
-      /^\s*(?:(?:please\s+)?ask|(?:prepare|draft|write)\s+(?:a\s+)?question|check\s+with)\b/i
-        .test(senderIntent));
+  const intent = senderIntent?.trim() ?? "";
+  const explicitQuestionInstruction =
+    /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:(?:please\s+)?ask\b|(?:prepare|draft|write)\s+(?:a\s+)?question\b|check\s+with\b)/i
+      .test(intent);
+  const metaStatementInstruction =
+    /^(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:tell|let|notify|inform|message|send|share|say)\b/i
+      .test(intent);
+  const metaQuestionForOwner =
+    /^(?:(?:what|how)\s+(?:should|can|could|would)\s+I|(?:should|can|could|would)\s+I|(?:do|would)\s+you\s+(?:think|recommend|suggest))\b/i
+      .test(intent);
+  const directWhQuestion =
+    /\b(?:what|why|how|when|where|which|who)\b[^?]*\?/i.test(intent);
+  const directSubjectQuestion =
+    /^(?:can|could|would|will|should|does|do|did|is|are|was|were|has|have)\s+(?!you\b|I\b)[^?]*\?/i
+      .test(intent);
+  const intentRequestsQuestion = explicitQuestionInstruction ||
+    (!metaStatementInstruction && !metaQuestionForOwner &&
+      (directWhQuestion || directSubjectQuestion));
   if (candidate === null || !intentRequestsQuestion) return [];
   const text = candidate.trim();
   if (text.length === 0) return [];
 
   const isQuestionOrRequest = text.includes("?") ||
-    /^(?:please\s+)?(?:confirm|clarify|explain|check|review|share|send|tell|let\s+me\s+know)\b/i
+    /^(?:[^,\n.!?]{1,40}[,:—-]\s*)?(?:please\s+)?(?:confirm|clarify|explain|check|review|share|send|tell|let\s+me\s+know)\b/i
       .test(text);
   if (isQuestionOrRequest) return [];
 

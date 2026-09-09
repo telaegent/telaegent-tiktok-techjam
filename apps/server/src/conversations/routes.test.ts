@@ -972,6 +972,84 @@ describe("canonical conversation API", () => {
     await app.close();
   });
 
+  it("uses the latest owner clarification when guarding a completed sender turn", async () => {
+    const test = harness();
+    const firstTurn = test.queueTurn();
+    const secondTurn = test.queueTurn();
+    const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {
+      service: test.service,
+      authenticatedUserId: test.authenticatedUserId,
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${CONVERSATION}/drafts`,
+      headers: { "x-test-user": OWNER },
+      payload: {
+        githubRepositoryId: REPOSITORY,
+        provider: "codex",
+        roughMessage: "What is the deployment status?",
+      },
+    });
+    const draftId = created.json().draft.draftId as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+    firstTurn.resolve({
+      provider: "codex",
+      final: {
+        state: "needs_clarification",
+        assistantMessage: "Should I ask Thai or send him an update?",
+        sendCandidate: null,
+        riskFlags: ["ambiguous_request"],
+        referencedPaths: [],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 20,
+    });
+    await expect.poll(() => test.service.getDraft(OWNER, draftId).then((draft) => draft.state)).toBe(
+      "needs_clarification",
+    );
+
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/messages`,
+      headers: { "x-test-user": OWNER },
+      payload: { content: "Just tell Thai that the deployment is complete." },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/drafts/${draftId}/run`,
+      headers: { "x-test-user": OWNER },
+      payload: {},
+    });
+    secondTurn.resolve({
+      provider: "codex",
+      final: {
+        state: "ready",
+        assistantMessage: "Prepared the clarified update for Thai.",
+        sendCandidate: "The deployment is complete.",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      changedFiles: [],
+      exitCode: 0,
+      durationMs: 20,
+    });
+
+    await expect.poll(() => test.service.getDraft(OWNER, draftId).then((draft) => draft.state)).toBe(
+      "ready",
+    );
+    const ready = await test.service.getDraft(OWNER, draftId);
+    expect(ready.sendCandidate).toBe("The deployment is complete.");
+    expect(ready.guardFindings).toEqual([]);
+    await app.close();
+  });
+
   it("re-runs policy over human-edited content before sending", async () => {
     const test = harness();
     const app = await createApp(loadConfig({ NODE_ENV: "test" }), agentService, undefined, {

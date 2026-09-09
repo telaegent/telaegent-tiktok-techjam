@@ -280,7 +280,11 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
   });
 
   it("allows question and request forms for a question-shaped sender intent", () => {
-    for (const sendCandidate of ["Can you confirm?", "Please review this"]) {
+    for (const sendCandidate of [
+      "Can you confirm?",
+      "Please review this",
+      "Thai, please confirm the deployment status.",
+    ]) {
       const sender = guardTurn(
         {
           state: "ready",
@@ -292,7 +296,28 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
         { senderIntent: "Can Thai confirm the behavior?" },
       );
       expect(sender.effectiveState).toBe("ready");
+      expect(sender.verdict.findings.map((finding) => finding.code)).not.toContain(
+        "GUARD_SENDER_QUESTION_LOST",
+      );
     }
+  });
+
+  it("allows a statement produced from a meta-question to the private agent", () => {
+    const sender = guardTurn(
+      {
+        state: "ready",
+        assistantMessage: "Prepared the update for Thai.",
+        sendCandidate: "The deployment is complete.",
+        riskFlags: [],
+        referencedPaths: [],
+      },
+      { senderIntent: "Can you tell Thai the deployment is complete?" },
+    );
+
+    expect(sender.effectiveState).toBe("ready");
+    expect(sender.verdict.findings.map((finding) => finding.code)).not.toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
   });
 
   it("does not classify ordinary sender statements without a question intent", () => {

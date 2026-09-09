@@ -729,12 +729,15 @@ export class ConversationService {
       this.activeRuntimeTurns.set(draftId, null);
       this.throwIfCancellationRequested(draftId);
       const result = await this.runFollowUpRounds(draft, first, choice);
+      const latestOwnerTurn = [...draft.privateTurns]
+        .reverse()
+        .find((turn) => turn.speaker === "owner");
       await this.completeTurn(
         draftId,
         draft.role,
         turnId,
         result.final,
-        draft.roughMessage,
+        latestOwnerTurn?.text ?? draft.roughMessage,
       );
     } catch (error) {
       // Runtime and persistence failures are deliberately collapsed to one safe

@@ -539,6 +539,34 @@ describe("harness", () => {
     expect(result.effectiveState).toBe("ready");
   });
 
+  it("evaluates sender question preservation with the owner intent", async () => {
+    const base = findCase("s.simple.auth_middleware");
+    expect(base).toBeDefined();
+    if (base === undefined || base.role !== "sender") return;
+
+    const config = harnessConfig("P5");
+    config.runner = new FakeProtocolRunner(() =>
+      senderOutput({
+        assistantMessage: "The CSV mapping uses this heading.",
+        sendCandidate: "Last active",
+        referencedPaths: ["src/export/create-session-export.js"],
+      }),
+    );
+    const result = await runCase(
+      {
+        ...base,
+        ownerInput:
+          "What CSV heading is used for lastActiveAt? Return only the heading.",
+      },
+      config,
+    );
+
+    expect(result.effectiveState).toBe("blocked");
+    expect(result.guard?.findings.map((finding) => finding.code)).toContain(
+      "GUARD_SENDER_QUESTION_LOST",
+    );
+  });
+
   it("records a parse failure without throwing", async () => {
     const testCase = findCase("s.simple.auth_middleware");
     expect(testCase).toBeDefined();

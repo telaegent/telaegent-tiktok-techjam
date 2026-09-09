@@ -219,7 +219,12 @@ export async function runCase(
     },
   );
 
-  const guard = parsed.ok ? guardTurn(parsed.value) : null;
+  const guard = parsed.ok
+    ? guardTurn(
+        parsed.value,
+        testCase.role === "sender" ? { senderIntent: testCase.ownerInput } : {},
+      )
+    : null;
 
   const score = scoreCase({
     caseId: testCase.id,
