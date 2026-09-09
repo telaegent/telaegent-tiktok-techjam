@@ -157,10 +157,10 @@ this Telaegent checkout (replace the example path with the intended repo root):
 npm run connector:connect -- connect D:\secret --provider both
 ```
 
-Release this fix as connector **0.2.2** and publish that package before deploying
+Release this fix as connector **0.2.3** and publish that package before deploying
 the browser that pins it. Connector `0.2.1` was built from an unreleased branch
 and is incompatible with production's `/ready` contract. Update existing
-installations to `0.2.2`. Before calling the deployment verified, run the Windows
+installations to `0.2.3`. Before calling the deployment verified, run the Windows
 acceptance flow: Codex only →
 both → Claude only on the same repository, a failed Claude probe while Codex
 remains usable, and a new Claude private draft followed by human Send. Confirm

@@ -26,7 +26,7 @@
 </p>
 
 > [!IMPORTANT]
-> Telaegent has an end-to-end connector proof: each developer's machine proves repository access through that developer's own GitHub CLI and holds an outbound job connection while approved messages cross through the shared project conversation. The new short-lived browser authorization flow is merged and CI-validated, but is not a production claim until its migration, connector `0.2.2` package, and two-machine acceptance run are complete.
+> Telaegent has an end-to-end connector proof: each developer's machine proves repository access through that developer's own GitHub CLI and holds an outbound job connection while approved messages cross through the shared project conversation. The new short-lived browser authorization flow is merged and CI-validated, but is not a production claim until its migration, connector `0.2.3` package, and two-machine acceptance run are complete.
 
 A deployed control plane runs at **<https://telaegent.live>**. It serves the browser product and the API from one origin; agents still run on each developer's own machine through the connector below.
 
@@ -128,7 +128,7 @@ Open a terminal at the exact root of the GitHub repository you intend to use.
 Install the supported connector release and use it from any repository root:
 
 ```text
-npm install --global @telaegent/connector@0.2.2
+npm install --global @telaegent/connector@0.2.3
 tlg connect
 ```
 
