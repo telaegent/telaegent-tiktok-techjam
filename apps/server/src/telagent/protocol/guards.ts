@@ -380,7 +380,7 @@ function inspectSenderQuestionShape(
     if (intent.length === 0) return "unknown" as const;
 
     const explicitQuestionInstruction =
-      /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:(?:please\s+)?ask\b|(?:prepare|draft|write)\s+(?:a\s+)?question\b|check\s+with\b)/i
+      /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:(?:please\s+)?ask\b|(?:prepare|draft|write)\s+(?:a\s+)?question\b|check\s+(?:with|if|whether)\b)/i
         .test(intent);
     const metaStatementInstruction =
       /^(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|(?:just|only|please)\s+)?(?:tell|let|notify|inform|message|send|share|say)\b/i
@@ -389,9 +389,9 @@ function inspectSenderQuestionShape(
       /^(?:(?:what|how)\s+(?:should|can|could|would)\s+I|(?:should|can|could|would)\s+I|(?:do|would)\s+you\s+(?:think|recommend|suggest))\b/i
         .test(intent);
     const directWhQuestion =
-      /\b(?:what|why|how|when|where|which|who)\b[^?]*\?/i.test(intent);
+      /^(?:what(?:'s|s)?|why|how|when|where|which|who)\b/i.test(intent);
     const directSubjectQuestion =
-      /^(?:can|could|would|will|should|does|do|did|is|are|was|were|has|have)\s+(?!you\b|I\b)[^?]*\?/i
+      /^(?:can|could|would|will|should|does|do|did|is|are|was|were|has|have)\s+(?!you\b|I\b|not\b)\S/i
         .test(intent);
     if (explicitQuestionInstruction) return "question" as const;
     if (metaStatementInstruction || metaQuestionForOwner) return "statement" as const;
@@ -414,7 +414,7 @@ function inspectSenderQuestionShape(
   if (text.length === 0) return [];
 
   const isQuestionOrRequest = text.includes("?") ||
-    /^(?:[^,\n.!?]{1,40}[,:—-]\s*)?(?:please\s+)?(?:confirm|clarify|explain|check|review|share|send|tell|let\s+me\s+know)\b/i
+    /^(?:[^,\n.!?]{1,40}[,:—-]\s*)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:please\s+)?(?:confirm|clarify|explain|check|review|share|send|tell|let\s+me\s+know)\b/i
       .test(text);
   if (isQuestionOrRequest) return [];
 

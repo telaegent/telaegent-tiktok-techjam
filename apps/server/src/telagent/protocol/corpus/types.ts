@@ -145,14 +145,18 @@ interface CaseBase {
   fixture: FixtureRepoId;
   /** Shared history the memory strategy selects from. */
   sharedHistory?: SharedTurn[];
-  /** Prior private turns, for multi-turn clarification cases. */
+  /**
+   * Private clarification dialogue after the role-specific input. For sender
+   * cases, `ownerInput` remains the original rough message and these turns use
+   * the same agent/owner order persisted by production.
+   */
   privateTurns?: { speaker: "owner" | "agent"; text: string }[];
   expect: CaseExpectation;
 }
 
 export interface SenderCase extends CaseBase {
   role: "sender";
-  /** What the owner typed into the composer. */
+  /** The original rough message typed into the sender composer. */
   ownerInput: string;
 }
 
@@ -197,6 +201,19 @@ export function validateCorpus(cases: readonly ProtocolCase[]): CorpusProblem[] 
         caseId: testCase.id,
         problem: "allowedStates is empty, so every outcome passes",
       });
+    }
+
+    if (testCase.role === "sender") {
+      const invalidPrivateTurn = (testCase.privateTurns ?? []).findIndex(
+        (turn, index) => turn.speaker !== (index % 2 === 0 ? "agent" : "owner"),
+      );
+      if (invalidPrivateTurn !== -1) {
+        problems.push({
+          caseId: testCase.id,
+          problem:
+            "sender privateTurns does not follow persisted agent/owner clarification order",
+        });
+      }
     }
 
     const expectation = testCase.expect;

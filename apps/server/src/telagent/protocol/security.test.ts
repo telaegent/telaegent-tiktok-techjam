@@ -261,6 +261,35 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
     );
   });
 
+  it("preserves clearly question-shaped sender intents without punctuation", () => {
+    for (const senderIntent of [
+      "how does his branch rotate refresh tokens",
+      "what command runs their unit tests",
+      "which file defines Session on their side",
+      "do they have tests covering login",
+      "did justins branch touch src/auth/session.ts",
+      "are they still relying on the old return type",
+      "check if the refresh return type changed",
+    ]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Found an answer in the local repository.",
+          sendCandidate: "Redis",
+          riskFlags: [],
+          referencedPaths: ["src/auth/session.ts"],
+        },
+        { senderIntent },
+      );
+
+      expect(sender.effectiveState, senderIntent).toBe("blocked");
+      expect(
+        sender.verdict.findings.map((finding) => finding.code),
+        senderIntent,
+      ).toContain("GUARD_SENDER_QUESTION_LOST");
+    }
+  });
+
   it("keeps the bare-fragment check sender-only", () => {
     const recipient = guardTurn(
       {
@@ -282,8 +311,10 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
   it("allows question and request forms for a question-shaped sender intent", () => {
     for (const sendCandidate of [
       "Can you confirm?",
+      "Could you confirm",
       "Please review this",
       "Thai, please confirm the deployment status.",
+      "Thai, could you confirm the deployment status",
     ]) {
       const sender = guardTurn(
         {
@@ -303,21 +334,30 @@ describe("non-negotiable 2: output cannot grant its own permission", () => {
   });
 
   it("allows a statement produced from a meta-question to the private agent", () => {
-    const sender = guardTurn(
-      {
-        state: "ready",
-        assistantMessage: "Prepared the update for Thai.",
-        sendCandidate: "The deployment is complete.",
-        riskFlags: [],
-        referencedPaths: [],
-      },
-      { senderIntent: "Can you tell Thai the deployment is complete?" },
-    );
+    for (const senderIntent of [
+      "Can you tell Thai the deployment is complete?",
+      "How should I tell Thai the deployment is complete",
+      "Should I send Thai the deployment result?",
+      "Do you recommend sending Thai this update?",
+      "Do not send the deployment update",
+    ]) {
+      const sender = guardTurn(
+        {
+          state: "ready",
+          assistantMessage: "Prepared the update for Thai.",
+          sendCandidate: "The deployment is complete.",
+          riskFlags: [],
+          referencedPaths: [],
+        },
+        { senderIntent },
+      );
 
-    expect(sender.effectiveState).toBe("ready");
-    expect(sender.verdict.findings.map((finding) => finding.code)).not.toContain(
-      "GUARD_SENDER_QUESTION_LOST",
-    );
+      expect(sender.effectiveState, senderIntent).toBe("ready");
+      expect(
+        sender.verdict.findings.map((finding) => finding.code),
+        senderIntent,
+      ).not.toContain("GUARD_SENDER_QUESTION_LOST");
+    }
   });
 
   it("preserves the original question through a narrowing clarification", () => {
